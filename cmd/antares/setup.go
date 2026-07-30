@@ -317,13 +317,11 @@ func runTerminalSetup(ctx context.Context, rt *runtimeServices) error {
 	}
 	cfg.Model.Default = model
 
-	// 5. Workspace
+	// 5. Workspace — only record the path here; create the directory after the
+	// full wizard finishes so a cancelled run does not leave an empty folder.
 	fmt.Println()
 	ws := promptLine(fmt.Sprintf("  Workspace directory (default %s): ", cfg.Agent.Workspace), cfg.Agent.Workspace)
 	cfg.Agent.Workspace = config.Expand(ws)
-	if err := os.MkdirAll(cfg.Agent.Workspace, 0o755); err != nil {
-		return fmt.Errorf("creating workspace: %w", err)
-	}
 
 	// 5b. Storage. SQLite is the default and needs nothing; Postgres asks for a
 	// DSN and is verified now so a bad string surfaces here, not on next start.
@@ -391,6 +389,9 @@ func runTerminalSetup(ctx context.Context, rt *runtimeServices) error {
 
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving configuration: %w", err)
+	}
+	if err := os.MkdirAll(cfg.Agent.Workspace, 0o755); err != nil {
+		return fmt.Errorf("creating workspace: %w", err)
 	}
 	rt.cfg = cfg
 	rt.agent.SetConfig(cfg)
