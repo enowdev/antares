@@ -74,6 +74,25 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_chunks_collection ON rag_chunks(collection)`,
 
+	`CREATE TABLE IF NOT EXISTS vps_folders (
+		id         TEXT PRIMARY KEY,
+		name       TEXT NOT NULL,
+		parent_id  TEXT REFERENCES vps_folders(id),
+		sort_order BIGINT NOT NULL DEFAULT 0,
+		created_at BIGINT NOT NULL,
+		updated_at BIGINT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_vps_folders_parent ON vps_folders(parent_id, sort_order, id)`,
+	// Every hierarchy mutation updates this singleton first. That obtains a
+	// database row lock on Postgres and a writer lock on SQLite, preventing two
+	// concurrent moves from passing cycle validation against stale trees.
+	`CREATE TABLE IF NOT EXISTS vps_tree_state (
+		id       INTEGER PRIMARY KEY,
+		revision BIGINT NOT NULL DEFAULT 0,
+		CHECK (id = 1)
+	)`,
+	`INSERT INTO vps_tree_state (id, revision) VALUES (1, 0) ON CONFLICT(id) DO NOTHING`,
+
 	`CREATE TABLE IF NOT EXISTS vps_hosts (
 		id           TEXT PRIMARY KEY,
 		label        TEXT NOT NULL DEFAULT '',
@@ -85,6 +104,8 @@ var migrations = []string{
 		private_key  TEXT NOT NULL DEFAULT '',
 		passphrase   TEXT NOT NULL DEFAULT '',
 		host_key     TEXT NOT NULL DEFAULT '',
+		folder_id    TEXT REFERENCES vps_folders(id),
+		sort_order   BIGINT NOT NULL DEFAULT 0,
 		created_at   BIGINT NOT NULL,
 		updated_at   BIGINT NOT NULL
 	)`,
@@ -92,6 +113,9 @@ var migrations = []string{
 	// re-run. (SQLite has no IF NOT EXISTS for ADD COLUMN; the migration runner
 	// tolerates the error via a follow-up guard below.)
 	`ALTER TABLE vps_hosts ADD COLUMN host_key TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE vps_hosts ADD COLUMN folder_id TEXT REFERENCES vps_folders(id)`,
+	`ALTER TABLE vps_hosts ADD COLUMN sort_order BIGINT NOT NULL DEFAULT 0`,
+	`CREATE INDEX IF NOT EXISTS idx_vps_hosts_folder ON vps_hosts(folder_id, sort_order, id)`,
 
 	`CREATE TABLE IF NOT EXISTS cron_jobs (
 		id         TEXT PRIMARY KEY,

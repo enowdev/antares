@@ -50,6 +50,8 @@ func vpsView(v store.VPSHost) map[string]any {
 		"auth_method":  v.AuthMethod,
 		"has_password": v.Password != "",
 		"has_key":      v.PrivateKey != "",
+		"folder_id":    v.FolderID,
+		"sort_order":   v.SortOrder,
 		"created_at":   v.CreatedAt,
 		"updated_at":   v.UpdatedAt,
 	}
@@ -65,7 +67,12 @@ func (s *Server) handleListVPS(w http.ResponseWriter, r *http.Request) {
 	for _, v := range hosts {
 		out = append(out, vpsView(v))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"hosts": out})
+	folders, err := s.db.ListVPSFolders(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"hosts": out, "folders": folders})
 }
 
 type vpsBody struct {
@@ -78,6 +85,7 @@ type vpsBody struct {
 	Password   string `json:"password"`
 	PrivateKey string `json:"private_key"`
 	Passphrase string `json:"passphrase"`
+	FolderID   string `json:"folder_id"`
 }
 
 // handleSaveVPS creates or updates a host. On update, a blank password/key
@@ -106,6 +114,7 @@ func (s *Server) handleSaveVPS(w http.ResponseWriter, r *http.Request) {
 		Password:   body.Password,
 		PrivateKey: body.PrivateKey,
 		Passphrase: body.Passphrase,
+		FolderID:   strings.TrimSpace(body.FolderID),
 	}
 	if v.Username == "" {
 		v.Username = "root"
@@ -128,6 +137,8 @@ func (s *Server) handleSaveVPS(w http.ResponseWriter, r *http.Request) {
 		// view never wipes them.
 		if prev, err := s.db.GetVPSHost(r.Context(), v.ID); err == nil {
 			v.CreatedAt = prev.CreatedAt
+			v.FolderID = prev.FolderID
+			v.SortOrder = prev.SortOrder
 			if v.Password == "" {
 				v.Password = prev.Password
 			}
@@ -141,19 +152,128 @@ func (s *Server) handleSaveVPS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.db.PutVPSHost(r.Context(), v); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		writeVPSStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": v.ID})
 }
 
 func (s *Server) handleDeleteVPS(w http.ResponseWriter, r *http.Request) {
+	if s.requireDashboardPassword(w, r) {
+		return
+	}
 	id := r.PathValue("id")
 	if err := s.db.DeleteVPSHost(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+type vpsFolderBody struct {
+	Name     string `json:"name"`
+	ParentID string `json:"parent_id"`
+}
+
+func (s *Server) handleCreateVPSFolder(w http.ResponseWriter, r *http.Request) {
+	if s.requireDashboardPassword(w, r) {
+		return
+	}
+	var body vpsFolderBody
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	f := &store.VPSFolder{
+		ID:       "vpsf_" + randHex(6),
+		Name:     strings.TrimSpace(body.Name),
+		ParentID: strings.TrimSpace(body.ParentID),
+	}
+	if err := s.db.CreateVPSFolder(r.Context(), f); err != nil {
+		writeVPSStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": f.ID})
+}
+
+func (s *Server) handleRenameVPSFolder(w http.ResponseWriter, r *http.Request) {
+	if s.requireDashboardPassword(w, r) {
+		return
+	}
+	var body vpsFolderBody
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.db.RenameVPSFolder(r.Context(), r.PathValue("id"), body.Name); err != nil {
+		writeVPSStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+type vpsFolderMoveBody struct {
+	ParentID string `json:"parent_id"`
+	Index    int    `json:"index"`
+}
+
+func (s *Server) handleMoveVPSFolder(w http.ResponseWriter, r *http.Request) {
+	if s.requireDashboardPassword(w, r) {
+		return
+	}
+	var body vpsFolderMoveBody
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.db.MoveVPSFolder(r.Context(), r.PathValue("id"), strings.TrimSpace(body.ParentID), body.Index); err != nil {
+		writeVPSStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+type vpsHostMoveBody struct {
+	FolderID string `json:"folder_id"`
+	Index    int    `json:"index"`
+}
+
+func (s *Server) handleMoveVPSHost(w http.ResponseWriter, r *http.Request) {
+	if s.requireDashboardPassword(w, r) {
+		return
+	}
+	var body vpsHostMoveBody
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.db.MoveVPSHost(r.Context(), r.PathValue("id"), strings.TrimSpace(body.FolderID), body.Index); err != nil {
+		writeVPSStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDeleteVPSFolder(w http.ResponseWriter, r *http.Request) {
+	if s.requireDashboardPassword(w, r) {
+		return
+	}
+	if err := s.db.DeleteVPSFolder(r.Context(), r.PathValue("id")); err != nil {
+		writeVPSStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func writeVPSStoreError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, store.ErrInvalidVPSHierarchy):
+		writeError(w, http.StatusBadRequest, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
 }
 
 // handleTestVPS dials a saved host (by id) or an ad-hoc one from the body and

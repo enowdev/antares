@@ -113,18 +113,31 @@ type Memory struct {
 // rest; the store encrypts on Put and decrypts on read, so callers see plain
 // values but the DB never holds them in the clear.
 type VPSHost struct {
-	ID         string    `json:"id"`
-	Label      string    `json:"label"`
-	Host       string    `json:"host"`
-	Port       int       `json:"port"`
-	Username   string    `json:"username"`
-	AuthMethod string    `json:"auth_method"` // password|key
-	Password   string    `json:"password,omitempty"`
-	PrivateKey string    `json:"private_key,omitempty"`
-	Passphrase string    `json:"passphrase,omitempty"`
+	ID         string `json:"id"`
+	Label      string `json:"label"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Username   string `json:"username"`
+	AuthMethod string `json:"auth_method"` // password|key
+	Password   string `json:"password,omitempty"`
+	PrivateKey string `json:"private_key,omitempty"`
+	Passphrase string `json:"passphrase,omitempty"`
 	// HostKey is the server's SSH public key, pinned on first connect (TOFU).
 	// A later connection presenting a different key is refused. Not secret.
 	HostKey   string    `json:"host_key,omitempty"`
+	FolderID  string    `json:"folder_id"`
+	SortOrder int64     `json:"sort_order"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// VPSFolder groups saved servers in an arbitrarily deep adjacency tree. An
+// empty ParentID is the root; folder and host ordering are independent.
+type VPSFolder struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	ParentID  string    `json:"parent_id"`
+	SortOrder int64     `json:"sort_order"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -310,6 +323,12 @@ type Store interface {
 	ListVPSHosts(ctx context.Context) ([]VPSHost, error)
 	DeleteVPSHost(ctx context.Context, id string) error
 	SetVPSHostKey(ctx context.Context, id, hostKey string) error
+	CreateVPSFolder(ctx context.Context, f *VPSFolder) error
+	RenameVPSFolder(ctx context.Context, id, name string) error
+	ListVPSFolders(ctx context.Context) ([]VPSFolder, error)
+	MoveVPSFolder(ctx context.Context, id, parentID string, index int) error
+	MoveVPSHost(ctx context.Context, id, folderID string, index int) error
+	DeleteVPSFolder(ctx context.Context, id string) error
 
 	PutCronJob(ctx context.Context, j *CronJob) error
 	GetCronJob(ctx context.Context, id string) (*CronJob, error)
