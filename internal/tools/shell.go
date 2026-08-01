@@ -305,7 +305,19 @@ func (s *shellSession) run(ctx context.Context, command string, timeout time.Dur
 	s.out.drain()
 
 	marker := fmt.Sprintf("%s%d__", sentinelPrefix, time.Now().UnixNano())
-	script := command + "\nprintf '\\n" + marker + "%s\\n' \"$?\"\n"
+	// A terminal call may enable errexit (`set -e`). Shell options persist just
+	// like cwd and exported variables, but errexit must not leak into the next
+	// call and kill the shell before its completion sentinel can run.
+	//
+	// The user command runs inside a brace group with </dev/null redirected on
+	// its stdin. Children like `adb`, `docker` and other daemon-forking clients
+	// inherit that closed stdin instead of the persistent shell's pipe, so they
+	// cannot keep the parent's stdout writer open after the foreground command
+	// returns. Without this, `adb shell monkey ...` prints its output, the
+	// pipeline exits, but the persistent shell blocks on the sentinel forever
+	// because the adb daemon still holds an inherited fd — the command times
+	// out at the full terminal.timeout even though the work is done.
+	script := "set +e\n{\n" + command + "\n} </dev/null\nprintf '\\n" + marker + "%s\\n' \"$?\"\n"
 	if _, err := io.WriteString(s.stdin, script); err != nil {
 		s.dead = true
 		return "", -1, fmt.Errorf("write to shell: %w", err)
