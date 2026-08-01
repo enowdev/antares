@@ -68,6 +68,23 @@ func TestStdioReportsToolErrors(t *testing.T) {
 	}
 }
 
+func TestEmptyToolListEncodesAsArray(t *testing.T) {
+	client := &Client{}
+	got := client.Tools()
+	if got == nil {
+		t.Fatal("Tools() returned nil, want a non-nil empty slice")
+	}
+	payload, err := json.Marshal(struct {
+		Tools []ToolDef `json:"tools"`
+	}{Tools: got})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(payload) != `{"tools":[]}` {
+		t.Fatalf("empty tool payload = %s, want tools encoded as []", payload)
+	}
+}
+
 func TestUnknownTransport(t *testing.T) {
 	if _, err := Connect(context.Background(), "x", ServerConfig{Transport: "carrier-pigeon"}); err == nil {
 		t.Fatal("expected an unknown transport to fail")

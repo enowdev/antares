@@ -205,7 +205,7 @@ func (c *Client) refreshTools(ctx context.Context) error {
 func (c *Client) Tools() []ToolDef {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return append([]ToolDef(nil), c.tools...)
+	return append([]ToolDef{}, c.tools...)
 }
 
 // Name returns the configured server name.

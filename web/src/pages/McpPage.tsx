@@ -11,6 +11,7 @@ import {
 import { del, post } from '@/lib/api'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
+import { mcpToolsOrEmpty } from '@/lib/mcpPayload'
 import { cn } from '@/lib/utils'
 import { PageLayout } from '@/components/layout/PageLayout'
 import {
@@ -51,7 +52,7 @@ interface McpServer {
   name: string
   connected: boolean
   error?: string
-  tools: McpTool[]
+  tools: McpTool[] | null
 }
 
 export default function McpPage() {
@@ -93,7 +94,10 @@ export default function McpPage() {
 
   if (loading && !data) return <SkeletonList count={3} />
 
-  const servers = data?.servers ?? []
+  const servers = (data?.servers ?? []).map((server) => ({
+    ...server,
+    tools: mcpToolsOrEmpty(server.tools),
+  }))
 
   const header = (
     <Tabs value={tab} onValueChange={(v) => setTab(v as 'servers' | 'docs')}>
