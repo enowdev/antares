@@ -114,6 +114,26 @@ func (r *Registry) Register(t Tool) {
 	r.tools[t.Name()] = t
 }
 
+// Unregister removes a tool by name. It is a no-op when the name is absent.
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
+}
+
+// Replace removes oldNames and registers replacements while holding one lock,
+// so concurrent tool resolution never observes a partially refreshed MCP set.
+func (r *Registry) Replace(oldNames []string, replacements []Tool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, name := range oldNames {
+		delete(r.tools, name)
+	}
+	for _, tool := range replacements {
+		r.tools[tool.Name()] = tool
+	}
+}
+
 // Get looks up a tool by name.
 func (r *Registry) Get(name string) (Tool, bool) {
 	r.mu.RLock()

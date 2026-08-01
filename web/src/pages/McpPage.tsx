@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  ArrowClockwise,
   CaretDown,
   CheckCircle,
   PlugsConnected,
@@ -50,6 +51,7 @@ interface McpTool {
 
 interface McpServer {
   name: string
+  started: boolean
   connected: boolean
   error?: string
   tools: McpTool[] | null
@@ -57,7 +59,9 @@ interface McpServer {
 
 export default function McpPage() {
   const { t } = useI18n()
-  const { data, loading, reload } = useApi<{ enabled: boolean; servers: McpServer[] }>('/mcp')
+  const { data, loading, reload, setData } = useApi<{ enabled: boolean; servers: McpServer[] }>('/mcp')
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [browsing, setBrowsing] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -65,8 +69,31 @@ export default function McpPage() {
   const [toRemove, setToRemove] = useState<string | null>(null)
   const [tab, setTab] = useState<'servers' | 'docs'>('servers')
 
+  const refresh = async () => {
+    setRefreshing(true)
+    setRefreshError('')
+    try {
+      const result = await post<{ enabled: boolean; servers: McpServer[] }>('/mcp/refresh')
+      setData(result)
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   usePageActions(
     <>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={refreshing}
+        onClick={() => void refresh()}
+        className="gap-1.5"
+      >
+        <ArrowClockwise className={cn('size-4', refreshing && 'animate-spin')} />
+        {refreshing ? t('mcp.refreshing') : t('mcp.refresh')}
+      </Button>
       <Button size="sm" variant="outline" onClick={() => setAdding(true)} className="gap-1.5">
         <Plus className="size-4" />
         {t('mcp.add')}
@@ -76,7 +103,7 @@ export default function McpPage() {
         {t('hub.browse')}
       </Button>
     </>,
-    [t],
+    [t, refreshing],
   )
 
   const confirmRemove = async () => {
@@ -125,6 +152,12 @@ export default function McpPage() {
         <McpDocs />
       ) : (
         <>
+          {refreshError ? (
+            <Card className="border-destructive/40 bg-destructive/5">
+              <CardContent className="pt-4 text-xs text-destructive">{refreshError}</CardContent>
+            </Card>
+          ) : null}
+
           {!data?.enabled ? (
             <Card className="border-[var(--warning)]/40 bg-[color-mix(in_oklch,var(--warning)_10%,transparent)]">
               <CardContent className="pt-4 text-xs sm:text-sm">{t('mcp.disabled')}</CardContent>
@@ -167,8 +200,12 @@ export default function McpPage() {
                     </button>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Badge variant={s.connected ? 'success' : 'destructive'}>
-                      {s.connected ? t('mcp.connected') : t('mcp.failed')}
+                    <Badge variant={s.connected ? 'success' : s.started ? 'warning' : 'destructive'}>
+                      {s.connected
+                        ? t('mcp.connected')
+                        : s.started
+                          ? t('mcp.waiting')
+                          : t('mcp.failed')}
                     </Badge>
                     {s.connected ? (
                       <Badge variant="outline">{t('mcp.toolCount', { n: s.tools.length })}</Badge>

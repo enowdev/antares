@@ -83,10 +83,12 @@ type Client struct {
 	name      string
 	transport transport
 
-	mu      sync.RWMutex
-	tools   []ToolDef
-	seq     int64
-	srvName string
+	mu       sync.RWMutex
+	tools    []ToolDef
+	seq      int64
+	srvName  string
+	toolsOK  bool
+	toolsErr string
 }
 
 // Connect starts a server and performs the initialise handshake.
@@ -113,6 +115,11 @@ func Connect(ctx context.Context, name string, cfg ServerConfig) (*Client, error
 		return nil, err
 	}
 	if err := c.refreshTools(ctx); err != nil {
+		c.mu.Lock()
+		c.tools = []ToolDef{}
+		c.toolsOK = false
+		c.toolsErr = err.Error()
+		c.mu.Unlock()
 		slog.Warn("mcp: cannot list tools", "server", name, "error", err)
 	}
 	return c, nil
@@ -196,9 +203,20 @@ func (c *Client) refreshTools(ctx context.Context) error {
 		return err
 	}
 	c.mu.Lock()
-	c.tools = out.Tools
+	c.tools = append([]ToolDef{}, out.Tools...)
+	c.toolsOK = true
+	c.toolsErr = ""
 	c.mu.Unlock()
 	return nil
+}
+
+// ToolState returns whether tool discovery reached the backing application and
+// the last discovery error. A proxy can initialize successfully while its
+// backing application (for example IDA Pro) is still offline.
+func (c *Client) ToolState() (bool, string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.toolsOK, c.toolsErr
 }
 
 // Tools returns the cached tool list.
