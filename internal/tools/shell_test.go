@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -35,8 +36,8 @@ func TestDefaultShellHonorsExplicitConfiguration(t *testing.T) {
 	if shell != "/custom/shell" {
 		t.Fatalf("defaultShell(configured) = %q", shell)
 	}
-	if len(args) != 1 || args[0] != "-i" {
-		t.Fatalf("configured shell args = %#v, want [-i]", args)
+	if len(args) != 0 {
+		t.Fatalf("configured shell args = %#v, want non-interactive shell", args)
 	}
 }
 
@@ -58,5 +59,36 @@ func TestDefaultShellCommandEmitsCompletionSentinel(t *testing.T) {
 	}
 	if code != 0 || out != "ANTARES_SHELL_OK" {
 		t.Fatalf("command result = (%q, %d), want (%q, 0)", out, code, "ANTARES_SHELL_OK")
+	}
+}
+
+func TestPersistentShellPreservesLiteralTabsBangUnicodeAndHeredoc(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX persistent shell protocol does not apply on Windows")
+	}
+
+	m := NewShellManager(config.Terminal{Shell: "/bin/bash"})
+	t.Cleanup(m.CloseAll)
+	workspace := t.TempDir()
+	sess, err := m.session("literal-session", workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	command := "python3 - <<'PY'\nfrom pathlib import Path\nPath('literal.txt').write_text('\\tif (!ready) — ok\\n', encoding='utf-8')\nPY\ncat literal.txt"
+	out, code, err := sess.run(context.Background(), command, 2*time.Second, nil)
+	if err != nil || code != 0 {
+		t.Fatalf("literal command result = (%q, %d, %v)", out, code, err)
+	}
+	want := "\tif (!ready) — ok"
+	if out != want {
+		t.Fatalf("literal command output = %q, want %q", out, want)
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, "literal.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != want+"\n" {
+		t.Fatalf("literal file = %q, want %q", data, want+"\n")
 	}
 }

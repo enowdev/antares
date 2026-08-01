@@ -115,7 +115,10 @@ func withShimEnv(env []string, shim httpShimEnv) []string {
 
 func defaultShell(configured string) (string, []string) {
 	if configured != "" {
-		return configured, []string{"-i"}
+		// Persistent state does not require an interactive shell. Running with -i
+		// enables readline and history expansion, which corrupts pasted commands:
+		// literal tabs trigger completion and `!` raises "event not found".
+		return configured, nil
 	}
 	if runtime.GOOS == "windows" {
 		return "powershell.exe", []string{"-NoLogo", "-NoProfile", "-Command", "-"}

@@ -123,7 +123,7 @@ func resolveWrite(in Input, p string) (string, error) {
 			return clean, nil
 		}
 	}
-	return "", fmt.Errorf("path %q is outside this project — writes are only allowed inside %s (reads and copies from elsewhere are fine)",
+	return "", fmt.Errorf("path %q is outside this project — writes are only allowed inside %s (reads and copies from elsewhere are fine). Create temporary scripts inside the project or Antares workspace instead of /tmp",
 		p, strings.Join(in.WriteRoots, ", "))
 }
 
@@ -140,7 +140,7 @@ type readFileTool struct{}
 
 func (readFileTool) Name() string { return "read_file" }
 func (readFileTool) Description() string {
-	return "Read a text file from the workspace. Returns numbered lines. Use offset/limit for large files."
+	return "Read a text file from the workspace. Returns lines as NUMBER|CONTENT; the | separates metadata from exact file content and must not be copied into edits. Use offset/limit for large files."
 }
 func (readFileTool) Schema() map[string]any {
 	return schema(map[string]any{
@@ -204,7 +204,7 @@ func (readFileTool) Execute(_ context.Context, in Input) Result {
 
 	var b strings.Builder
 	for i := start; i < end; i++ {
-		fmt.Fprintf(&b, "%6d\t%s\n", i+1, lines[i])
+		fmt.Fprintf(&b, "%d|%s\n", i+1, lines[i])
 	}
 	if end < len(lines) {
 		fmt.Fprintf(&b, "\n… %d more lines (use offset=%d to continue)\n", len(lines)-end, end+1)
@@ -323,7 +323,7 @@ func (editFileTool) Execute(_ context.Context, in Input) Result {
 	count := strings.Count(content, args.OldString)
 	switch {
 	case count == 0:
-		return Errorf("old_string not found in %s. Read the file first and copy the exact text.", args.Path)
+		return Errorf("old_string not found in %s. Read the file first and copy only the content after the NUMBER| separator; preserve indentation exactly.", args.Path)
 	case count > 1 && !args.ReplaceAll:
 		return Errorf("old_string appears %d times in %s; add more surrounding context or set replace_all", count, args.Path)
 	}
