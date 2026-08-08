@@ -286,13 +286,13 @@ type editFileTool struct{}
 
 func (editFileTool) Name() string { return "edit_file" }
 func (editFileTool) Description() string {
-	return "Replace an exact string in a file. The old_string must appear exactly once unless replace_all is set."
+	return "Replace an exact string in a file. The old_string must appear exactly once unless replace_all is set. Copy old_string from read_file output using only the content after the NUMBER| separator (never the line number). Preserve tabs/spaces exactly; line endings are matched automatically."
 }
 func (editFileTool) RequiresApproval() bool { return true }
 func (editFileTool) Schema() map[string]any {
 	return schema(map[string]any{
 		"path":        prop("string", "File to edit."),
-		"old_string":  prop("string", "Exact text to find, including indentation."),
+		"old_string":  prop("string", "Exact text to find, including indentation (tabs/spaces). Do not include read_file line numbers."),
 		"new_string":  prop("string", "Replacement text."),
 		"replace_all": propDefault("boolean", "Replace every occurrence.", false),
 	}, "path", "old_string", "new_string")
@@ -320,24 +320,15 @@ func (editFileTool) Execute(_ context.Context, in Input) Result {
 		return Errorf("cannot read %s: %v", args.Path, err)
 	}
 	content := string(data)
-	oldString, newString := args.OldString, args.NewString
-	count := strings.Count(content, oldString)
-	if count == 0 && strings.Contains(content, "\r\n") {
-		// read_file displays logical lines with LF separators. Translate copied
-		// multi-line edits back to the source convention without rewriting the
-		// untouched CRLF content.
-		oldString = strings.ReplaceAll(oldString, "\n", "\r\n")
-		newString = strings.ReplaceAll(newString, "\n", "\r\n")
-		count = strings.Count(content, oldString)
-	}
+	oldString, newString, count, how := resolveEditMatch(content, args.OldString, args.NewString)
 	switch {
 	case count == 0:
-		return Errorf("old_string not found in %s. Read the file first and copy the exact text.", args.Path)
+		return Errorf("%s", editNotFoundMessage(args.Path, content, args.OldString))
 	case count > 1 && !args.ReplaceAll:
 		return Errorf("old_string appears %d times in %s; add more surrounding context or set replace_all", count, args.Path)
 	}
 
-	updated := content
+	var updated string
 	if args.ReplaceAll {
 		updated = strings.ReplaceAll(content, oldString, newString)
 	} else {
@@ -351,10 +342,183 @@ func (editFileTool) Execute(_ context.Context, in Input) Result {
 		replaced = 1
 	}
 	rel := relTo(in.Workspace, path)
+	msg := fmt.Sprintf("Edited %s (%d replacement(s))", rel, replaced)
+	if how != "" {
+		msg += " [" + how + "]"
+	}
 	return Result{
-		Content: fmt.Sprintf("Edited %s (%d replacement(s))", rel, replaced),
+		Content: msg,
 		Meta:    map[string]any{"path": rel, "replacements": replaced},
 	}
+}
+
+// fileEOL returns the dominant newline sequence used in s.
+func fileEOL(s string) string {
+	if strings.Contains(s, "\r\n") {
+		return "\r\n"
+	}
+	if strings.Contains(s, "\r") {
+		return "\r"
+	}
+	return "\n"
+}
+
+// toEOL rewrites every newline in s to the given eol sequence.
+func toEOL(s, eol string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	if eol == "\n" {
+		return s
+	}
+	return strings.ReplaceAll(s, "\n", eol)
+}
+
+// stripReadFileLinePrefixes removes a NUMBER| prefix from every line when the
+// whole block looks like a paste of read_file output. Returns ok=false when the
+// string should be left alone (mixed or missing prefixes).
+func stripReadFileLinePrefixes(s string) (string, bool) {
+	if s == "" {
+		return s, false
+	}
+	// Work on LF so CR in a pasted block does not hide the prefix.
+	normalized := strings.ReplaceAll(s, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	// Preserve whether the input ended with a newline so join stays faithful.
+	trimTrailing := strings.HasSuffix(normalized, "\n")
+	body := normalized
+	if trimTrailing {
+		body = strings.TrimSuffix(body, "\n")
+	}
+	if body == "" {
+		return s, false
+	}
+	lines := strings.Split(body, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		i := strings.IndexByte(line, '|')
+		if i <= 0 {
+			return s, false
+		}
+		for _, c := range line[:i] {
+			if c < '0' || c > '9' {
+				return s, false
+			}
+		}
+		out = append(out, line[i+1:])
+	}
+	joined := strings.Join(out, "\n")
+	if trimTrailing {
+		joined += "\n"
+	}
+	return joined, true
+}
+
+// resolveEditMatch finds old/new strings that match content, recovering from
+// the two failure modes that read_file → edit_file commonly hits:
+//  1. LF vs CRLF (read_file always displays LF)
+//  2. pasted NUMBER| line prefixes from read_file output
+//
+// how is a short note for the success message when recovery was used; empty on
+// a plain exact match.
+func resolveEditMatch(content, oldIn, newIn string) (oldString, newString string, count int, how string) {
+	eol := fileEOL(content)
+
+	try := func(oldCand, newCand, label string) bool {
+		o := toEOL(oldCand, eol)
+		n := toEOL(newCand, eol)
+		if o == "" {
+			return false
+		}
+		c := strings.Count(content, o)
+		if c == 0 {
+			return false
+		}
+		oldString, newString, count, how = o, n, c, label
+		return true
+	}
+
+	// 1. Exact / EOL-normalized (covers LF paste against a CRLF file).
+	if try(oldIn, newIn, "") {
+		// Only annotate when the on-disk form actually differs from the input
+		// (i.e. we rewrote newlines). A pure exact match stays silent.
+		if oldString != oldIn {
+			how = "normalized line endings to match file"
+		}
+		return
+	}
+
+	// 2. Strip NUMBER| prefixes from a full paste of read_file output.
+	oldStripped, oldOK := stripReadFileLinePrefixes(oldIn)
+	newStripped, newOK := stripReadFileLinePrefixes(newIn)
+	if oldOK {
+		newCand := newIn
+		if newOK {
+			newCand = newStripped
+		}
+		if try(oldStripped, newCand, "stripped read_file NUMBER| prefixes") {
+			return
+		}
+	}
+
+	return oldIn, newIn, 0, ""
+}
+
+// editNotFoundMessage explains why an edit missed, with actionable recovery
+// hints for the model (line prefixes, tabs vs spaces, re-read).
+func editNotFoundMessage(path, content, oldString string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "old_string not found in %s.", path)
+
+	if stripped, ok := stripReadFileLinePrefixes(oldString); ok {
+		if strings.Count(content, toEOL(stripped, fileEOL(content))) > 0 {
+			b.WriteString(" Your old_string still includes read_file line numbers (NUMBER|). Call edit_file again with only the content after each |.")
+			return b.String()
+		}
+	}
+
+	if strings.Contains(content, "\t") && strings.Contains(oldString, " ") && !strings.Contains(oldString, "\t") {
+		// Spaces in old_string might still be inter-word; only flag when a
+		// detabbed view of the file contains the old_string.
+		for _, width := range []int{2, 4, 8} {
+			detabbed := expandTabs(content, width)
+			if strings.Contains(detabbed, toEOL(oldString, "\n")) || strings.Contains(detabbed, oldString) {
+				fmt.Fprintf(&b, " The file indents with TAB characters, but old_string uses spaces (tab width ~%d). Re-read the file and copy the content after NUMBER| without expanding tabs.", width)
+				return b.String()
+			}
+		}
+	}
+
+	b.WriteString(" Read the file first and copy only the content after the NUMBER| separator; preserve tabs, spaces, and indentation exactly.")
+	return b.String()
+}
+
+// expandTabs replaces leading and embedded tabs with spaces at the given width
+// (stop-based), used only for mismatch diagnosis.
+func expandTabs(s string, width int) string {
+	if width <= 0 {
+		width = 4
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	col := 0
+	for _, r := range s {
+		switch r {
+		case '\t':
+			spaces := width - (col % width)
+			b.WriteString(strings.Repeat(" ", spaces))
+			col += spaces
+		case '\n':
+			b.WriteByte('\n')
+			col = 0
+		case '\r':
+			// Keep CR out of the comparison view; pair with LF handling above.
+			continue
+		default:
+			b.WriteRune(r)
+			col++
+		}
+	}
+	return b.String()
 }
 
 // ---- list_files -------------------------------------------------------------

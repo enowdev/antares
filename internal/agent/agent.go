@@ -158,19 +158,19 @@ type Result struct {
 
 // Agent owns the shared services a run needs.
 type Agent struct {
-	cfg      *config.Config
-	db       store.Store
-	reg      *tools.Registry
-	shell    *tools.ShellManager
-	rag      tools.RAGProvider
-	skills   *skills.Manager
-	checks   *checkpoint.Store
-	plugins  *plugin.Manager
-	roles    *roles.Registry
-	findings *findings.Store
-	intel    *engagement.Store
-	roleperf *roleperf.Tracker
-	board    *board.Board
+	cfg           *config.Config
+	db            store.Store
+	reg           *tools.Registry
+	shell         *tools.ShellManager
+	rag           tools.RAGProvider
+	skills        *skills.Manager
+	checks        *checkpoint.Store
+	plugins       *plugin.Manager
+	roles         *roles.Registry
+	findings      *findings.Store
+	intel         *engagement.Store
+	roleperf      *roleperf.Tracker
+	board         *board.Board
 	socialBrowser tools.SocialBrowserManager
 
 	bg *bgManager
@@ -303,14 +303,14 @@ func (a *Agent) Run(ctx context.Context, req Request, emit Emit) (*Result, error
 		a.mu.Unlock()
 	}()
 
-	client, modelName, providerName, err := a.newClient(req.Model)
+	client, modelName, providerName, err := a.newClient(req.Model, sess.ID)
 	if err != nil {
 		_ = emit(Event{Type: EventError, Err: err.Error()})
 		_ = emit(Event{Type: EventDone})
 		return nil, err
 	}
 
-	history, err := a.loadHistory(ctx, sess.ID, req)
+	history, err := a.loadHistory(ctx, sess, req)
 	if err != nil {
 		return nil, err
 	}
@@ -367,6 +367,11 @@ func (a *Agent) Run(ctx context.Context, req Request, emit Emit) (*Result, error
 		toolSpecs = append(toolSpecs, llm.Tool{Name: t.Name(), Description: t.Description(), Parameters: t.Schema()})
 		byName[t.Name()] = t
 	}
+	// Sub2API Antigravity treats a tool literally named "web_search" as Google's
+	// built-in search and rejects mixing it with functionDeclarations. Rename
+	// only on the wire for those routes; execution still resolves to web_search.
+	_, prov := a.cfg.ResolveProvider(providerName)
+	toolSpecs, byName = sanitizeToolsForProvider(toolSpecs, byName, providerName, prov.BaseURL)
 
 	systemPrompt := a.buildSystemPrompt(ctx, req, sess, activeTools)
 
@@ -407,7 +412,7 @@ func (a *Agent) Run(ctx context.Context, req Request, emit Emit) (*Result, error
 			}
 		}
 
-		history = a.maybeCompact(runCtx, history, systemPrompt, modelName, toolSpecs, emit)
+		history = a.maybeCompact(runCtx, history, systemPrompt, modelName, toolSpecs, emit, sess)
 
 		llmReq := llm.Request{
 			Model:             modelName,
@@ -467,6 +472,9 @@ func (a *Agent) Run(ctx context.Context, req Request, emit Emit) (*Result, error
 		assistant := llm.Message{
 			Role: llm.RoleAssistant, Content: resp.Content,
 			Reasoning: resp.Reasoning, ToolCalls: resp.ToolCalls,
+			// Gemini multi-turn tool use requires echoing thoughtSignature on
+			// the same functionCall/text parts in the next request.
+			ThoughtSignature: resp.ThoughtSignature,
 		}
 		history = append(history, assistant)
 		if !req.Quiet {
@@ -871,6 +879,11 @@ func (a *Agent) toolTimeout(name string) time.Duration {
 		// process(wait) intentionally blocks for at most 30 seconds. Leave margin
 		// for scheduling and JSON serialization so the tool can return its state.
 		return 45 * time.Second
+	case "vps_run", "vps_upload", "vps_download":
+		// Tools accept timeout_seconds up to 900. The agent envelope must sit
+		// above that or a long systemctl/apt/transfer is killed early with a
+		// bare context deadline and looks like a flaky VPS failure.
+		return 16 * time.Minute
 	case "delegate_task":
 		return 30 * time.Minute
 	default:

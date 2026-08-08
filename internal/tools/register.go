@@ -49,8 +49,8 @@ func init() {
 		osintEmailFullTool{},
 		// Global proxy store lookup — lets the agent pick a stored proxy.
 		listProxiesTool{},
-		// Run commands on the user's saved VPS servers over SSH.
-		vpsRunTool{},
+		// Run commands and transfer files on the user's saved VPS servers over SSH/SFTP.
+		vpsRunTool{}, vpsUploadTool{}, vpsDownloadTool{},
 		// Anti-detect CAPTCHA solver (reuses the stealth browser).
 		solveCaptchaTool{},
 		// Social Media: read IMAP inbox for verification emails and OTP.

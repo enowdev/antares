@@ -180,7 +180,7 @@ func (a *Agent) verify(ctx context.Context, request, reply string, transcript []
 	if !a.cfg.Agent.VerifyReplies || strings.TrimSpace(reply) == "" {
 		return nil
 	}
-	client, model, _, err := a.newAuxClient()
+	client, model, _, err := a.newAuxClient("")
 	if err != nil {
 		slog.Debug("verification unavailable", "error", err)
 		return nil
@@ -302,7 +302,7 @@ type judgement struct {
 // judgeGoal decides whether a standing goal is finished, and what to do next
 // when it is not.
 func (a *Agent) judgeGoal(ctx context.Context, g *Goal, reply string, transcript []llm.Message) judgement {
-	client, model, _, err := a.newAuxClient()
+	client, model, _, err := a.newAuxClient("")
 	if err != nil {
 		// Without a judge the loop must not run forever.
 		return judgement{Done: true}
@@ -388,7 +388,7 @@ func (a *Agent) Distil(ctx context.Context, sessionID, hint string) (string, err
 		fmt.Fprintf(&b, "\nThe user asked that the skill focus on: %s\n", hint)
 	}
 
-	client, model, _, err := a.newAuxClient()
+	client, model, _, err := a.newAuxClient("")
 	if err != nil {
 		return "", err
 	}
@@ -705,7 +705,7 @@ func (a *Agent) Panel(ctx context.Context, question string, models []string, emi
 		return usable[0].Answer, answers, nil
 	}
 
-	client, model, _, err := a.newAuxClient()
+	client, model, _, err := a.newAuxClient("")
 	if err != nil {
 		return usable[0].Answer, answers, nil
 	}
@@ -869,7 +869,7 @@ var nowFunc = time.Now
 // eyes.
 func (a *Agent) describeImage(ctx context.Context, data []byte, mime, question string) (string, error) {
 	model := strings.TrimSpace(a.cfg.Model.Vision)
-	client, resolved, _, err := a.newClient(model)
+	client, resolved, _, err := a.newClient(model, "")
 	if err != nil {
 		return "", err
 	}

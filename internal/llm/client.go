@@ -45,6 +45,10 @@ type Options struct {
 	// Region is the AWS region for Bedrock, e.g. "us-east-1". Empty reads
 	// AWS_REGION / AWS_DEFAULT_REGION.
 	Region string
+	// SessionID is an optional stable conversation id (e.g. Antares session).
+	// Gemini adapters use it for gateway sticky routing / implicit cache
+	// affinity on reverse proxies that fingerprint Gemini CLI sessions.
+	SessionID string
 }
 
 // New builds the adapter matching kind. Unknown kinds fall back to the
@@ -79,7 +83,12 @@ func newBase(o Options) (Client, error) {
 	case "gemini", "google":
 		if o.BaseURL == "" {
 			o.BaseURL = "https://generativelanguage.googleapis.com/v1beta"
+		} else {
+			// Match Gemini CLI: GOOGLE_GEMINI_BASE_URL is often the gateway root
+			// (e.g. http://127.0.0.1:8080/antigravity) and the client appends /v1beta.
+			o.BaseURL = normalizeGeminiBaseURL(o.BaseURL)
 		}
+		o.Headers = withGeminiGatewayStickyHeaders(o.Headers, o.BaseURL, o.SessionID)
 		return &geminiClient{opts: o}, nil
 	case "bedrock", "aws", "aws-bedrock":
 		return newBedrock(o)

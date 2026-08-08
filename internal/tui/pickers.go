@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,11 +27,11 @@ func (m *Model) openThemePicker() {
 		}
 	}
 	m.openPicker(picker{
-		title:  "Select a theme",
-		hint:   "previews live",
-		footer: "type to filter · ↑↓ move · Enter apply · Esc cancel",
-		items:  items,
-		cursor: cursor,
+		title:   "Select a theme",
+		hint:    "previews live",
+		footer:  "type to filter · ↑↓ move · Enter apply · Esc cancel",
+		items:   items,
+		cursor:  cursor,
 		preview: func(m *Model, it pickerItem) { m.applyTheme(it.id) },
 		commit: func(m *Model, it pickerItem) {
 			m.applyTheme(it.id)
@@ -73,12 +74,17 @@ func (m *Model) collectConfigModels() []modelRef {
 
 // fetchableProviders is the active provider alone (when it can be reached), so
 // the model list only ever reflects the provider currently in use.
+// Providers with a non-empty curated models list are skipped — that list is
+// already the complete whitelist (no live catalog merge).
 func (m *Model) fetchableProviders() []string {
 	prov := m.cfg.Model.Provider
 	if prov == "" {
 		return nil
 	}
 	p := m.cfg.Providers[prov]
+	if len(p.Models) > 0 {
+		return nil
+	}
 	if providers.Connected(m.cfg, prov) || p.BaseURL != "" {
 		return []string{prov}
 	}
@@ -126,9 +132,16 @@ func (m *Model) openModelPicker() tea.Cmd {
 		items:  items,
 		cursor: cursor,
 		commit: func(m *Model, it pickerItem) {
+			prev := m.cfg.Model.Provider
 			m.cfg.Model.Default = it.id
 			if it.meta != "" {
 				m.cfg.Model.Provider = it.meta
+			}
+			if m.cfg.Model.Provider != prev {
+				m.cfg.ClearInlineModelCredentials()
+			} else if p, ok := m.cfg.Providers[m.cfg.Model.Provider]; ok &&
+				(strings.TrimSpace(p.BaseURL) != "" || strings.TrimSpace(p.APIKey) != "") {
+				m.cfg.ClearInlineModelCredentials()
 			}
 			m.saveConfig()
 			m.setStatus("model → " + it.id)

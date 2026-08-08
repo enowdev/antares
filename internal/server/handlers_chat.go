@@ -407,6 +407,14 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Drop any persisted context summary — history was rewritten and the
+	// old through_seq would hide live messages or re-apply a stale summary.
+	if sess, err := s.db.GetSession(r.Context(), sessionID); err == nil && sess.Meta != nil {
+		if _, ok := sess.Meta["context_compact"]; ok {
+			delete(sess.Meta, "context_compact")
+			_ = s.db.UpdateSession(r.Context(), sess)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
 		"reverted": reverted,

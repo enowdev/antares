@@ -87,6 +87,17 @@ help them now — do not block them.
 	if len(active) > 0 {
 		b.WriteString("\n## Tool notes\n\n")
 		b.WriteString("- Paths given to file tools are relative to the workspace; you cannot read outside it.\n")
+		if hasTool(active, "read_file") || hasTool(active, "edit_file") {
+			// Harness guidance for the read → edit loop. Without this, models
+			// paste line numbers into old_string or expand tabs to spaces and
+			// the exact match fails repeatedly.
+			b.WriteString("- read_file returns lines as `NUMBER|CONTENT`. The `|` is metadata only. When calling edit_file, copy **only** the content after `|` into old_string/new_string — never the line number. Preserve tabs and spaces exactly (do not expand tabs to spaces). Line endings are matched automatically.\n")
+		}
+		if hasTool(active, "vps_upload") || hasTool(active, "vps_download") || hasTool(active, "vps_run") {
+			// Without this, models fall back to terminal rsync/scp and never use
+			// the saved-host SFTP tools (credentials and TOFU stay unused).
+			b.WriteString("- VPS file transfer: use **vps_upload** (local → server) and **vps_download** (server → local) over SFTP on dashboard-saved hosts. Do **not** use terminal `rsync`, `scp`, or `sftp` CLI for those hosts when these tools are available — they already hold the SSH credentials. Use **vps_run** for remote shell commands (systemctl, logs, apt). Call vps_run with no command first to list server ids/labels. Single files only for upload/download (max 256 MiB); for huge trees say so and use vps_run only if the user explicitly wants remote-side pull/rsync.\n")
+		}
 		b.WriteString("- The terminal keeps state between calls: `cd`, exports, and activated environments persist.\n")
 		if hasTool(active, "memory") && cfg.Memory.Enabled {
 			b.WriteString("- Save durable facts about the user or project with the memory tool. Save only what stays true across sessions.\n")

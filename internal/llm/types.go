@@ -30,6 +30,13 @@ type ToolCall struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"` // raw JSON
+	// ThoughtSignature is Gemini's encrypted reasoning state that must be
+	// echoed back on the same functionCall part in the next request.
+	// Without it, multi-turn tool use returns HTTP 400 ("Function call is
+	// missing a thought_signature"). Official SDKs and Gemini CLI preserve
+	// this; when absent, clients inject "skip_thought_signature_validator".
+	// See https://ai.google.dev/gemini-api/docs/thinking#signatures
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 // Message is one conversation element in provider-neutral form.
@@ -41,6 +48,9 @@ type Message struct {
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
 	Reasoning  string     `json:"reasoning,omitempty"`
+	// ThoughtSignature is Gemini part-level metadata for assistant text
+	// (non-tool) turns. Echoed on the text part when re-sending history.
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 	// CacheHint marks a prefix boundary for providers that support prompt caching.
 	CacheHint bool `json:"cache_hint,omitempty"`
 }
@@ -106,10 +116,14 @@ type Response struct {
 	Content      string     `json:"content"`
 	Reasoning    string     `json:"reasoning,omitempty"`
 	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
-	FinishReason string     `json:"finish_reason"`
-	Model        string     `json:"model"`
-	Usage        Usage      `json:"usage"`
-	Raw          json.RawMessage
+	// ThoughtSignature is Gemini part-level metadata for the final text turn.
+	// Agent history must copy this onto the assistant Message for multi-turn
+	// continuity when the model is not making tool calls.
+	ThoughtSignature string `json:"thought_signature,omitempty"`
+	FinishReason     string `json:"finish_reason"`
+	Model            string `json:"model"`
+	Usage            Usage  `json:"usage"`
+	Raw              json.RawMessage
 }
 
 // EventType enumerates streaming callbacks.

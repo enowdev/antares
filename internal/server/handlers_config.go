@@ -338,9 +338,24 @@ func (s *Server) handleModelSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	prevProvider := cfg.Model.Provider
 	cfg.Model.Default = body.Model
 	if body.Provider != "" {
 		cfg.Model.Provider = body.Provider
+	}
+	// Drop legacy top-level model.base_url/api_key whenever the active provider
+	// changes (or on every set as a safety net). Stale CodeBuddy values there
+	// used to override antigravity/gemini credentials in ResolveProvider.
+	if body.Provider != "" && body.Provider != prevProvider {
+		cfg.ClearInlineModelCredentials()
+	} else if strings.TrimSpace(cfg.Model.BaseURL) != "" || strings.TrimSpace(cfg.Model.APIKey) != "" {
+		// Even same-provider sets clear leftovers so a prior manual edit cannot
+		// keep routing through the wrong base_url after the user fixed providers.*.
+		// Only clear when the named provider already carries its own credentials.
+		if p, ok := cfg.Providers[cfg.Model.Provider]; ok &&
+			(strings.TrimSpace(p.BaseURL) != "" || strings.TrimSpace(p.APIKey) != "") {
+			cfg.ClearInlineModelCredentials()
+		}
 	}
 	if err := config.Save(cfg); err != nil {
 		writeError(w, http.StatusInternalServerError, err)

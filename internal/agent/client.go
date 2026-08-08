@@ -14,9 +14,9 @@ import (
 // newClient builds the provider adapter for a model. When the model name is
 // qualified as "provider/model", the prefix selects the provider. When fallback
 // models are configured, the returned client tries each in turn on a hard
-// failure.
-func (a *Agent) newClient(modelOverride string) (client llm.Client, model, provider string, err error) {
-	primary, model, provider, err := a.resolveClient(modelOverride)
+// failure. sessionID pins gateway sticky routing (Gemini CLI–compatible) when set.
+func (a *Agent) newClient(modelOverride, sessionID string) (client llm.Client, model, provider string, err error) {
+	primary, model, provider, err := a.resolveClient(modelOverride, sessionID)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -30,7 +30,7 @@ func (a *Agent) newClient(modelOverride string) (client llm.Client, model, provi
 			if spec == "" {
 				continue
 			}
-			fc, fm, _, ferr := a.resolveClient(spec)
+			fc, fm, _, ferr := a.resolveClient(spec, sessionID)
 			if ferr != nil {
 				slog.Debug("fallback model unavailable", "spec", spec, "error", ferr)
 				continue
@@ -42,7 +42,7 @@ func (a *Agent) newClient(modelOverride string) (client llm.Client, model, provi
 }
 
 // resolveClient builds one provider adapter for a model spec.
-func (a *Agent) resolveClient(modelOverride string) (client llm.Client, model, provider string, err error) {
+func (a *Agent) resolveClient(modelOverride, sessionID string) (client llm.Client, model, provider string, err error) {
 	cfg := a.cfg
 	model = firstNonEmpty(modelOverride, cfg.Model.Default)
 	provider = cfg.Model.Provider
@@ -86,6 +86,7 @@ func (a *Agent) resolveClient(modelOverride string) (client llm.Client, model, p
 		Headers: p.Headers, Timeout: timeout, ProviderID: id,
 		Retries:    retries,
 		APIVersion: p.APIVersion, Region: p.Region,
+		SessionID:  sessionID,
 	})
 	if err != nil {
 		return nil, "", "", err
@@ -95,16 +96,16 @@ func (a *Agent) resolveClient(modelOverride string) (client llm.Client, model, p
 
 // newAuxClient returns the auxiliary model used for summarisation and other
 // background work, falling back to the main model.
-func (a *Agent) newAuxClient() (llm.Client, string, string, error) {
+func (a *Agent) newAuxClient(sessionID string) (llm.Client, string, string, error) {
 	if aux := strings.TrimSpace(a.cfg.Model.Auxiliary); aux != "" {
-		return a.newClient(aux)
+		return a.newClient(aux, sessionID)
 	}
-	return a.newClient("")
+	return a.newClient("", sessionID)
 }
 
 // Probe checks whether the configured provider answers, for /api/status.
 func (a *Agent) Probe(ctx context.Context) (bool, string) {
-	client, model, provider, err := a.newClient("")
+	client, model, provider, err := a.newClient("", "")
 	if err != nil {
 		return false, err.Error()
 	}
@@ -129,13 +130,37 @@ func (a *Agent) Probe(ctx context.Context) (bool, string) {
 	return true, fmt.Sprintf("%s · %s ready", provider, model)
 }
 
-// Models lists the models a provider offers: whatever its /models endpoint
-// reports, merged with any models added by hand in config (providers.<id>.
-// models). Manually added ids that the endpoint does not return are appended,
-// carrying a context window from providers.<id>.model_meta when set. A live
-// fetch that fails still yields the manual list rather than nothing.
+// Models lists the models a provider offers.
+//
+// If providers.<id>.models is non-empty it is treated as a whitelist: only
+// those ids are returned (no live /models merge). This keeps curated local
+// gateways (e.g. Sub2API antigravity) from flooding the UI with broken or
+// deprecated upstream catalog entries.
+//
+// If the list is empty, the provider's /models endpoint is queried live.
+// A live fetch that fails still yields any manual list rather than nothing.
 func (a *Agent) Models(ctx context.Context, providerID string) ([]llm.ModelInfo, error) {
 	id, p := a.cfg.ResolveProvider(providerID)
+
+	// Curated whitelist: skip live catalog entirely.
+	if len(p.Models) > 0 {
+		out := make([]llm.ModelInfo, 0, len(p.Models))
+		seen := make(map[string]bool, len(p.Models))
+		for _, mid := range p.Models {
+			if mid == "" || seen[mid] {
+				continue
+			}
+			seen[mid] = true
+			out = append(out, llm.ModelInfo{
+				ID:            mid,
+				Name:          mid,
+				Provider:      id,
+				ContextWindow: p.ModelMeta[mid].ContextWindow,
+			})
+		}
+		return out, nil
+	}
+
 	client, err := llm.New(llm.Options{
 		Kind: p.Kind, BaseURL: p.BaseURL, APIKey: p.APIKey,
 		Headers: p.Headers, ProviderID: id, Timeout: 60 * time.Second, APIVersion: p.APIVersion, Region: p.Region,
@@ -147,29 +172,8 @@ func (a *Agent) Models(ctx context.Context, providerID string) ([]llm.ModelInfo,
 	defer cancel()
 
 	live, ferr := client.Models(fetchCtx)
-
-	// Fold in manually configured models the endpoint did not return.
-	seen := make(map[string]bool, len(live))
-	for _, m := range live {
-		seen[m.ID] = true
-	}
-	out := live
-	for _, mid := range p.Models {
-		if mid == "" || seen[mid] {
-			continue
-		}
-		seen[mid] = true
-		out = append(out, llm.ModelInfo{
-			ID:            mid,
-			Name:          mid,
-			Provider:      id,
-			ContextWindow: p.ModelMeta[mid].ContextWindow,
-		})
-	}
-
-	// A failed fetch is only an error when it left us with nothing to show.
-	if ferr != nil && len(out) == 0 {
+	if ferr != nil && len(live) == 0 {
 		return nil, ferr
 	}
-	return out, nil
+	return live, nil
 }

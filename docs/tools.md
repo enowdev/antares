@@ -9,7 +9,7 @@ whatever MCP servers add.
 
 | Tool | What it does |
 |---|---|
-| `read_file` | Read a text file, numbered lines, with offset and limit for large ones |
+| `read_file` | Read a text file as `NUMBER|CONTENT` lines, with offset and limit for large ones |
 | `write_file` | Create or overwrite, making parent directories |
 | `edit_file` | Replace an exact string, which must appear exactly once unless told otherwise |
 | `list_files` | Directory entries, optionally recursive |
@@ -21,6 +21,12 @@ Paths are relative to the workspace and cannot escape it.
 `edit_file` requiring a unique match is deliberate: an edit that silently hits
 the wrong occurrence is worse than one that fails.
 
+`read_file` prints each line as `NUMBER|CONTENT`. The number and `|` are
+metadata for the model — they are not part of the file. `edit_file` matches
+line endings to the file automatically (so a paste from `read_file` works on
+CRLF files) and will strip a whole-block paste of `NUMBER|` prefixes if the
+model includes them by mistake. Tabs and spaces must still match exactly.
+
 ### Terminal
 
 | Tool | What it does |
@@ -29,6 +35,18 @@ the wrong occurrence is worse than one that fails.
 
 The session survives between calls — `cd`, exported variables, and activated
 environments persist. Backends are local, Docker, or SSH.
+
+### VPS (saved servers over SSH)
+
+| Tool | What it does |
+|---|---|
+| `vps_run` | Run a shell command on a dashboard-saved VPS; omit command to list servers |
+| `vps_upload` | SFTP upload a local workspace file to the VPS |
+| `vps_download` | SFTP download a remote file into the workspace |
+
+Default command timeout is 120 seconds (raise `timeout_seconds` up to 900 for
+`systemctl restart` / upgrades). Transfers are capped at 256 MiB. Credentials
+stay encrypted at rest; host keys are pinned on first connect (TOFU).
 
 ### Web
 

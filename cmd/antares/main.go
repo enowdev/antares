@@ -741,12 +741,13 @@ func cmdModel(args []string) error {
 			fmt.Printf("%s%-40s %s\n", mark, mid, pid)
 		}
 		for _, pid := range provIDs {
-			// static models from config
-			for _, mid := range cfg.Providers[pid].Models {
+			// static models from config — when set, treat as whitelist only
+			static := cfg.Providers[pid].Models
+			for _, mid := range static {
 				print(mid, pid)
 			}
-			// plus whatever the provider's /models endpoint returns live
-			if providers.Connected(cfg, pid) || cfg.Providers[pid].BaseURL != "" {
+			// live /models only when no curated list (empty providers.<id>.models)
+			if len(static) == 0 && (providers.Connected(cfg, pid) || cfg.Providers[pid].BaseURL != "") {
 				if ids, err := providers.FetchModels(context.Background(), cfg, pid); err == nil {
 					for _, mid := range ids {
 						print(mid, pid)
@@ -759,9 +760,16 @@ func cmdModel(args []string) error {
 		}
 		return nil
 	}
+	prevProvider := cfg.Model.Provider
 	cfg.Model.Default = args[0]
 	if len(args) > 1 {
 		cfg.Model.Provider = args[1]
+	}
+	if cfg.Model.Provider != prevProvider {
+		cfg.ClearInlineModelCredentials()
+	} else if p, ok := cfg.Providers[cfg.Model.Provider]; ok &&
+		(strings.TrimSpace(p.BaseURL) != "" || strings.TrimSpace(p.APIKey) != "") {
+		cfg.ClearInlineModelCredentials()
 	}
 	if err := config.Save(cfg); err != nil {
 		return err

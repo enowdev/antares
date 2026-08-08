@@ -811,11 +811,17 @@ type Display struct {
 	Compact          bool   `yaml:"compact" json:"compact"`
 	ToolProgress     bool   `yaml:"tool_progress" json:"tool_progress"`
 	ShowReasoning    bool   `yaml:"show_reasoning" json:"show_reasoning"`
-	Theme            string `yaml:"theme" json:"theme"`
-	Skin             string `yaml:"skin" json:"skin"`
-	Language         string `yaml:"language" json:"language"`
-	BellOnComplete   bool   `yaml:"bell_on_complete" json:"bell_on_complete"`
-	InterimAssistant bool   `yaml:"interim_assistant_messages" json:"interim_assistant_messages"`
+	// MaxLiveReasoningChars caps how much of a streaming reasoning trace the
+	// dashboard keeps in React state (trailing window). High-effort models can
+	// emit hundreds of KB per turn; unbounded string growth freezes the tab.
+	// 0 means unlimited. The full text is still persisted server-side and is
+	// restored on hydrate after the turn completes.
+	MaxLiveReasoningChars int    `yaml:"max_live_reasoning_chars" json:"max_live_reasoning_chars"`
+	Theme                 string `yaml:"theme" json:"theme"`
+	Skin                  string `yaml:"skin" json:"skin"`
+	Language              string `yaml:"language" json:"language"`
+	BellOnComplete        bool   `yaml:"bell_on_complete" json:"bell_on_complete"`
+	InterimAssistant      bool   `yaml:"interim_assistant_messages" json:"interim_assistant_messages"`
 }
 
 // Logging controls log level and sinks.

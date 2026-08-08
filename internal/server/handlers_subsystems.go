@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/cron"
+	"github.com/enowdev/antares/internal/mcp"
 	"github.com/enowdev/antares/internal/skills"
 	"github.com/enowdev/antares/internal/store"
 )
@@ -360,6 +362,30 @@ func (s *Server) handleMCPStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": cfg.MCP.Enabled,
 		"servers": s.mcp.Status(cfg),
+	})
+}
+
+func (s *Server) handleMCPRefresh(w http.ResponseWriter, r *http.Request) {
+	s.refreshMCP(w, r, s.mcp)
+}
+
+type mcpRefresher interface {
+	Refresh(context.Context, *config.Config) []mcp.ServerStatus
+}
+
+func (s *Server) refreshMCP(w http.ResponseWriter, r *http.Request, refresher mcpRefresher) {
+	cfg := s.config()
+	if refresher == nil || !cfg.MCP.Enabled {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"enabled": false,
+			"servers": []any{},
+		})
+		return
+	}
+	servers := refresher.Refresh(r.Context(), cfg)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled": true,
+		"servers": servers,
 	})
 }
 

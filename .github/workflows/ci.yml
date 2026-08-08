@@ -17,6 +17,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # //go:embed all:dist requires at least one file; dashboard assets are
+      # gitignored and built separately. A tracked .gitkeep is the placeholder;
+      # recreate it here so a bare checkout never fails the embed.
+      - name: Ensure embed placeholder
+        run: mkdir -p internal/server/dist && touch internal/server/dist/.gitkeep
       - name: Test
         run: go test ./...
       - name: Vet

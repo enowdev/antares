@@ -84,21 +84,53 @@ export interface ChatMessage {
   docs?: { path: string; name: string }[]
 }
 
+/**
+ * Default soft cap for live reasoning text in React state while a turn streams.
+ * Overridden by `display.max_live_reasoning_chars` from config (0 = unlimited).
+ * High-effort models can emit hundreds of KB of reasoning per turn; unbounded
+ * string growth freezes the dashboard main thread. Full text is still saved
+ * server-side and restored on attach `done` / hydrate.
+ */
+export const DEFAULT_MAX_LIVE_REASONING_CHARS = 48_000
+
 /** Append a text or reasoning delta, extending the last segment when it is the
- *  same kind so a streamed sentence stays one block. */
-export function appendSeg(m: ChatMessage, kind: 'text' | 'reasoning', delta: string): ChatMessage {
-  const segs = m.segments ? [...m.segments] : []
+ *  same kind so a streamed sentence stays one block.
+ *  `maxLiveReasoningChars`: trailing-window cap; ≤0 means unlimited. */
+export function appendSeg(
+  m: ChatMessage,
+  kind: 'text' | 'reasoning',
+  delta: string,
+  maxLiveReasoningChars: number = DEFAULT_MAX_LIVE_REASONING_CHARS,
+): ChatMessage {
+  const segs = m.segments ? m.segments.slice() : []
   const last = segs[segs.length - 1]
   if (last && last.kind === kind) {
     segs[segs.length - 1] = { kind, text: last.text + delta }
   } else {
     segs.push({ kind, text: delta })
   }
+  let content = m.content
+  let reasoning = m.reasoning
+  if (kind === 'text') {
+    content = m.content + delta
+  } else {
+    const next = (m.reasoning ?? '') + delta
+    const cap = maxLiveReasoningChars
+    // Keep a trailing window so the bubble stays usable and string growth is O(cap).
+    reasoning = cap > 0 && next.length > cap ? next.slice(next.length - cap) : next
+    const segLast = segs[segs.length - 1]
+    if (cap > 0 && segLast?.kind === 'reasoning' && segLast.text.length > cap) {
+      segs[segs.length - 1] = {
+        kind: 'reasoning',
+        text: segLast.text.slice(segLast.text.length - cap),
+      }
+    }
+  }
   return {
     ...m,
     segments: segs,
-    content: kind === 'text' ? m.content + delta : m.content,
-    reasoning: kind === 'reasoning' ? (m.reasoning ?? '') + delta : m.reasoning,
+    content,
+    reasoning,
   }
 }
 
@@ -219,6 +251,42 @@ const SUGGESTION_KEYS: MessageKey[] = [
   'chat.suggest4',
 ]
 
+/** Composer ↑/↓ recall — most recent first, de-duped consecutive, capped. */
+const INPUT_HISTORY_KEY = 'antares:composer-history'
+const INPUT_HISTORY_MAX = 50
+
+function loadInputHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(INPUT_HISTORY_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((x): x is string => typeof x === 'string' && x.trim() !== '').slice(0, INPUT_HISTORY_MAX)
+  } catch {
+    return []
+  }
+}
+
+function pushInputHistory(entry: string, prev: string[]): string[] {
+  const text = entry.trim()
+  if (!text) return prev
+  // Drop consecutive duplicate of the most recent entry.
+  const next = prev[0] === text ? prev : [text, ...prev.filter((x) => x !== text)]
+  return next.slice(0, INPUT_HISTORY_MAX)
+}
+
+/** Caret is on the first visual line of a textarea (for shell-style history ↑). */
+function caretOnFirstLine(el: HTMLTextAreaElement): boolean {
+  const pos = el.selectionStart ?? 0
+  return !el.value.slice(0, pos).includes('\n')
+}
+
+/** Caret is on the last visual line (for history ↓). */
+function caretOnLastLine(el: HTMLTextAreaElement): boolean {
+  const pos = el.selectionStart ?? 0
+  return !el.value.slice(pos).includes('\n')
+}
+
 export default function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
@@ -230,8 +298,20 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState(false)
   // Live status for the streaming indicator: which step, and what tool (if any)
   // is running right now. Reset at the start of every send.
-  const [live, setLive] = useState<{ turn: number; tool?: string; waiting?: boolean }>({ turn: 1 })
+  const [live, setLive] = useState<{
+    turn: number
+    tool?: string
+    waiting?: boolean
+    /** Server notice (compacting, steering, …) shown while streaming. */
+    notice?: string
+  }>({ turn: 1 })
   const [input, setInput] = useState('')
+  // Recent composer prompts (shell-style ↑/↓). Persisted across reloads.
+  const [inputHistory, setInputHistory] = useState<string[]>(() => loadInputHistory())
+  // -1 = editing a live draft (not browsing history). ≥0 = index into inputHistory
+  // from the end (0 = most recent).
+  const [historyPos, setHistoryPos] = useState(-1)
+  const draftRef = useRef('') // draft saved when first leaving with ↑
   const [error, setError] = useState<string>()
   const [title, setTitle] = useState('')
   const [approvals, setApprovals] = useState<ApprovalView[]>([])
@@ -288,6 +368,36 @@ export default function ChatPage() {
   useEffect(() => {
     get<{ context_window?: number }>('/context-window')
       .then((d) => setCtxWindow((w) => w || Number(d.context_window ?? 0)))
+      .catch(() => {})
+  }, [])
+  // display.* prefs from config: whether to show reasoning at all, and the
+  // live-stream character cap (trailing window). Defaults match server defaults.
+  const [showReasoning, setShowReasoning] = useState(true)
+  const showReasoningRef = useRef(true)
+  const maxLiveReasoningRef = useRef(DEFAULT_MAX_LIVE_REASONING_CHARS)
+  useEffect(() => {
+    showReasoningRef.current = showReasoning
+  }, [showReasoning])
+  useEffect(() => {
+    get<{
+      values?: {
+        display?: {
+          show_reasoning?: boolean
+          max_live_reasoning_chars?: number
+        }
+      }
+    }>('/config')
+      .then((d) => {
+        const disp = d.values?.display
+        if (disp && typeof disp.show_reasoning === 'boolean') {
+          setShowReasoning(disp.show_reasoning)
+        }
+        const n = Number(disp?.max_live_reasoning_chars)
+        if (Number.isFinite(n)) {
+          // 0 = unlimited; negative is normalized server-side to default.
+          maxLiveReasoningRef.current = n < 0 ? DEFAULT_MAX_LIVE_REASONING_CHARS : n
+        }
+      })
       .catch(() => {})
   }, [])
   // When set, an overlay shows this sub-agent's live transcript instead of the
@@ -396,20 +506,31 @@ export default function ChatPage() {
     if (queued.length === 0) return
     patchQueue.current = []
     const byMessage = groupStreamPatches(queued)
-    setMessages((prev) =>
-      prev.map((message) => {
-        const patches = byMessage.get(message.id)
-        if (!patches) return message
-        let next = message
+    // Only clone/replace messages that actually received patches. Mapping the
+    // entire transcript every frame re-renders hundreds of bubbles on long
+    // sessions and was a major source of dashboard freezes during long turns.
+    setMessages((prev) => {
+      if (byMessage.size === 0) return prev
+      let next = prev
+      let cloned = false
+      for (const [id, patches] of byMessage) {
+        const idx = next.findIndex((m) => m.id === id)
+        if (idx < 0) continue
+        let message = next[idx]
         for (const patch of patches) {
-          next =
+          message =
             patch.kind === 'delta'
-              ? appendSeg(next, patch.segment, patch.delta)
-              : patch.fn(next)
+              ? appendSeg(message, patch.segment, patch.delta, maxLiveReasoningRef.current)
+              : patch.fn(message)
         }
-        return next
-      }),
-    )
+        if (!cloned) {
+          next = prev.slice()
+          cloned = true
+        }
+        next[idx] = message
+      }
+      return next
+    })
   }, [])
   const enqueuePatch = useCallback(
     (id: string, fn: (m: ChatMessage) => ChatMessage) => {
@@ -512,10 +633,18 @@ export default function ChatPage() {
           enqueueDelta(assistantId, 'text', String(event.delta ?? ''))
           break
         case 'reasoning':
-          enqueueDelta(assistantId, 'reasoning', String(event.delta ?? ''))
+          // Honour display.show_reasoning even if a stale event arrives (server
+          // also suppresses when false; this keeps the UI consistent).
+          if (showReasoningRef.current) {
+            enqueueDelta(assistantId, 'reasoning', String(event.delta ?? ''))
+          }
           break
         case 'tool_call':
-          setLive((s) => ({ turn: s.turn + 1, tool: String(event.name ?? '') }))
+          setLive((s) => ({
+            turn: s.turn + 1,
+            tool: String(event.name ?? ''),
+            notice: undefined,
+          }))
           patchAssistant((m) =>
             pushToolSeg(m, {
               id: String(event.id ?? ''),
@@ -550,11 +679,19 @@ export default function ChatPage() {
             })),
           )
           break
+        case 'notice':
+          // Compaction, steering, retries, … — without this the UI only shows
+          // "Working… · Ns" during multi-minute silent server work.
+          setLive((s) => ({
+            ...s,
+            notice: String(event.message ?? event.content ?? '').trim() || undefined,
+          }))
+          break
         case 'ask':
           // The turn is now paused inside ask_user. Remember the id so the
           // answer card can resume it; the stream stays open (no 'done').
           setAskId(String(event.id ?? ''))
-          setLive((s) => ({ ...s, tool: undefined, waiting: true }))
+          setLive((s) => ({ ...s, tool: undefined, waiting: true, notice: undefined }))
           break
         case 'usage':
           patchAssistant((m) => ({
@@ -679,9 +816,15 @@ export default function ChatPage() {
               if (evtTitle) setTitle(evtTitle)
             })
           },
-          () => {
+          (err) => {
             setStreaming(false)
             close?.()
+            // Auth failure will not fix itself with a retry — stop the 3s 401
+            // loop that filled the daemon log after every restart.
+            if (err instanceof ApiError && err.status === 401) {
+              setError(t('chat.attachAuthFailed') || 'Dashboard login expired — refresh and sign in again.')
+              return
+            }
             if (alive) window.setTimeout(connect, 3000)
           },
         )
@@ -849,7 +992,18 @@ export default function ChatPage() {
       const text = raw.trim()
       if ((!text && attached.length === 0 && attachedDocs.length === 0) || streaming) return
       if (text.startsWith('/') && text.length > 1) {
+        // Still record slash commands so ↑ recalls them.
+        if (text) {
+          setInputHistory((prev) => {
+            const next = pushInputHistory(text, prev)
+            localStorage.setItem(INPUT_HISTORY_KEY, JSON.stringify(next))
+            return next
+          })
+        }
+        setHistoryPos(-1)
+        draftRef.current = ''
         void runCommand(text)
+        setInput('')
         return
       }
 
@@ -870,6 +1024,16 @@ export default function ChatPage() {
     }
     const assistantId = `local_${Date.now()}_a`
     setMessages((prev) => [...prev, userMsg, { id: assistantId, role: 'assistant', content: '' }])
+    // Remember what was sent for ↑/↓ (composer history).
+    if (text) {
+      setInputHistory((prev) => {
+        const next = pushInputHistory(text, prev)
+        localStorage.setItem(INPUT_HISTORY_KEY, JSON.stringify(next))
+        return next
+      })
+    }
+    setHistoryPos(-1)
+    draftRef.current = ''
     setInput('')
     setImages([])
     setDocs([])
@@ -1114,11 +1278,48 @@ export default function ChatPage() {
         }
       }
     }
+    // Shell-style prompt history: ↑ older, ↓ newer. Only when the caret is on
+    // the first/last line so multi-line editing still moves the cursor normally.
+    if (e.key === 'ArrowUp' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+      const el = e.currentTarget
+      if (inputHistory.length > 0 && caretOnFirstLine(el)) {
+        e.preventDefault()
+        if (historyPos === -1) draftRef.current = input
+        const idx = historyPos === -1 ? 0 : Math.min(historyPos + 1, inputHistory.length - 1)
+        setHistoryPos(idx)
+        setInput(inputHistory[idx] ?? '')
+        return
+      }
+    }
+    if (e.key === 'ArrowDown' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+      const el = e.currentTarget
+      if (historyPos >= 0 && caretOnLastLine(el)) {
+        e.preventDefault()
+        if (historyPos <= 0) {
+          setHistoryPos(-1)
+          setInput(draftRef.current)
+        } else {
+          const idx = historyPos - 1
+          setHistoryPos(idx)
+          setInput(inputHistory[idx] ?? '')
+        }
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       send()
     }
   }
+
+  // Typing while browsing history leaves history mode (treat as new draft).
+  const onInputChange = useCallback((value: string) => {
+    if (historyPos !== -1) {
+      setHistoryPos(-1)
+      draftRef.current = ''
+    }
+    setInput(value)
+  }, [historyPos])
 
   const newChat = () => {
     stop()
@@ -1151,7 +1352,7 @@ export default function ChatPage() {
         onRemoveImage={(i) => setImages((prev) => prev.filter((_, x) => x !== i))}
         onRemoveDoc={(i) => setDocs((prev) => prev.filter((_, x) => x !== i))}
         onPaste={onPaste}
-        onChange={setInput}
+        onChange={onInputChange}
         onKeyDown={onKeyDown}
         onSend={send}
         onStop={stop}
@@ -1338,6 +1539,7 @@ export default function ChatPage() {
               <div className="min-w-0 py-2.5">
                 <MessageBubble
                   message={m}
+                  showReasoning={showReasoning}
                   askActive={!!askId}
                   onAnswer={answerAsk}
                   onEdit={
@@ -1362,7 +1564,12 @@ export default function ChatPage() {
                   />
                 ))}
                 {streaming ? (
-                  <StreamingIndicator turn={live.turn} tool={live.tool} waiting={live.waiting} />
+                  <StreamingIndicator
+                    turn={live.turn}
+                    tool={live.tool}
+                    waiting={live.waiting}
+                    notice={live.notice}
+                  />
                 ) : null}
                 {error ? <ErrorBanner message={error} /> : null}
               </div>
@@ -1716,10 +1923,12 @@ export function StreamingIndicator({
   turn,
   tool,
   waiting,
+  notice,
 }: {
   turn?: number
   tool?: string
   waiting?: boolean
+  notice?: string
 }) {
   const { t } = useI18n()
   const [secs, setSecs] = useState(0)
@@ -1728,7 +1937,7 @@ export function StreamingIndicator({
     const start = Date.now()
     const id = setInterval(() => setSecs(Math.round((Date.now() - start) / 1000)), 1000)
     return () => clearInterval(id)
-  }, [turn, tool, waiting])
+  }, [turn, tool, waiting, notice])
   // Paused on a question: no timer, no pulsing "working" — the run is idle by
   // design, waiting on the person. Otherwise show the running tool / step.
   if (waiting) {
@@ -1741,9 +1950,11 @@ export function StreamingIndicator({
   }
   const label = tool
     ? t('chat.running', { tool })
-    : turn && turn > 1
-      ? t('chat.workingStep', { n: turn })
-      : t('chat.working')
+    : notice
+      ? notice
+      : turn && turn > 1
+        ? t('chat.workingStep', { n: turn })
+        : t('chat.working')
   return (
     <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
       <span className="flex items-center gap-1">
@@ -1751,30 +1962,61 @@ export function StreamingIndicator({
         <span className="pulse-dot size-1.5 rounded-full bg-primary [animation-delay:0.2s]" />
         <span className="pulse-dot size-1.5 rounded-full bg-primary [animation-delay:0.4s]" />
       </span>
-      <span className="font-medium text-foreground/70">{label}</span>
-      <span className="text-[10px] tabular-nums text-muted-foreground/60">· {secs}s</span>
+      <span className="min-w-0 font-medium text-foreground/70">{label}</span>
+      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/60">· {secs}s</span>
     </div>
   )
 }
 
+/**
+ * Collapsible model-thinking block.
+ *
+ * Must NOT run the chat Markdown renderer on expand: reasoning traces are long
+ * (tens of KB of decompiler/code-like text with many `*`/`[]`), and turning
+ * that into hundreds of React nodes freezes the tab ("Page Unresponsive").
+ * Plain pre-wrap text in a height-capped scroller is one DOM node, cheap to
+ * open, and matches how thinking logs are meant to be read.
+ */
 function ReasoningBlock({ text }: { text: string }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
-  // A slim inline toggle rather than a boxed card: collapsed reasoning should
-  // barely take a line, expanding into a quiet left-ruled block when opened.
+  // Defer mounting the body to the next frame so the click paints first and
+  // Chrome does not treat the expand as a long task on the same turn.
+  const [bodyReady, setBodyReady] = useState(false)
+  useEffect(() => {
+    if (!open) {
+      setBodyReady(false)
+      return
+    }
+    const id = requestAnimationFrame(() => setBodyReady(true))
+    return () => cancelAnimationFrame(id)
+  }, [open])
+
   return (
     <div className="text-muted-foreground">
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 text-[11px] font-medium transition-colors hover:text-foreground"
       >
         <Brain className="size-3.5" />
         {t('chat.reasoning')}
+        {text.length > 2000 ? (
+          <span className="font-normal text-muted-foreground/70">
+            ({Math.round(text.length / 1000)}k)
+          </span>
+        ) : null}
         <CaretDown className={cn('size-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open ? (
-        <div className="mt-1.5 border-l-2 border-border pl-3 text-xs">
-          <Markdown content={text} />
+        <div className="mt-1.5 max-h-80 overflow-y-auto overflow-x-hidden border-l-2 border-border pl-3">
+          {bodyReady ? (
+            <pre className="m-0 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+              {text}
+            </pre>
+          ) : (
+            <p className="m-0 text-[11px] text-muted-foreground/60">…</p>
+          )}
         </div>
       ) : null}
     </div>
@@ -1788,11 +2030,14 @@ function ReasoningBlock({ text }: { text: string }) {
 // them and only the changed bubble re-renders.
 export const MessageBubble = memo(function MessageBubble({
   message,
+  showReasoning = true,
   askActive,
   onAnswer,
   onEdit,
 }: {
   message: ChatMessage
+  /** When false, hide reasoning blocks (display.show_reasoning). */
+  showReasoning?: boolean
   // Whether an ask_user question is still awaiting an answer. When false the
   // card locks (already answered, or the run ended).
   askActive?: boolean
@@ -1891,6 +2136,7 @@ export const MessageBubble = memo(function MessageBubble({
       {message.segments && message.segments.length > 0
         ? message.segments.map((seg, i) => {
             if (seg.kind === 'reasoning') {
+              if (!showReasoning) return null
               return <ReasoningBlock key={`r${i}`} text={seg.text} />
             }
             if (seg.kind === 'tool') {
@@ -1918,7 +2164,9 @@ export const MessageBubble = memo(function MessageBubble({
           })
         : // Fallback for any message that predates the timeline model.
           <>
-            {message.reasoning ? <ReasoningBlock text={message.reasoning} /> : null}
+            {showReasoning && message.reasoning ? (
+              <ReasoningBlock text={message.reasoning} />
+            ) : null}
             {message.toolCalls?.map((call) =>
               call.name === 'todo' ? null : call.name === 'ask_user' ? (
                 <AskUserCard key={call.id} call={call} disabled={!askActive} onAnswer={onAnswer ?? (() => {})} />

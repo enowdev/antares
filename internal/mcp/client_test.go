@@ -8,6 +8,9 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+
+	"github.com/enowdev/antares/internal/config"
+	"github.com/enowdev/antares/internal/tools"
 )
 
 // TestStdioRoundTrip runs this test binary as a fake MCP server (see
@@ -68,6 +71,79 @@ func TestStdioReportsToolErrors(t *testing.T) {
 	}
 }
 
+func TestEmptyToolListEncodesAsArray(t *testing.T) {
+	client := &Client{}
+	got := client.Tools()
+	if got == nil {
+		t.Fatal("Tools() returned nil, want a non-nil empty slice")
+	}
+	payload, err := json.Marshal(struct {
+		Tools []ToolDef `json:"tools"`
+	}{Tools: got})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(payload) != `{"tools":[]}` {
+		t.Fatalf("empty tool payload = %s, want tools encoded as []", payload)
+	}
+}
+
+func TestRefreshReplacesToolsAndReadiness(t *testing.T) {
+	cfg := helperConfig("offline")
+	manager := NewManager()
+	registry := tools.NewRegistry()
+	manager.Connect(context.Background(), cfg)
+	manager.Register(registry)
+	defer manager.Close()
+
+	status := manager.Status(cfg)
+	if len(status) != 1 || !status[0].Started || status[0].Connected {
+		t.Fatalf("offline status = %+v, want started but not connected", status)
+	}
+	if status[0].Error == "" {
+		t.Fatal("offline server did not retain its tool discovery error")
+	}
+	if _, ok := registry.Get("mcp__fake__echo"); ok {
+		t.Fatal("offline server registered a remote tool")
+	}
+
+	cfg = helperConfig("online")
+	status = manager.Refresh(context.Background(), cfg)
+	if len(status) != 1 || !status[0].Started || !status[0].Connected || len(status[0].Tools) != 1 {
+		t.Fatalf("online status = %+v, want connected with one tool", status)
+	}
+	if _, ok := registry.Get("mcp__fake__echo"); !ok {
+		t.Fatal("refresh did not register the newly available tool")
+	}
+
+	cfg = helperConfig("offline")
+	status = manager.Refresh(context.Background(), cfg)
+	if len(status) != 1 || status[0].Connected {
+		t.Fatalf("second offline status = %+v, want disconnected", status)
+	}
+	if _, ok := registry.Get("mcp__fake__echo"); ok {
+		t.Fatal("refresh left a stale remote tool registered")
+	}
+}
+
+func helperConfig(mode string) *config.Config {
+	return &config.Config{MCP: config.MCP{
+		Enabled: true,
+		Servers: map[string]config.MCPServer{
+			"fake": {
+				Transport: "stdio",
+				Command:   os.Args[0],
+				Args:      []string{"-test.run=TestHelperServer"},
+				Env: map[string]string{
+					"ANTARES_MCP_HELPER":      "1",
+					"ANTARES_MCP_HELPER_MODE": mode,
+				},
+				Enabled: true,
+			},
+		},
+	}}
+}
+
 func TestUnknownTransport(t *testing.T) {
 	if _, err := Connect(context.Background(), "x", ServerConfig{Transport: "carrier-pigeon"}); err == nil {
 		t.Fatal("expected an unknown transport to fail")
@@ -115,6 +191,16 @@ func TestHelperServer(t *testing.T) {
 		case "notifications/initialized":
 			// no response for notifications
 		case "tools/list":
+			if os.Getenv("ANTARES_MCP_HELPER_MODE") == "offline" {
+				out := map[string]any{
+					"jsonrpc": "2.0",
+					"id":      req.ID,
+					"error":   map[string]any{"code": -32000, "message": "backing application is offline"},
+				}
+				b, _ := json.Marshal(out)
+				os.Stdout.Write(append(b, '\n'))
+				continue
+			}
 			reply(req.ID, map[string]any{
 				"tools": []map[string]any{{
 					"name":        "echo",

@@ -16,9 +16,12 @@ import (
 
 // Manager owns the configured MCP servers and exposes their tools to the agent.
 type Manager struct {
-	mu      sync.RWMutex
-	clients map[string]*Client
-	errs    map[string]string
+	mu         sync.RWMutex
+	refreshMu  sync.Mutex
+	clients    map[string]*Client
+	errs       map[string]string
+	registry   *tools.Registry
+	registered []string
 }
 
 // NewManager returns an empty manager.
@@ -29,8 +32,18 @@ func NewManager() *Manager {
 // Connect brings up every enabled server, recording rather than propagating
 // individual failures so one bad server cannot block startup.
 func (m *Manager) Connect(ctx context.Context, cfg *config.Config) {
+	clients, errs := connectAll(ctx, cfg)
+	m.mu.Lock()
+	m.clients = clients
+	m.errs = errs
+	m.mu.Unlock()
+}
+
+func connectAll(ctx context.Context, cfg *config.Config) (map[string]*Client, map[string]string) {
+	clients := map[string]*Client{}
+	errs := map[string]string{}
 	if !cfg.MCP.Enabled {
-		return
+		return clients, errs
 	}
 	names := make([]string, 0, len(cfg.MCP.Servers))
 	for name := range cfg.MCP.Servers {
@@ -39,6 +52,7 @@ func (m *Manager) Connect(ctx context.Context, cfg *config.Config) {
 	sort.Strings(names)
 
 	var wg sync.WaitGroup
+	var mu sync.Mutex
 	for _, name := range names {
 		sc := cfg.MCP.Servers[name]
 		if !sc.Enabled {
@@ -54,33 +68,44 @@ func (m *Manager) Connect(ctx context.Context, cfg *config.Config) {
 				Transport: sc.Transport, Command: sc.Command, Args: sc.Args,
 				Env: sc.Env, URL: sc.URL, Headers: sc.Headers,
 			})
-			m.mu.Lock()
-			defer m.mu.Unlock()
+			mu.Lock()
+			defer mu.Unlock()
 			if err != nil {
-				m.errs[name] = err.Error()
-				slog.Warn("mcp server unavailable", "server", name, "error", err)
+				errs[name] = err.Error()
+				slog.Warn("mcp: cannot connect", "server", name, "error", err)
 				return
 			}
-			delete(m.errs, name)
-			m.clients[name] = client
+			clients[name] = client
 		}(name, sc)
 	}
 	wg.Wait()
+	return clients, errs
 }
 
-// Close shuts every server down.
+// Close shuts every server down and removes its tools from the registry.
 func (m *Manager) Close() {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for name, c := range m.clients {
-		_ = c.Close()
-		delete(m.clients, name)
+	clients := m.clients
+	m.clients = map[string]*Client{}
+	m.errs = map[string]string{}
+	if m.registry != nil {
+		m.registry.Replace(m.registered, nil)
+		m.registered = nil
+	}
+	m.mu.Unlock()
+
+	for _, client := range clients {
+		_ = client.Close()
 	}
 }
 
 // ServerStatus reports one server for the dashboard.
 type ServerStatus struct {
 	Name      string    `json:"name"`
+	Started   bool      `json:"started"`
 	Connected bool      `json:"connected"`
 	Error     string    `json:"error,omitempty"`
 	Tools     []ToolDef `json:"tools"`
@@ -101,7 +126,8 @@ func (m *Manager) Status(cfg *config.Config) []ServerStatus {
 	for _, name := range names {
 		st := ServerStatus{Name: name, Error: m.errs[name], Tools: []ToolDef{}}
 		if c, ok := m.clients[name]; ok {
-			st.Connected = true
+			st.Started = true
+			st.Connected, st.Error = c.ToolState()
 			st.Tools = c.Tools()
 		}
 		out = append(out, st)
@@ -127,13 +153,52 @@ func sanitize(s string) string {
 	return b.String()
 }
 
-// Register publishes every connected server's tools into the registry.
+// Register publishes every connected server's tools into the registry and keeps
+// the registry binding for later refreshes.
 func (m *Manager) Register(reg *tools.Registry) []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	m.registry = reg
+	replacements, registered := m.registryToolsLocked()
+	reg.Replace(m.registered, replacements)
+	m.registered = append([]string{}, registered...)
+	return registered
+}
+
+// Refresh reconnects every configured server, atomically replaces the MCP
+// tools visible to agents, and then closes the old transports.
+func (m *Manager) Refresh(ctx context.Context, cfg *config.Config) []ServerStatus {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+
+	clients, errs := connectAll(ctx, cfg)
+
+	m.mu.Lock()
+	oldClients := m.clients
+	m.clients = clients
+	m.errs = errs
+	if m.registry != nil {
+		replacements, registered := m.registryToolsLocked()
+		m.registry.Replace(m.registered, replacements)
+		m.registered = append([]string{}, registered...)
+	}
+	m.mu.Unlock()
+
+	for _, client := range oldClients {
+		_ = client.Close()
+	}
+	return m.Status(cfg)
+}
+
+func (m *Manager) registryToolsLocked() ([]tools.Tool, []string) {
+	var replacements []tools.Tool
 	var registered []string
 	for serverName, client := range m.clients {
+		ready, _ := client.ToolState()
+		if !ready {
+			continue
+		}
 		for _, def := range client.Tools() {
 			t := &remoteTool{
 				name:   mcpToolName(serverName, def.Name),
@@ -143,19 +208,19 @@ func (m *Manager) Register(reg *tools.Registry) []string {
 				schema: def.InputSchema,
 				client: client,
 			}
-			reg.Register(t)
+			replacements = append(replacements, t)
 			registered = append(registered, t.name)
 		}
 	}
-	// One manager-level tool surfaces resources across every server. The
+	// One manager-level tool surfaces resources across every started server. The
 	// mcp__ prefix means the toolset resolver includes it opt-out, like the
 	// remote tools.
 	if len(m.clients) > 0 {
-		reg.Register(&resourceTool{m: m})
+		replacements = append(replacements, &resourceTool{m: m})
 		registered = append(registered, "mcp__resource")
 	}
 	sort.Strings(registered)
-	return registered
+	return replacements, registered
 }
 
 // resourceTool exposes MCP resources (list/read) across all connected servers.

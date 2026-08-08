@@ -101,6 +101,9 @@ func New(o Options) *Server {
 
 		dashSessions: map[string]time.Time{},
 	}
+	// Restore dashboard logins so a daemon restart does not break EventSource
+	// reattach (/api/chat/attach) for browsers that still hold a valid cookie.
+	s.loadDashSessions()
 	// Finished background sub-agents resume (or wake) the delegating session
 	// instead of the main agent polling for them.
 	if s.agent != nil {

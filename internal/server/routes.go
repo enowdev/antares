@@ -177,6 +177,7 @@ func (s *Server) routes() {
 
 	// MCP
 	m.HandleFunc("GET /api/mcp", s.handleMCPStatus)
+	m.HandleFunc("POST /api/mcp/refresh", s.handleMCPRefresh)
 	m.HandleFunc("POST /api/mcp/servers", s.handleAddMCPServer)
 	m.HandleFunc("DELETE /api/mcp/servers/{name}", s.handleDeleteMCPServer)
 

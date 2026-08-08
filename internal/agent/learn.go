@@ -30,7 +30,7 @@ func (a *Agent) learnFromErrors(ctx context.Context, userMsg, reply string, fail
 	if len(failures) == 0 || a.db == nil || !a.cfg.Memory.Enabled {
 		return
 	}
-	client, model, _, err := a.newAuxClient()
+	client, model, _, err := a.newAuxClient("")
 	if err != nil {
 		return
 	}

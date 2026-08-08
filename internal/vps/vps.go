@@ -1,7 +1,7 @@
 // Package vps connects to a user's server over SSH and reads its state on
 // demand — no agent installed on the box, just standard commands whose output
-// is parsed into metrics. It also runs arbitrary commands for the VPS-manager
-// tool.
+// is parsed into metrics. It also runs arbitrary commands and transfers files
+// for the VPS-manager tools.
 package vps
 
 import (
@@ -45,6 +45,10 @@ func (t Target) addr() string {
 // pinned one — a possible man-in-the-middle, or a legitimately rebuilt server.
 var ErrHostKeyChanged = errors.New("host key changed since it was first trusted — possible MITM, or the server was rebuilt; remove and re-add it if you trust the change")
 
+// ErrTimeout is returned when a remote command or transfer exceeds its deadline.
+// The error text includes the duration; partial output may accompany it from Run.
+var ErrTimeout = errors.New("vps operation timed out")
+
 // conn wraps an ssh.Client with the host key the server actually presented, so
 // the caller can pin it after a first-use connect.
 type conn struct {
@@ -77,24 +81,58 @@ func dial(ctx context.Context, t Target) (*conn, error) {
 		User:            user,
 		Auth:            auth,
 		HostKeyCallback: hostKeyCb,
-		Timeout:         12 * time.Second,
+		// Handshake timeout only. Command runtime is bounded by the caller's ctx.
+		Timeout: 20 * time.Second,
 	}
-	d := net.Dialer{Timeout: 12 * time.Second}
+	// Dial timeout is separate from the overall command timeout so a slow host
+	// does not burn the whole vps_run budget before the command starts.
+	d := net.Dialer{Timeout: 20 * time.Second}
 	netConn, err := d.DialContext(ctx, "tcp", t.addr())
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("%w while connecting to %s: %v", ErrTimeout, t.addr(), err)
+		}
 		return nil, fmt.Errorf("connect %s: %w", t.addr(), err)
+	}
+	// Honour cancellation during the SSH handshake too.
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = netConn.SetDeadline(deadline)
 	}
 	c, chans, reqs, err := ssh.NewClientConn(netConn, t.addr(), cfg)
 	if err != nil {
 		netConn.Close()
-		// A host-key mismatch surfaces here wrapped by the ssh handshake; keep the
-		// sentinel recognisable to the caller.
 		if errors.Is(err, ErrHostKeyChanged) {
 			return nil, ErrHostKeyChanged
 		}
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("%w during ssh handshake with %s: %v", ErrTimeout, t.addr(), err)
+		}
 		return nil, fmt.Errorf("ssh handshake: %w", err)
 	}
-	return &conn{Client: ssh.NewClient(c, chans, reqs), seenHostKey: seen}, nil
+	// Clear the dial deadline so long-running commands are not cut off by it.
+	_ = netConn.SetDeadline(time.Time{})
+	client := ssh.NewClient(c, chans, reqs)
+	// Keep the TCP session alive through NAT/firewalls during long systemctl
+	// restarts and package upgrades. Best-effort; ignored if the server does not
+	// recognise the request.
+	go keepAlive(ctx, client)
+	return &conn{Client: client, seenHostKey: seen}, nil
+}
+
+func keepAlive(ctx context.Context, client *ssh.Client) {
+	t := time.NewTicker(20 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+			if err != nil {
+				return
+			}
+		}
+	}
 }
 
 // hostKeysEqual compares two authorized_keys lines by their type+base64 body,
@@ -128,7 +166,26 @@ func authMethods(t Target) ([]ssh.AuthMethod, error) {
 	if t.Password == "" {
 		return nil, fmt.Errorf("no password or private key configured")
 	}
-	return []ssh.AuthMethod{ssh.Password(t.Password)}, nil
+	// Many cloud images and hardened OpenSSH configs offer only
+	// keyboard-interactive (or prefer it over "password"). Offering both
+	// methods is what OpenSSH clients do and is required for those hosts.
+	return []ssh.AuthMethod{
+		ssh.Password(t.Password),
+		ssh.KeyboardInteractive(passwordKeyboardInteractive(t.Password)),
+	}, nil
+}
+
+// passwordKeyboardInteractive answers every prompt with the stored password.
+// Servers that ask a single "Password:" question work; multi-factor prompts
+// that need a second factor will still fail (as they should without the factor).
+func passwordKeyboardInteractive(password string) ssh.KeyboardInteractiveChallenge {
+	return func(_, _ string, questions []string, _ []bool) ([]string, error) {
+		answers := make([]string, len(questions))
+		for i := range questions {
+			answers[i] = password
+		}
+		return answers, nil
+	}
 }
 
 // Run opens a connection, runs one command, and returns its combined output
@@ -149,21 +206,41 @@ func runOn(ctx context.Context, client *ssh.Client, command string) (string, err
 	if err != nil {
 		return "", err
 	}
+	// Closing the session is the reliable way to unblock CombinedOutput on
+	// cancel; Signal alone is frequently ignored without a PTY.
 	defer sess.Close()
 
-	done := make(chan struct{})
-	var out []byte
-	var runErr error
+	// Best-effort: keep remote tools from waiting on a pager. Setenv is often
+	// refused by the server (AcceptEnv); failures are ignored.
+	_ = sess.Setenv("SYSTEMD_PAGER", "cat")
+	_ = sess.Setenv("PAGER", "cat")
+	_ = sess.Setenv("SYSTEMD_COLORS", "0")
+	_ = sess.Setenv("GIT_PAGER", "cat")
+
+	type result struct {
+		out []byte
+		err error
+	}
+	done := make(chan result, 1)
 	go func() {
-		out, runErr = sess.CombinedOutput(command)
-		close(done)
+		out, err := sess.CombinedOutput(command)
+		done <- result{out: out, err: err}
 	}()
+
 	select {
 	case <-ctx.Done():
+		// Signal first (best-effort), then close so CombinedOutput returns.
 		_ = sess.Signal(ssh.SIGKILL)
-		return string(out), ctx.Err()
-	case <-done:
-		return string(out), runErr
+		_ = sess.Close()
+		res := <-done // wait so there is no race on the output buffer
+		partial := string(res.out)
+		cause := ctx.Err()
+		if cause == nil {
+			cause = ErrTimeout
+		}
+		return partial, fmt.Errorf("%w: %v", ErrTimeout, cause)
+	case res := <-done:
+		return string(res.out), res.err
 	}
 }
 

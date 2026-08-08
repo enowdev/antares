@@ -246,20 +246,32 @@ func normalize(c *Config) {
 	if c.Agent.MaxTurns <= 0 {
 		c.Agent.MaxTurns = 200
 	}
+	// Negative is meaningless; treat as default cap. 0 stays unlimited.
+	if c.Display.MaxLiveReasoningChars < 0 {
+		c.Display.MaxLiveReasoningChars = 48_000
+	}
 }
 
 // ResolveProvider returns the provider entry used for a model call, falling back
 // to the inline model.* fields when no named provider matches.
+//
+// Top-level model.base_url / model.api_key are legacy "inline provider" overrides.
+// They must NOT clobber a named provider that already has its own base_url or
+// api_key — otherwise switching the UI to antigravity/gemini while stale
+// CodeBuddy values remain in model.* silently routes Claude to /v1 with the
+// wrong key (Sub2API platform=codebuddy, cascading 401s).
 func (c *Config) ResolveProvider(name string) (string, Provider) {
 	if name == "" {
 		name = c.Model.Provider
 	}
 	if p, ok := c.Providers[name]; ok {
-		if c.Model.BaseURL != "" && name == c.Model.Provider {
-			p.BaseURL = c.Model.BaseURL
-		}
-		if c.Model.APIKey != "" && name == c.Model.Provider {
-			p.APIKey = c.Model.APIKey
+		if name == c.Model.Provider {
+			if strings.TrimSpace(c.Model.BaseURL) != "" && strings.TrimSpace(p.BaseURL) == "" {
+				p.BaseURL = c.Model.BaseURL
+			}
+			if strings.TrimSpace(c.Model.APIKey) != "" && strings.TrimSpace(p.APIKey) == "" {
+				p.APIKey = c.Model.APIKey
+			}
 		}
 		return name, p
 	}
@@ -271,4 +283,12 @@ func (c *Config) ResolveProvider(name string) (string, Provider) {
 		Label:       name,
 		TimeoutSecs: 300,
 	}
+}
+
+// ClearInlineModelCredentials wipes top-level model.base_url and model.api_key.
+// Call this whenever the active provider changes so a previous provider's
+// credentials cannot leak into ResolveProvider for the next one.
+func (c *Config) ClearInlineModelCredentials() {
+	c.Model.BaseURL = ""
+	c.Model.APIKey = ""
 }

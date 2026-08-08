@@ -114,6 +114,26 @@ func (r *Registry) Register(t Tool) {
 	r.tools[t.Name()] = t
 }
 
+// Unregister removes a tool by name. It is a no-op when the name is absent.
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
+}
+
+// Replace removes oldNames and registers replacements while holding one lock,
+// so concurrent tool resolution never observes a partially refreshed MCP set.
+func (r *Registry) Replace(oldNames []string, replacements []Tool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, name := range oldNames {
+		delete(r.tools, name)
+	}
+	for _, tool := range replacements {
+		r.tools[tool.Name()] = tool
+	}
+}
+
 // Get looks up a tool by name.
 func (r *Registry) Get(name string) (Tool, bool) {
 	r.mu.RLock()
@@ -221,7 +241,7 @@ var Toolsets = map[string][]string{
 		"read_file", "write_file", "list_files", "glob", "grep", "terminal", "process",
 		"web_search", "web_fetch", "http_request", "browser", "todo", "skill",
 		"report_finding", "triage_finding", "add_intel", "methodology_status",
-		"delegate_task", "task", "list_roles", "diagnostics", "ask_user", "vps_run",
+		"delegate_task", "task", "list_roles", "diagnostics", "ask_user", "vps_run", "vps_upload", "vps_download",
 		"osint_dns", "osint_dorks", "osint_whois", "osint_ip", "osint_username", "osint_github", "osint_email", "osint_email_full", "list_proxies", "osint_breach", "osint_shodan", "osint_reputation", "osint_crypto", "osint_domain", "osint_phone", "osint_scrape", "osint_paste", "osint_footprint", "osint_pivot", "osint_google", "osint_dorks_live", "check_dependencies", "re_info", "re_strings", "re_analyze", "re_decompile", "solve_captcha", "intercept",
 		"attack_script", "awshook", "azurehook", "kubehook", "winhook", "machook", "cipipe", "ebpf",
 		"hackbrowser",
@@ -251,7 +271,7 @@ var Toolsets = map[string][]string{
 	},
 	"default": {
 		"read_file", "read_document", "write_file", "edit_file", "list_files", "glob", "grep",
-		"terminal", "process", "web_search", "web_fetch", "http_request", "browser", "todo", "board", "project_info", "set_soul", "memory", "list_proxies", "vps_run",
+		"terminal", "process", "web_search", "web_fetch", "http_request", "browser", "todo", "board", "project_info", "set_soul", "memory", "list_proxies", "vps_run", "vps_upload", "vps_download",
 		"session_search", "rag_search", "rag_index", "skill", "delegate_task", "task", "list_roles", "image_generate", "view_image", "speak", "transcribe", "computer", "diagnostics", "ask_user", "schedule",
 		"osint_dns", "osint_dorks", "osint_whois", "osint_ip", "osint_username", "osint_github", "osint_email", "osint_email_full", "osint_breach", "osint_shodan", "osint_reputation", "osint_crypto", "osint_domain", "osint_phone", "osint_scrape", "osint_paste", "osint_footprint", "osint_pivot", "osint_google", "osint_dorks_live", "check_dependencies", "re_info", "re_strings", "re_analyze", "re_decompile", "solve_captcha", "intercept",
 		"email_read", "temp_mail", "social_browser", "social_account",

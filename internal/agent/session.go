@@ -74,20 +74,54 @@ func defaultTitle(msg string) string {
 	return msg
 }
 
+// contextCompactMetaKey is stored on session.Meta after a successful
+// compaction. Subsequent turns rebuild history as head + summary + tail so
+// we do not re-summarise thousands of messages on every turn.
+const contextCompactMetaKey = "context_compact"
+
 // loadHistory rebuilds the model-facing message list from storage.
-func (a *Agent) loadHistory(ctx context.Context, sessionID string, req Request) ([]llm.Message, error) {
+// When a prior compaction was persisted on the session, messages with
+// seq ≤ through_seq (except the first keep_first) are replaced by the stored
+// summary — matching what maybeCompact produced in memory.
+func (a *Agent) loadHistory(ctx context.Context, sess *store.Session, req Request) ([]llm.Message, error) {
 	if req.Quiet {
 		return nil, nil
 	}
-	rows, err := a.db.ListMessages(ctx, sessionID, 0, 0)
+	rows, err := a.db.ListMessages(ctx, sess.ID, 0, 0)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]llm.Message, 0, len(rows))
+
+	// Optional persisted compaction (written by maybeCompact).
+	var (
+		summary    string
+		throughSeq int64
+		keepFirst  int
+		hasCompact bool
+	)
+	if sess != nil && sess.Meta != nil {
+		if raw, ok := sess.Meta[contextCompactMetaKey]; ok {
+			if m, ok := raw.(map[string]any); ok {
+				summary, _ = m["summary"].(string)
+				throughSeq = metaInt64(m["through_seq"])
+				keepFirst = int(metaInt64(m["keep_first"]))
+				hasCompact = summary != "" && throughSeq > 0
+				if keepFirst <= 0 {
+					keepFirst = 1
+				}
+			}
+		}
+	}
+
+	visible := make([]store.Message, 0, len(rows))
 	for _, r := range rows {
-		if r.Hidden {
+		if r.Hidden || r.Compacted {
 			continue
 		}
+		visible = append(visible, r)
+	}
+
+	toLLM := func(r store.Message) (llm.Message, bool) {
 		m := llm.Message{Content: r.Content, Reasoning: r.Reasoning}
 		switch r.Role {
 		case store.RoleUser:
@@ -111,11 +145,86 @@ func (a *Agent) loadHistory(ctx context.Context, sessionID string, req Request) 
 			m.ToolCallID = r.ToolCallID
 			m.Name = r.ToolName
 		default:
+			return llm.Message{}, false
+		}
+		return m, true
+	}
+
+	if !hasCompact {
+		out := make([]llm.Message, 0, len(visible))
+		for _, r := range visible {
+			if m, ok := toLLM(r); ok {
+				out = append(out, m)
+			}
+		}
+		return out, nil
+	}
+
+	// head: first keepFirst visible messages (by order, regardless of seq holes)
+	headN := keepFirst
+	if headN > len(visible) {
+		headN = len(visible)
+	}
+	out := make([]llm.Message, 0, headN+1+len(visible))
+	for i := 0; i < headN; i++ {
+		if m, ok := toLLM(visible[i]); ok {
+			out = append(out, m)
+		}
+	}
+	out = append(out, llm.Message{
+		Role: llm.RoleUser,
+		Content: "[Compacted summary of the earlier conversation]\n\n" + summary +
+			"\n\n[Continue from here. This summary replaces the older messages.]",
+	})
+	// tail: everything after the last seq covered by the summary
+	for _, r := range visible {
+		if r.Seq <= throughSeq {
 			continue
 		}
-		out = append(out, m)
+		// Skip rows already included in head (keep_first may overlap low seqs)
+		if headN > 0 && r.Seq <= visible[headN-1].Seq {
+			continue
+		}
+		if m, ok := toLLM(r); ok {
+			out = append(out, m)
+		}
 	}
 	return out, nil
+}
+
+func metaInt64(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return i
+	default:
+		return 0
+	}
+}
+
+// clearContextCompact drops a persisted summary (e.g. after edit-message
+// rewrites history so the summary would be stale).
+func (a *Agent) clearContextCompact(ctx context.Context, sessionID string) {
+	if a.db == nil || sessionID == "" {
+		return
+	}
+	sess, err := a.db.GetSession(ctx, sessionID)
+	if err != nil || sess.Meta == nil {
+		return
+	}
+	if _, ok := sess.Meta[contextCompactMetaKey]; !ok {
+		return
+	}
+	delete(sess.Meta, contextCompactMetaKey)
+	if err := a.db.UpdateSession(ctx, sess); err != nil {
+		slog.Warn("clear context compact failed", "session", sessionID, "error", err)
+	}
 }
 
 // persistAssistant stores an assistant turn including any tool calls.
@@ -176,7 +285,7 @@ func (a *Agent) maybeTitle(ctx context.Context, sess *store.Session, userMsg, re
 // any error so the caller falls back to the heuristic — a title is never worth
 // failing a turn over.
 func (a *Agent) llmTitle(ctx context.Context, userMsg, reply string) string {
-	client, model, _, err := a.newAuxClient()
+	client, model, _, err := a.newAuxClient("")
 	if err != nil {
 		return ""
 	}

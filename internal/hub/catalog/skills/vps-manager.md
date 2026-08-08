@@ -7,15 +7,27 @@ triggers: [vps, server, ssh, systemctl, restart service, check server, disk full
 
 # VPS manager
 
-The user has saved VPS servers on the dashboard's VPS page. You reach them with
-the **`vps_run`** tool: it runs a shell command on a chosen server over SSH and
-returns the output. There is no agent on the box — just standard commands.
+The user has saved VPS servers on the dashboard's VPS page. You reach them with:
+
+| Tool | Purpose |
+|---|---|
+| **`vps_run`** | Run a shell command over SSH; returns stdout+stderr |
+| **`vps_upload`** | Copy a local workspace file → remote path (SFTP) |
+| **`vps_download`** | Copy a remote file → local workspace path (SFTP) |
+
+There is no agent on the box — just standard SSH/SFTP.
 
 ## Pick the server first
 
 Call `vps_run` with **no command** to list the saved servers (id, label,
 user@host). Then pass `vps=<id or label>` on every call. If the user named a
 server, match it to a label; if there is only one, use it.
+
+## Timeouts
+
+Default command timeout is **120 seconds**. `systemctl restart` / `stop` and
+package upgrades often need more — pass `timeout_seconds` (up to 900). On
+timeout, raise it and prefer non-interactive flags (`--no-pager`, `-y`).
 
 ## Look before you touch
 
@@ -36,18 +48,25 @@ something.
 
 Once you know the state, operate deliberately:
 
-- **Restart a service:** `systemctl restart <name>` then confirm with
-  `systemctl status <name> --no-pager`.
+- **Restart a service:** `systemctl restart <name>` (consider `timeout_seconds`
+  ≥ 180) then confirm with `systemctl status <name> --no-pager`.
 - **Free disk:** clear old logs (`journalctl --vacuum-time=7d`), package caches
   (`apt-get clean` / `dnf clean all`), then re-check `df -h`.
 - **Update packages:** `apt-get update && apt-get -y upgrade` (Debian/Ubuntu) or
-  `dnf -y upgrade` (RHEL family). Say what changed.
-- **Deploy / app ops:** cd into the app, pull, build, restart its unit or
-  container — follow the user's stated workflow, don't invent one.
+  `dnf -y upgrade` (RHEL family) with a higher timeout. Say what changed.
+- **Deploy / app ops:** upload artifacts with `vps_upload`, or pull on the box;
+  then build/restart. Follow the user's stated workflow.
+- **Fetch logs/configs:** `vps_download` for a single file; use `vps_run` +
+  `journalctl` for live service logs.
 
 ## Rules
 
 - **Only servers the user owns.** These are their machines, added on purpose.
+- **Files go through SFTP tools.** For copy to/from a saved host, use
+  `vps_upload` / `vps_download` — never `rsync`, `scp`, or interactive `sftp` in
+  the terminal for those hosts (credentials and host-key pinning live in the
+  tools). Use `vps_run` only for remote shell work, or if the user explicitly
+  wants a remote-side pull of a huge tree.
 - **Read before write.** Never restart, delete, or upgrade without first showing
   what you found and, for anything risky, saying what you're about to do.
 - **Destructive commands need care.** `rm -rf`, `mkfs`, `dd`, dropping a

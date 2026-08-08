@@ -3,8 +3,11 @@ package server
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -20,10 +23,11 @@ const dashSessionTTL = 30 * 24 * time.Hour
 // withDashboardAuth gates the web dashboard behind the login password when one
 // is configured. It is web-only: it never applies to the TUI or gateways
 // (those talk to the agent in-process, not over HTTP), and any client that
-// presents the configured server.auth_token as a bearer bypasses it — so the
-// CLI and scripted API callers keep working. Requests without a valid session
-// cookie get 401 on /api/* (except the auth and health endpoints the login
-// page itself needs), which the dashboard turns into a redirect to /login.
+// presents the configured server.auth_token as a bearer (or, for EventSource
+// allowlisted paths, ?token=) bypasses it — so the CLI and scripted API
+// callers keep working. Requests without a valid session cookie get 401 on
+// /api/* (except the auth and health endpoints the login page itself needs),
+// which the dashboard turns into a redirect to /login.
 func (s *Server) withDashboardAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.config()
@@ -49,13 +53,10 @@ func (s *Server) withDashboardAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// A valid bearer auth_token bypasses the dashboard login (CLI, scripts).
-		if tok := strings.TrimSpace(cfg.Server.AuthToken); tok != "" {
-			if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") &&
-				strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")) == tok {
-				next.ServeHTTP(w, r)
-				return
-			}
+		// Bearer auth_token (header or allowlisted ?token= for EventSource).
+		if s.bearerAuthorizedOrQuery(r) {
+			next.ServeHTTP(w, r)
+			return
 		}
 		if s.dashSessionValid(r) {
 			next.ServeHTTP(w, r)
@@ -143,8 +144,10 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tok := newSessionToken()
+	exp := time.Now().Add(dashSessionTTL)
 	s.dashMu.Lock()
-	s.dashSessions[tok] = time.Now().Add(dashSessionTTL)
+	s.dashSessions[tok] = exp
+	s.persistDashSessionsLocked()
 	s.dashMu.Unlock()
 
 	http.SetCookie(w, &http.Cookie{
@@ -164,6 +167,7 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(dashCookie); err == nil && c.Value != "" {
 		s.dashMu.Lock()
 		delete(s.dashSessions, c.Value)
+		s.persistDashSessionsLocked()
 		s.dashMu.Unlock()
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -237,6 +241,7 @@ func (s *Server) handleAuthSetPassword(w http.ResponseWriter, r *http.Request) {
 func (s *Server) invalidateDashSessions() {
 	s.dashMu.Lock()
 	s.dashSessions = map[string]time.Time{}
+	s.persistDashSessionsLocked()
 	s.dashMu.Unlock()
 }
 
@@ -244,4 +249,62 @@ func newSessionToken() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// dashSessionsFile is where login sessions are written so a daemon restart
+// does not force every browser to re-login. Without this, EventSource
+// reattach (/api/chat/attach) returns 401 after every restart while the
+// cookie still looks valid, and the UI sits on "Working…" without live events.
+func dashSessionsFile() string {
+	return config.Path("dash_sessions.json")
+}
+
+// loadDashSessions restores sessions from disk (if any), dropping expired ones.
+// Called once at server construction.
+func (s *Server) loadDashSessions() {
+	path := dashSessionsFile()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var raw map[string]int64
+	if err := json.Unmarshal(data, &raw); err != nil {
+		slog.Warn("dash sessions: corrupt file, ignoring", "path", path, "error", err)
+		return
+	}
+	now := time.Now()
+	out := make(map[string]time.Time, len(raw))
+	for tok, expMS := range raw {
+		exp := time.UnixMilli(expMS)
+		if exp.After(now) && strings.TrimSpace(tok) != "" {
+			out[tok] = exp
+		}
+	}
+	s.dashMu.Lock()
+	s.dashSessions = out
+	// Rewrite if we pruned expired entries.
+	if len(out) != len(raw) {
+		s.persistDashSessionsLocked()
+	}
+	s.dashMu.Unlock()
+}
+
+// persistDashSessionsLocked writes the in-memory map to disk. Caller must hold
+// dashMu. Failures are logged and non-fatal — login still works in-process.
+func (s *Server) persistDashSessionsLocked() {
+	raw := make(map[string]int64, len(s.dashSessions))
+	now := time.Now()
+	for tok, exp := range s.dashSessions {
+		if exp.After(now) {
+			raw[tok] = exp.UnixMilli()
+		}
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return
+	}
+	path := dashSessionsFile()
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		slog.Warn("dash sessions: could not persist", "path", path, "error", err)
+	}
 }

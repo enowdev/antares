@@ -133,6 +133,7 @@ export function streamPost(
     try {
       const res = await fetch(`/api${path}`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(data),
         signal: controller.signal,
@@ -182,22 +183,75 @@ export function streamPost(
   return () => controller.abort()
 }
 
-/** Subscribe to a GET SSE endpoint (logs, events). */
+/**
+ * Subscribe to a GET SSE endpoint (attach, logs, swarm, …).
+ *
+ * Uses fetch (not EventSource) so we can send the dashboard session cookie
+ * (`credentials: 'include'`) and an Authorization header. EventSource cannot
+ * set headers and after a daemon restart used to 401-loop when only a stale
+ * in-memory login map existed — the cookie was valid but attach failed.
+ */
 export function streamGet(
   path: string,
   onEvent: (event: StreamEvent) => void,
   onError?: (err: Error) => void,
+  onDone?: () => void,
 ): () => void {
+  const controller = new AbortController()
   const token = getToken()
+  // Keep ?token= for allowlisted stream paths when a bearer is configured;
+  // cookie auth alone is enough for password-locked dashboards.
   const url = `/api${path}${path.includes('?') ? '&' : '?'}${token ? `token=${encodeURIComponent(token)}` : ''}`
-  const source = new EventSource(url)
-  source.onmessage = (e) => {
+
+  ;(async () => {
     try {
-      onEvent(JSON.parse(e.data) as StreamEvent)
-    } catch {
-      /* ignore */
+      const res = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { ...authHeaders(), Accept: 'text/event-stream' },
+        signal: controller.signal,
+      })
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => '')
+        throw new ApiError(res.status, text || res.statusText)
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        let idx: number
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, idx)
+          buffer = buffer.slice(idx + 2)
+          // Ignore SSE comments (keepalives: ": keepalive").
+          const payload = frame
+            .split('\n')
+            .filter((l) => l.startsWith('data:'))
+            .map((l) => l.slice(5).replace(/^ /, ''))
+            .join('\n')
+          if (!payload || payload === '[DONE]') continue
+          try {
+            onEvent(JSON.parse(payload) as StreamEvent)
+          } catch {
+            /* ignore malformed frame */
+          }
+        }
+      }
+      onDone?.()
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        onDone?.()
+        return
+      }
+      onError?.(err as Error)
     }
-  }
-  source.onerror = () => onError?.(new Error('stream disconnected'))
-  return () => source.close()
+  })()
+
+  return () => controller.abort()
 }

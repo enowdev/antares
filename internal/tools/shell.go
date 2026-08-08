@@ -312,7 +312,16 @@ func (s *shellSession) run(ctx context.Context, command string, timeout time.Dur
 	// A terminal call may enable errexit (`set -e`). Shell options persist just
 	// like cwd and exported variables, but errexit must not leak into the next
 	// call and kill the shell before its completion sentinel can run.
-	script := "set +e\n" + command + "\nprintf '\\n" + marker + "%s\\n' \"$?\"\n"
+	//
+	// The user command must not inherit this pipe as its stdin. The pipe stays
+	// open for the life of the session (so the next tool call can write another
+	// script). Commands such as `adb shell …` and `ssh host …` read stdin by
+	// default: they either block forever on the open pipe or consume the
+	// completion sentinel meant for the parent shell, so the tool hangs until
+	// timeout even though the remote work already finished. A brace group with
+	// `</dev/null` detaches the command without a subshell, so `cd` and
+	// `export` still persist across calls.
+	script := "set +e\n{\n" + command + "\n} </dev/null\nprintf '\\n" + marker + "%s\\n' \"$?\"\n"
 	if _, err := io.WriteString(s.stdin, script); err != nil {
 		s.dead.Store(true)
 		return "", -1, fmt.Errorf("write to shell: %w", err)

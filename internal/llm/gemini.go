@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -40,9 +42,95 @@ func (c *geminiClient) headers() map[string]string {
 	return h
 }
 
+// normalizeGeminiBaseURL makes Antares accept the same base as Gemini CLI.
+// CLI sets GOOGLE_GEMINI_BASE_URL to the gateway root (…/antigravity) and the
+// SDK appends /v1beta. Antares previously required …/antigravity/v1beta in config.
+// Without /v1beta, Sub2API returns 404 for /antigravity/models/….
+func normalizeGeminiBaseURL(base string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return base
+	}
+	lower := strings.ToLower(base)
+	// Already a full v1beta endpoint (official or gateway).
+	if strings.HasSuffix(lower, "/v1beta") || strings.Contains(lower, "/v1beta/") {
+		return base
+	}
+	// Gemini CLI style: http://127.0.0.1:8080/antigravity
+	if strings.HasSuffix(lower, "/antigravity") || strings.Contains(lower, "/antigravity/") {
+		if !strings.Contains(lower, "/v1beta") {
+			return base + "/v1beta"
+		}
+	}
+	return base
+}
+
+// geminiGatewaySticky reports whether this base is a reverse-proxy Antigravity
+// (or similar) Gemini route that benefits from CLI-compatible sticky signals.
+func geminiGatewaySticky(base string) bool {
+	return strings.Contains(strings.ToLower(base), "antigravity")
+}
+
+// withGeminiGatewayStickyHeaders adds Gemini-CLI-compatible sticky headers so
+// multi-account gateways pin the same upstream account across agent turns
+// (needed for implicit cache + thoughtSignature continuity).
+func withGeminiGatewayStickyHeaders(in map[string]string, base, sessionID string) map[string]string {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || !geminiGatewaySticky(base) {
+		return in
+	}
+	out := make(map[string]string, len(in)+3)
+	for k, v := range in {
+		out[k] = v
+	}
+	// Sub2API extractGeminiCLISessionHash prefers this header + body tmp path.
+	if _, ok := out["x-gemini-api-privileged-user-id"]; !ok {
+		out["x-gemini-api-privileged-user-id"] = geminiStickyUserID(sessionID)
+	}
+	// Usage-log correlation (does not drive Gemini sticky alone, but harmless).
+	if _, ok := out["session_id"]; !ok {
+		out["session_id"] = sessionID
+	}
+	return out
+}
+
+// geminiStickyUserID is a stable UUID-shaped id derived from the Antares session.
+func geminiStickyUserID(sessionID string) string {
+	sum := sha256.Sum256([]byte("antares-gemini-sticky:" + sessionID))
+	// Format first 16 bytes as UUID v4-ish (version/variant bits fixed).
+	b := sum[:16]
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// geminiStickyTmpHash is a 64-hex digest matching Sub2API's
+// /\.gemini\/tmp\/([A-Fa-f0-9]{64})/ sticky extractor.
+func geminiStickyTmpHash(sessionID string) string {
+	sum := sha256.Sum256([]byte("antares-gemini-tmp:" + sessionID))
+	return hex.EncodeToString(sum[:])
+}
+
+// geminiStickySystemAnchor is injected into systemInstruction so the gateway
+// can hash a stable sticky key even as conversation contents grow each turn.
+func geminiStickySystemAnchor(sessionID string) string {
+	if strings.TrimSpace(sessionID) == "" {
+		return ""
+	}
+	// Shape mirrors Gemini CLI project temp path that Sub2API keys sticky on.
+	return "The project's temporary directory is: /.gemini/tmp/" + geminiStickyTmpHash(sessionID)
+}
+
+// geminiDummyThoughtSignature is what the official Gemini CLI injects when a
+// functionCall part is missing thoughtSignature. Required for multi-turn tool
+// use on Gemini 3 / thinking models (HTTP 400 otherwise).
+// See packages/core historyHardening.js SYNTHETIC_THOUGHT_SIGNATURE.
+const geminiDummyThoughtSignature = "skip_thought_signature_validator"
+
 type gemPart struct {
 	Text             string         `json:"text,omitempty"`
 	Thought          bool           `json:"thought,omitempty"`
+	ThoughtSignature string         `json:"thoughtSignature,omitempty"`
 	InlineData       *gemInlineData `json:"inlineData,omitempty"`
 	FunctionCall     *gemFuncCall   `json:"functionCall,omitempty"`
 	FunctionResponse *gemFuncResult `json:"functionResponse,omitempty"`
@@ -56,10 +144,12 @@ type gemInlineData struct {
 type gemFuncCall struct {
 	Name string          `json:"name"`
 	Args json.RawMessage `json:"args,omitempty"`
+	ID   string          `json:"id,omitempty"`
 }
 
 type gemFuncResult struct {
 	Name     string `json:"name"`
+	ID       string `json:"id,omitempty"`
 	Response any    `json:"response"`
 }
 
@@ -92,15 +182,31 @@ func toGemini(req Request) []gemContent {
 		case RoleAssistant:
 			var parts []gemPart
 			if strings.TrimSpace(m.Content) != "" {
-				parts = append(parts, gemPart{Text: m.Content})
+				p := gemPart{Text: m.Content}
+				// Text-only turns may carry a part-level thought signature.
+				if m.ThoughtSignature != "" && len(m.ToolCalls) == 0 {
+					p.ThoughtSignature = m.ThoughtSignature
+				}
+				parts = append(parts, p)
 			}
-			for _, tc := range m.ToolCalls {
+			for i, tc := range m.ToolCalls {
 				callName[tc.ID] = tc.Name
 				args := json.RawMessage(tc.Arguments)
 				if strings.TrimSpace(tc.Arguments) == "" {
 					args = json.RawMessage("{}")
 				}
-				parts = append(parts, gemPart{FunctionCall: &gemFuncCall{Name: tc.Name, Args: args}})
+				sig := strings.TrimSpace(tc.ThoughtSignature)
+				if sig == "" && i == 0 {
+					sig = strings.TrimSpace(m.ThoughtSignature)
+				}
+				if sig == "" {
+					// Gemini 3 rejects functionCall parts without a signature.
+					sig = geminiDummyThoughtSignature
+				}
+				parts = append(parts, gemPart{
+					ThoughtSignature: sig,
+					FunctionCall:     &gemFuncCall{Name: tc.Name, Args: args, ID: tc.ID},
+				})
 			}
 			appendMsg("model", parts)
 		case RoleTool:
@@ -110,6 +216,7 @@ func toGemini(req Request) []gemContent {
 			}
 			appendMsg("user", []gemPart{{FunctionResponse: &gemFuncResult{
 				Name:     name,
+				ID:       m.ToolCallID,
 				Response: map[string]any{"result": m.Content},
 			}}})
 		default:
@@ -175,8 +282,16 @@ func sanitizeSchema(in map[string]any) map[string]any {
 
 func (c *geminiClient) buildBody(req Request) map[string]any {
 	body := map[string]any{"contents": toGemini(req)}
+	sysParts := make([]gemPart, 0, 2)
+	if anchor := geminiStickySystemAnchor(c.opts.SessionID); anchor != "" && geminiGatewaySticky(c.opts.BaseURL) {
+		// Keep sticky fingerprint in systemInstruction (stable across agent turns).
+		sysParts = append(sysParts, gemPart{Text: anchor})
+	}
 	if s := strings.TrimSpace(req.System); s != "" {
-		body["systemInstruction"] = gemContent{Parts: []gemPart{{Text: s}}}
+		sysParts = append(sysParts, gemPart{Text: s})
+	}
+	if len(sysParts) > 0 {
+		body["systemInstruction"] = gemContent{Parts: sysParts}
 	}
 	gen := map[string]any{}
 	if req.Temperature > 0 {
@@ -191,15 +306,8 @@ func (c *geminiClient) buildBody(req Request) map[string]any {
 	if len(req.StopSequences) > 0 {
 		gen["stopSequences"] = req.StopSequences
 	}
-	switch strings.ToLower(req.ReasoningEffort) {
-	case "low":
-		gen["thinkingConfig"] = map[string]any{"thinkingBudget": 2048, "includeThoughts": true}
-	case "medium":
-		gen["thinkingConfig"] = map[string]any{"thinkingBudget": 8192, "includeThoughts": true}
-	case "high":
-		gen["thinkingConfig"] = map[string]any{"thinkingBudget": 24576, "includeThoughts": true}
-	case "none":
-		gen["thinkingConfig"] = map[string]any{"thinkingBudget": 0}
+	if tc := geminiThinkingConfig(req.Model, req.ReasoningEffort); tc != nil {
+		gen["thinkingConfig"] = tc
 	}
 	if len(gen) > 0 {
 		body["generationConfig"] = gen
@@ -262,7 +370,96 @@ func (c *geminiClient) endpoint(model, method string, stream bool) string {
 	return u
 }
 
+// geminiThinkingConfig builds generationConfig.thinkingConfig for the model.
+// Gemini 3 series prefer thinkingLevel (MINIMAL/LOW/MEDIUM/HIGH); 2.5 series
+// use thinkingBudget token counts. includeThoughts requests thought summaries
+// when the endpoint exposes them (not all reverse proxies return thought text).
+func geminiThinkingConfig(model, effort string) map[string]any {
+	e := strings.ToLower(strings.TrimSpace(effort))
+	if e == "" {
+		return nil
+	}
+	useLevel := geminiModelUsesThinkingLevel(model)
+	switch e {
+	case "none":
+		if useLevel {
+			return map[string]any{"thinkingLevel": "MINIMAL", "includeThoughts": false}
+		}
+		return map[string]any{"thinkingBudget": 0}
+	case "low":
+		if useLevel {
+			return map[string]any{"thinkingLevel": "LOW", "includeThoughts": true}
+		}
+		return map[string]any{"thinkingBudget": 2048, "includeThoughts": true}
+	case "medium":
+		if useLevel {
+			return map[string]any{"thinkingLevel": "MEDIUM", "includeThoughts": true}
+		}
+		return map[string]any{"thinkingBudget": 8192, "includeThoughts": true}
+	case "high":
+		if useLevel {
+			return map[string]any{"thinkingLevel": "HIGH", "includeThoughts": true}
+		}
+		return map[string]any{"thinkingBudget": 24576, "includeThoughts": true}
+	default:
+		return nil
+	}
+}
+
+func geminiModelUsesThinkingLevel(model string) bool {
+	m := strings.ToLower(strings.TrimPrefix(model, "models/"))
+	// Gemini 3.x model ids (and antigravity aliases like gemini-3.6-flash-high).
+	return strings.HasPrefix(m, "gemini-3") || strings.Contains(m, "gemini-3.")
+}
+
+// parseGeminiParts folds candidate parts into content, reasoning, tool calls,
+// and preserves thoughtSignature on tool calls / final text.
+func parseGeminiParts(parts []gemPart) (content, reasoning string, calls []ToolCall, textSig string) {
+	var text, thought strings.Builder
+	for i, p := range parts {
+		switch {
+		case p.FunctionCall != nil:
+			args := string(p.FunctionCall.Args)
+			if strings.TrimSpace(args) == "" {
+				args = "{}"
+			}
+			id := p.FunctionCall.ID
+			if id == "" {
+				id = fmt.Sprintf("call_%d_%s", i, p.FunctionCall.Name)
+			}
+			calls = append(calls, ToolCall{
+				ID:               id,
+				Name:             p.FunctionCall.Name,
+				Arguments:        args,
+				ThoughtSignature: p.ThoughtSignature,
+			})
+		case p.Thought:
+			thought.WriteString(p.Text)
+			if p.ThoughtSignature != "" && textSig == "" {
+				textSig = p.ThoughtSignature
+			}
+		default:
+			if p.Text != "" {
+				text.WriteString(p.Text)
+			}
+			// Final answer parts often carry thoughtSignature without thought:true.
+			if p.ThoughtSignature != "" {
+				textSig = p.ThoughtSignature
+			}
+		}
+	}
+	return text.String(), thought.String(), calls, textSig
+}
+
 func (c *geminiClient) Chat(ctx context.Context, req Request) (*Response, error) {
+	// Prefer stream collection: some Gemini-compatible reverse proxies aggregate
+	// non-stream generateContent by keeping only the final STOP chunk, which is
+	// often empty text after a functionCall chunk. streamGenerateContent preserves
+	// functionCall + thoughtSignature parts (official multi-turn tool contract).
+	if len(req.Tools) > 0 {
+		return c.Stream(ctx, req, func(Event) error { return nil })
+	}
+
 	var raw gemResponse
 	if err := c.opts.doJSON(ctx, "POST", c.endpoint(req.Model, "generateContent", false), c.buildBody(req), c.headers(), &raw); err != nil {
 		return nil, err
@@ -274,24 +471,7 @@ func (c *geminiClient) Chat(ctx context.Context, req Request) (*Response, error)
 	if len(raw.Candidates) > 0 {
 		cand := raw.Candidates[0]
 		resp.FinishReason = strings.ToLower(cand.FinishReason)
-		var text, thought strings.Builder
-		for i, p := range cand.Content.Parts {
-			switch {
-			case p.FunctionCall != nil:
-				args := string(p.FunctionCall.Args)
-				if strings.TrimSpace(args) == "" {
-					args = "{}"
-				}
-				resp.ToolCalls = append(resp.ToolCalls, ToolCall{
-					ID: fmt.Sprintf("call_%d_%s", i, p.FunctionCall.Name), Name: p.FunctionCall.Name, Arguments: args,
-				})
-			case p.Thought:
-				thought.WriteString(p.Text)
-			default:
-				text.WriteString(p.Text)
-			}
-		}
-		resp.Content, resp.Reasoning = text.String(), thought.String()
+		resp.Content, resp.Reasoning, resp.ToolCalls, resp.ThoughtSignature = parseGeminiParts(cand.Content.Parts)
 	}
 	if u := raw.UsageMetadata; u != nil {
 		resp.Usage = Usage{
@@ -317,6 +497,7 @@ func (c *geminiClient) Stream(ctx context.Context, req Request, emit func(Event)
 		calls   []ToolCall
 		usage   Usage
 		finish  string
+		textSig string
 		callSeq int
 		emitted = map[string]bool{}
 	)
@@ -352,14 +533,22 @@ func (c *geminiClient) Stream(ctx context.Context, req Request, emit func(Event)
 					if strings.TrimSpace(args) == "" {
 						args = "{}"
 					}
-					id := fmt.Sprintf("call_%d_%s", callSeq, p.FunctionCall.Name)
+					id := p.FunctionCall.ID
+					if id == "" {
+						id = fmt.Sprintf("call_%d_%s", callSeq, p.FunctionCall.Name)
+					}
 					callSeq++
-					if emitted[id] {
+					// Dedupe by provider id or name+args when id missing.
+					dedupeKey := id
+					if emitted[dedupeKey] {
 						continue
 					}
-					emitted[id] = true
+					emitted[dedupeKey] = true
 					idx := len(calls)
-					calls = append(calls, ToolCall{ID: id, Name: p.FunctionCall.Name, Arguments: args})
+					calls = append(calls, ToolCall{
+						ID: id, Name: p.FunctionCall.Name, Arguments: args,
+						ThoughtSignature: p.ThoughtSignature,
+					})
 					if err := emit(Event{Type: EventToolCallStart, Index: idx, ToolCallID: id, ToolName: p.FunctionCall.Name}); err != nil {
 						return err
 					}
@@ -367,14 +556,28 @@ func (c *geminiClient) Stream(ctx context.Context, req Request, emit func(Event)
 						return err
 					}
 				case p.Thought:
-					thought.WriteString(p.Text)
-					if err := emit(Event{Type: EventReasoning, Delta: p.Text}); err != nil {
-						return err
+					if p.Text != "" {
+						thought.WriteString(p.Text)
+						if err := emit(Event{Type: EventReasoning, Delta: p.Text}); err != nil {
+							return err
+						}
+					}
+					if p.ThoughtSignature != "" {
+						textSig = p.ThoughtSignature
 					}
 				case p.Text != "":
 					text.WriteString(p.Text)
 					if err := emit(Event{Type: EventText, Delta: p.Text}); err != nil {
 						return err
+					}
+					if p.ThoughtSignature != "" {
+						textSig = p.ThoughtSignature
+					}
+				default:
+					// Signature-only or empty-text finish chunks still carry
+					// thoughtSignature that must survive into history.
+					if p.ThoughtSignature != "" {
+						textSig = p.ThoughtSignature
 					}
 				}
 			}
@@ -384,6 +587,17 @@ func (c *geminiClient) Stream(ctx context.Context, req Request, emit func(Event)
 	if err != nil {
 		return nil, err
 	}
+	// If a functionCall arrived without a signature, inject the CLI dummy so
+	// the next turn does not 400. Prefer part-level sig already stored.
+	for i := range calls {
+		if strings.TrimSpace(calls[i].ThoughtSignature) == "" {
+			if textSig != "" {
+				calls[i].ThoughtSignature = textSig
+			} else {
+				calls[i].ThoughtSignature = geminiDummyThoughtSignature
+			}
+		}
+	}
 	for i, call := range calls {
 		if err := emit(Event{Type: EventToolCallEnd, Index: i, ToolCallID: call.ID, ToolName: call.Name, Delta: call.Arguments}); err != nil {
 			return nil, err
@@ -391,7 +605,7 @@ func (c *geminiClient) Stream(ctx context.Context, req Request, emit func(Event)
 	}
 	return &Response{
 		Content: text.String(), Reasoning: thought.String(), ToolCalls: calls,
-		FinishReason: finish, Model: req.Model, Usage: usage,
+		ThoughtSignature: textSig, FinishReason: finish, Model: req.Model, Usage: usage,
 	}, nil
 }
 
