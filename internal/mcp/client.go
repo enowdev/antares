@@ -333,13 +333,26 @@ func (c *Client) Close() error { return c.transport.Close() }
 
 // stdioTransport runs the server as a child process and exchanges
 // newline-delimited JSON-RPC frames over its pipes.
+//
+// Concurrency model:
+//   - sendMu serialises request/response pairs (stdio MCP is half-duplex).
+//   - mu protects closed/stdin so Close can mark the transport dead and kill the
+//     child without waiting for a hung RPC to finish writing.
+//
+// Previously send held one mutex for the entire RPC duration. If the child hung
+// (e.g. IDA Pro MCP waiting on a dead IDA RPC port), Close/Refresh blocked
+// forever on that lock — the dashboard MCP page and any reload path appeared to
+// hang. Close must be able to kill the process so the blocked read returns EOF.
 type stdioTransport struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
 
-	mu     sync.Mutex
+	sendMu sync.Mutex // serialises send/notify request cycles
+	mu     sync.Mutex // protects closed + stdin write against Close
 	closed bool
+	waitOnce sync.Once
+	waitErr  error
 }
 
 func newStdioTransport(cfg ServerConfig) (transport, error) {
@@ -375,20 +388,41 @@ func newStdioTransport(cfg ServerConfig) (transport, error) {
 		}
 	}()
 
-	return &stdioTransport{cmd: cmd, stdin: stdin, stdout: bufio.NewReaderSize(stdout, 1<<20)}, nil
+	t := &stdioTransport{cmd: cmd, stdin: stdin, stdout: bufio.NewReaderSize(stdout, 1<<20)}
+	// Reap the child if it exits on its own so it never sits as a zombie until
+	// the next Close/Refresh. Wait is idempotent via waitOnce.
+	go func() { _ = t.reap() }()
+	return t, nil
+}
+
+func (t *stdioTransport) reap() error {
+	t.waitOnce.Do(func() {
+		if t.cmd != nil {
+			t.waitErr = t.cmd.Wait()
+		}
+	})
+	return t.waitErr
 }
 
 func (t *stdioTransport) send(ctx context.Context, req rpcRequest) (*rpcResponse, error) {
+	// One in-flight request at a time — required for line-delimited stdio.
+	t.sendMu.Lock()
+	defer t.sendMu.Unlock()
+
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if t.closed {
+		t.mu.Unlock()
 		return nil, fmt.Errorf("mcp connection closed")
 	}
-	if err := t.writeFrame(req); err != nil {
+	err := t.writeFrame(req)
+	t.mu.Unlock()
+	if err != nil {
 		return nil, err
 	}
 
 	// Skip any notification the server interleaves before our response.
+	// Do NOT hold mu while waiting: Close must be able to kill the child so a
+	// hung tools/call (dead IDA backend, wedged proxy, …) unblocks.
 	type result struct {
 		resp *rpcResponse
 		err  error
@@ -419,6 +453,9 @@ func (t *stdioTransport) send(ctx context.Context, req rpcRequest) (*rpcResponse
 
 	select {
 	case <-ctx.Done():
+		// Tear down the child so the reader goroutine unblocks on EOF and the
+		// next send cannot talk to a half-dead process with a stolen reply.
+		_ = t.Close()
 		return nil, ctx.Err()
 	case r := <-ch:
 		return r.resp, r.err
@@ -426,8 +463,13 @@ func (t *stdioTransport) send(ctx context.Context, req rpcRequest) (*rpcResponse
 }
 
 func (t *stdioTransport) notify(_ context.Context, req rpcRequest) error {
+	t.sendMu.Lock()
+	defer t.sendMu.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.closed {
+		return fmt.Errorf("mcp connection closed")
+	}
 	return t.writeFrame(req)
 }
 
@@ -444,16 +486,20 @@ func (t *stdioTransport) writeFrame(req rpcRequest) error {
 
 func (t *stdioTransport) Close() error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if t.closed {
-		return nil
+		t.mu.Unlock()
+		return t.reap()
 	}
 	t.closed = true
 	_ = t.stdin.Close()
-	if t.cmd.Process != nil {
-		_ = t.cmd.Process.Kill()
+	proc := t.cmd.Process
+	t.mu.Unlock()
+
+	if proc != nil {
+		_ = proc.Kill()
 	}
-	return nil
+	// Always Wait so the child does not linger as a zombie under antares.
+	return t.reap()
 }
 
 // ---- http transport ----------------------------------------------------------

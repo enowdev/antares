@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, CircleNotch, UsersThree } from '@phosphor-icons/react'
-import { streamGet, type StreamEvent } from '@/lib/api'
+import { get, streamGet, type StreamEvent } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 import {
+  DEFAULT_MAX_LIVE_REASONING_CHARS,
   MessageBubble,
   appendSeg,
   pushToolSeg,
@@ -28,7 +29,29 @@ export function SubAgentPanel({ agent, onBack }: { agent: ActiveAgent; onBack: (
   const { t } = useI18n()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [done, setDone] = useState(false)
+  const [showReasoning, setShowReasoning] = useState(true)
+  const showReasoningRef = useRef(true)
+  const maxLiveReasoningRef = useRef(DEFAULT_MAX_LIVE_REASONING_CHARS)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    showReasoningRef.current = showReasoning
+  }, [showReasoning])
+
+  useEffect(() => {
+    get<{
+      values?: { display?: { show_reasoning?: boolean; max_live_reasoning_chars?: number } }
+    }>('/config')
+      .then((d) => {
+        const disp = d.values?.display
+        if (disp && typeof disp.show_reasoning === 'boolean') setShowReasoning(disp.show_reasoning)
+        const n = Number(disp?.max_live_reasoning_chars)
+        if (Number.isFinite(n)) {
+          maxLiveReasoningRef.current = n < 0 ? DEFAULT_MAX_LIVE_REASONING_CHARS : n
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     // Reset when switching between sub-agents.
@@ -39,18 +62,43 @@ export function SubAgentPanel({ agent, onBack }: { agent: ActiveAgent; onBack: (
     // main transcript renders one streaming turn.
     setMessages([{ id, role: 'assistant', content: '' }])
 
-    const patch = (fn: (m: ChatMessage) => ChatMessage) =>
-      setMessages((prev) => prev.map((m) => (m.id === id ? fn(m) : m)))
+    // Batch stream patches once per frame — sub-agents stream the same dense
+    // reasoning token firehose as the main chat and used to setState per token.
+    let pending: ((m: ChatMessage) => ChatMessage) | null = null
+    let raf: number | null = null
+    const flush = () => {
+      raf = null
+      const fn = pending
+      pending = null
+      if (!fn) return
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === id)
+        if (idx < 0) return prev
+        const next = prev.slice()
+        next[idx] = fn(prev[idx])
+        return next
+      })
+    }
+    const patch = (fn: (m: ChatMessage) => ChatMessage) => {
+      const prev = pending
+      pending = prev ? (m) => fn(prev(m)) : fn
+      if (raf == null) raf = requestAnimationFrame(flush)
+    }
 
     const close = streamGet(
       `/subagent/${encodeURIComponent(agent.id)}/attach`,
       (event: StreamEvent) => {
         switch (event.type) {
           case 'text':
-            patch((m) => appendSeg(m, 'text', String(event.delta ?? '')))
+            patch((m) =>
+              appendSeg(m, 'text', String(event.delta ?? ''), maxLiveReasoningRef.current),
+            )
             break
           case 'reasoning':
-            patch((m) => appendSeg(m, 'reasoning', String(event.delta ?? '')))
+            if (!showReasoningRef.current) break
+            patch((m) =>
+              appendSeg(m, 'reasoning', String(event.delta ?? ''), maxLiveReasoningRef.current),
+            )
             break
           case 'tool_call':
             patch((m) =>
@@ -88,13 +136,21 @@ export function SubAgentPanel({ agent, onBack }: { agent: ActiveAgent; onBack: (
             patch((m) => ({ ...m, error: String(event.error ?? '') }))
             break
           case 'done':
+            if (raf != null) {
+              cancelAnimationFrame(raf)
+              raf = null
+            }
+            if (pending) flush()
             setDone(true)
             break
         }
       },
       () => setDone(true),
     )
-    return close
+    return () => {
+      if (raf != null) cancelAnimationFrame(raf)
+      close()
+    }
   }, [agent.id])
 
   // Keep the newest output in view as it streams.
@@ -138,7 +194,7 @@ export function SubAgentPanel({ agent, onBack }: { agent: ActiveAgent; onBack: (
             </div>
           ) : null}
           {messages.map((m) => (
-            <MessageBubble key={m.id} message={m} />
+            <MessageBubble key={m.id} message={m} showReasoning={showReasoning} />
           ))}
           <div ref={bottomRef} />
         </div>

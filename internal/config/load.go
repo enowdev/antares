@@ -246,6 +246,10 @@ func normalize(c *Config) {
 	if c.Agent.MaxTurns <= 0 {
 		c.Agent.MaxTurns = 200
 	}
+	// Negative is meaningless; treat as default cap. 0 stays unlimited.
+	if c.Display.MaxLiveReasoningChars < 0 {
+		c.Display.MaxLiveReasoningChars = 48_000
+	}
 }
 
 // ResolveProvider returns the provider entry used for a model call, falling back

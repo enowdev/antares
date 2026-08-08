@@ -79,8 +79,9 @@ var common = map[string]bool{
 	"compression.enabled":         true,
 	"streaming.enabled":           true,
 	"delegation.enabled":          true,
-	"display.show_reasoning":      true,
-	"display.tool_progress":       true,
+	"display.show_reasoning":            true,
+	"display.tool_progress":             true,
+	"display.max_live_reasoning_chars":  true,
 	"logging.level":               true,
 	"server.host":                 true,
 }
@@ -138,6 +139,9 @@ var help = map[string]string{
 	"memory.memory_enabled":     "Lets the agent store durable facts between sessions.",
 	"skills.auto_create":        "Allows the agent to write new skills on its own.",
 	"osint.google_cookie":       "Optional. A logged-in Google Cookie header enables osint_google to resolve an email to its public profile. ToS-sensitive; uses your own session. Leave empty to disable.",
+	"display.show_reasoning": "Stream and show model reasoning/thinking in the dashboard (and TUI). Off skips emitting reasoning events so long thinking traces never hit the UI.",
+	"display.tool_progress":  "Show live tool progress lines while a tool runs.",
+	"display.max_live_reasoning_chars": "Max characters of reasoning kept in the browser while a turn streams (trailing window). Prevents tab freezes on long thinking. Default 48000. 0 = unlimited. Full text is still saved server-side and restored after the turn.",
 }
 
 func secretKey(path string) bool {
