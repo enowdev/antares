@@ -123,8 +123,9 @@ func Default() *Config {
 		SessionReset:  SessionReset{Mode: "never", IdleMinutes: 180, AtHour: 4},
 		Streaming:     Streaming{Enabled: true},
 		Display: Display{
-			ToolProgress: true, ShowReasoning: true, Theme: "system",
-			Skin: "antares", Language: "auto", InterimAssistant: true,
+			ToolProgress: true, ShowReasoning: true,
+			MaxLiveReasoningChars: 48_000,
+			Theme: "system", Skin: "antares", Language: "auto", InterimAssistant: true,
 		},
 		Logging: Logging{Level: "info", File: filepath.Join(Home(), "logs", "antares.log")},
 		MCP:     MCP{Enabled: true, Servers: map[string]MCPServer{}},
