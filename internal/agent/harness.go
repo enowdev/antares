@@ -2,9 +2,7 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -101,8 +99,7 @@ func (r *repeatTracker) record(calls []llm.ToolCall) []string {
 			// tool bounds every wait and terminal jobs have explicit cancellation.
 			continue
 		}
-		sum := sha256.Sum256([]byte(c.Name + "\x00" + normaliseArgs(c.Arguments)))
-		key := hex.EncodeToString(sum[:8])
+		key := repeatKey(c)
 		r.seen[key]++
 		if r.seen[key] == r.limit {
 			tripped = append(tripped, c.Name)
@@ -152,6 +149,31 @@ func normaliseArgs(raw string) string {
 		return strings.TrimSpace(raw)
 	}
 	return string(b)
+}
+
+// repeatKey builds the fingerprint for a tool call. For write_file and
+// edit_file the key uses only the tool name and the target path — not the
+// full arguments — so repeated writes to the same file with different
+// content are recognised as the same stuck call. Other tools use the full
+// normalised arguments as before.
+func repeatKey(c llm.ToolCall) string {
+	switch c.Name {
+	case "write_file", "edit_file":
+		var args struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(c.Arguments), &args) == nil && args.Path != "" {
+			return c.Name + "\x00" + args.Path
+		}
+	case "vps_upload":
+		var args struct {
+			RemotePath string `json:"remote_path"`
+		}
+		if json.Unmarshal([]byte(c.Arguments), &args) == nil && args.RemotePath != "" {
+			return c.Name + "\x00" + args.RemotePath
+		}
+	}
+	return c.Name + "\x00" + normaliseArgs(c.Arguments)
 }
 
 // ---- verification ------------------------------------------------------------
@@ -468,7 +490,7 @@ func todoContinueMessage(open int) string {
 // a single segment's budget — enough for a long multi-step task — while still
 // preventing a genuine runaway tool loop from running unbounded. agent.max_turns
 // remains the absolute backstop.
-const maxGuardrailContinues = 9
+const maxGuardrailContinues = 4
 
 // guardrailContinueMessage is injected when the per-segment tool-call budget is
 // reached but the todo list still has open items: keep working rather than stop.

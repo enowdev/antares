@@ -89,9 +89,13 @@ func (a *Agent) maybeCompact(ctx context.Context, history []llm.Message, system,
 
 	summary, err := a.summarise(ctx, middle)
 	if err != nil {
-		slog.Warn("context compaction failed; dropping oldest turns instead", "error", err)
-		// Fall back to truncation so the turn can still proceed.
-		return append(append([]llm.Message{}, head...), tail...)
+		slog.Warn("context compaction failed; pruning oversized tool outputs instead of dropping history", "error", err)
+		// Fall back to pruning oversized tool results in the middle section so
+		// the turn can still proceed without losing all mid-task context.
+		// Dropping the entire middle (head+tail only) would silently erase
+		// the conversation between protectFirst and protectLast.
+		pruned := a.prunedToolResults(middle)
+		return append(append([]llm.Message{}, head...), append(pruned, tail...)...)
 	}
 
 	compacted := make([]llm.Message, 0, len(head)+len(tail)+1)

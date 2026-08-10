@@ -132,3 +132,44 @@ func TestNormaliseArgsToleratesGarbage(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestRepeatKeyWriteFileSamePathDifferentContent(t *testing.T) {
+	r := newRepeatTracker(2)
+	// Same path, different content — the old full-args fingerprint would not
+	// trip. With the path-aware key, repeated writes to the same file are
+	// recognised as a stuck loop.
+	path := `{"path":"config.yaml","content":"v1"}`
+	r.record([]llm.ToolCall{{Name: "write_file", Arguments: path}})
+	path2 := `{"path":"config.yaml","content":"v2"}`
+	got := r.record([]llm.ToolCall{{Name: "write_file", Arguments: path2}})
+	if len(got) != 1 || got[0] != "write_file" {
+		t.Fatalf("same-path different-content write should trip on 2nd call, got %v", got)
+	}
+}
+
+func TestRepeatKeyEditFileSamePathDifferentContent(t *testing.T) {
+	r := newRepeatTracker(2)
+	r.record([]llm.ToolCall{{Name: "edit_file", Arguments: `{"path":"main.go","old_string":"a","new_string":"b"}`}})
+	got := r.record([]llm.ToolCall{{Name: "edit_file", Arguments: `{"path":"main.go","old_string":"c","new_string":"d"}`}})
+	if len(got) != 1 || got[0] != "edit_file" {
+		t.Fatalf("same-path different-content edit should trip on 2nd call, got %v", got)
+	}
+}
+
+func TestRepeatKeyVpsUploadSameRemotePath(t *testing.T) {
+	r := newRepeatTracker(2)
+	r.record([]llm.ToolCall{{Name: "vps_upload", Arguments: `{"remote_path":"/tmp/x","local_path":"/a/b"}`}})
+	got := r.record([]llm.ToolCall{{Name: "vps_upload", Arguments: `{"remote_path":"/tmp/x","local_path":"/c/d"}`}})
+	if len(got) != 1 || got[0] != "vps_upload" {
+		t.Fatalf("same-remote-path different-local vps_upload should trip, got %v", got)
+	}
+}
+
+func TestRepeatKeyWriteFileDifferentPathDoesNotTrip(t *testing.T) {
+	r := newRepeatTracker(2)
+	r.record([]llm.ToolCall{{Name: "write_file", Arguments: `{"path":"a.txt","content":"x"}`}})
+	got := r.record([]llm.ToolCall{{Name: "write_file", Arguments: `{"path":"b.txt","content":"x"}`}})
+	if len(got) != 0 {
+		t.Fatalf("different paths should not trip: %v", got)
+	}
+}
