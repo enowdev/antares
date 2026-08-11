@@ -33,8 +33,3 @@ AGENTS.md
 dist/
 !internal/server/dist/
 !internal/server/dist/.gitkeep
-
-.projectmem/events.jsonl
-.projectmem/watch.pid
-.projectmem/watch.log
-.projectmem/structure.json
