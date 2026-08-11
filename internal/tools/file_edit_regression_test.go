@@ -142,6 +142,33 @@ func TestEditFileDiagnosesTabVsSpaceMismatch(t *testing.T) {
 	}
 }
 
+func TestEditFileAmbiguousListsCurrentMatchLines(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "repeat.go")
+	content := "func a() {\n\treturn value\n}\nfunc b() {\n\treturn value\n}\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"path": "repeat.go", "old_string": "\treturn value", "new_string": "\treturn other"})
+	result := (editFileTool{}).Execute(context.Background(), Input{Workspace: workspace, Args: args})
+	if !result.IsError || !strings.Contains(result.Content, "Current match line(s): 2, 5") {
+		t.Fatalf("unexpected ambiguity result: %+v", result)
+	}
+}
+
+func TestEditFileNotFoundShowsNearMiss(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "names.go")
+	if err := os.WriteFile(path, []byte("func attachEntity() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"path": "names.go", "old_string": "func attachEntit() {}", "new_string": "func attachEntity2() {}"})
+	result := (editFileTool{}).Execute(context.Background(), Input{Workspace: workspace, Args: args})
+	if !result.IsError || !strings.Contains(result.Content, "attachEntity") {
+		t.Fatalf("near-miss missing from result: %+v", result)
+	}
+}
+
 func TestStripReadFileLinePrefixes(t *testing.T) {
 	in := "10|\tfoo()\n11|\tbar()\n12|}"
 	got, ok := stripReadFileLinePrefixes(in)
@@ -158,5 +185,20 @@ func TestStripReadFileLinePrefixes(t *testing.T) {
 	// Single line of real data that happens to contain a pipe stays intact.
 	if s, ok := stripReadFileLinePrefixes("nope"); ok || s != "nope" {
 		t.Fatalf("non-prefixed = %q ok=%v", s, ok)
+	}
+}
+
+func TestEditFileDiagnosesMixedReadPrefixes(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "mixed.go")
+	if err := os.WriteFile(path, []byte("func run() {\n\treturn\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{
+		"path": "mixed.go", "old_string": "1|func run() {\n\treturn\n}", "new_string": "1|func run() {\n\treturn nil\n}",
+	})
+	result := (editFileTool{}).Execute(context.Background(), Input{Workspace: workspace, Args: args})
+	if !result.IsError || !strings.Contains(result.Content, "Some old_string lines still include") {
+		t.Fatalf("mixed-prefix diagnostic missing: %+v", result)
 	}
 }

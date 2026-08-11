@@ -104,11 +104,21 @@ func (a *Agent) lessonsBlock(ctx context.Context) string {
 		return ""
 	}
 	var lessons []string
+	seen := make(map[string]struct{})
 	for _, m := range items {
 		if m.Source == lessonSource {
-			lessons = append(lessons, m.Content)
+			lesson := strings.TrimSpace(m.Content)
+			if !usableLesson(lesson) {
+				continue
+			}
+			key := strings.ToLower(lesson)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			lessons = append(lessons, lesson)
 		}
-		if len(lessons) >= 20 {
+		if len(lessons) >= 12 {
 			break
 		}
 	}
@@ -122,4 +132,21 @@ func (a *Agent) lessonsBlock(ctx context.Context) string {
 		b.WriteString("- " + l + "\n")
 	}
 	return b.String()
+}
+
+// usableLesson keeps malformed auxiliary-model output out of the system
+// prompt. Historical rows include fragments such as "NONE", "Wait", and
+// duplicated partial sentences; presenting them as instructions makes tool
+// behavior less predictable and wastes context.
+func usableLesson(s string) bool {
+	if len(s) < 32 || len(s) > 400 {
+		return false
+	}
+	if strings.EqualFold(s, "none") || strings.HasSuffix(strings.ToLower(s), " none") {
+		return false
+	}
+	if strings.EqualFold(s, "wait") || strings.EqualFold(s, ".") {
+		return false
+	}
+	return true
 }

@@ -325,7 +325,7 @@ func (editFileTool) Execute(_ context.Context, in Input) Result {
 	case count == 0:
 		return Errorf("%s", editNotFoundMessage(args.Path, content, args.OldString))
 	case count > 1 && !args.ReplaceAll:
-		return Errorf("old_string appears %d times in %s; add more surrounding context or set replace_all", count, args.Path)
+		return Errorf("%s", editAmbiguousMessage(args.Path, content, oldString, count))
 	}
 
 	var updated string
@@ -488,8 +488,138 @@ func editNotFoundMessage(path, content, oldString string) string {
 		}
 	}
 
+	// A mixed paste usually means the model copied the display prefix from only
+	// one or two read_file lines. Do not silently strip it: the unprefixed lines
+	// may contain literal pipe characters.
+	if prefixed, total := readFileLinePrefixCounts(oldString); prefixed > 0 && prefixed < total {
+		b.WriteString(" Some old_string lines still include read_file line numbers (NUMBER|) while others do not. Remove every numeric prefix and keep only the text after each |, then retry from a fresh read.")
+		return b.String()
+	}
+	if hint := nearMissHint(content, oldString); hint != "" {
+		b.WriteByte(' ')
+		b.WriteString(hint)
+		return b.String()
+	}
+
 	b.WriteString(" Read the file first and copy only the content after the NUMBER| separator; preserve tabs, spaces, and indentation exactly.")
 	return b.String()
+}
+
+func readFileLinePrefixCounts(s string) (prefixed, total int) {
+	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
+	if len(lines) > 1 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	for _, line := range lines {
+		total++
+		i := strings.IndexByte(line, '|')
+		if i > 0 {
+			allDigits := true
+			for _, c := range line[:i] {
+				if c < '0' || c > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits {
+				prefixed++
+			}
+		}
+	}
+	return prefixed, total
+}
+
+func editAmbiguousMessage(path, content, oldString string, count int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "old_string appears %d times in %s; add unique surrounding context or set replace_all only if every occurrence should change.", count, path)
+	if lines := occurrenceLines(content, oldString, 12); len(lines) > 0 {
+		b.WriteString(" Current match line(s): ")
+		for i, line := range lines {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "%d", line)
+		}
+		b.WriteByte('.')
+	}
+	b.WriteString(" Re-read the current file and include enough neighbouring lines for exactly one match.")
+	return b.String()
+}
+
+func occurrenceLines(content, needle string, max int) []int {
+	if needle == "" || max <= 0 {
+		return nil
+	}
+	var lines []int
+	for from := 0; from < len(content) && len(lines) < max; {
+		i := strings.Index(content[from:], needle)
+		if i < 0 {
+			break
+		}
+		at := from + i
+		lines = append(lines, 1+strings.Count(content[:at], "\n"))
+		from = at + len(needle)
+	}
+	return lines
+}
+
+// nearMissHint reports a few real lines sharing a distinctive identifier with
+// old_string. It is intentionally short and bounded: the tool should correct
+// the model's stale context without dumping the file into an error response.
+func nearMissHint(content, oldString string) string {
+	for _, token := range identifierTokens(oldString) {
+		if len(token) < 8 || strings.Contains(strings.ToLower(token), "read_file") {
+			continue
+		}
+		var hits []string
+		for i, line := range strings.Split(content, "\n") {
+			if strings.Contains(line, token) {
+				line = strings.TrimRight(line, "\r")
+				if len(line) > 180 {
+					line = line[:180] + "..."
+				}
+				hits = append(hits, fmt.Sprintf("line %d: %s", i+1, line))
+				if len(hits) == 3 {
+					break
+				}
+			}
+		}
+		if len(hits) > 0 {
+			return "Near-miss lines sharing a token (re-read them; do not invent identifiers): " + strings.Join(hits, " ")
+		}
+	}
+	return ""
+}
+
+func identifierTokens(s string) []string {
+	var out []string
+	start := -1
+	flush := func(end int) {
+		if start >= 0 && end-start >= 8 {
+			out = append(out, s[start:end])
+		}
+		start = -1
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		isID := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+		if isID {
+			if start < 0 {
+				start = i
+			}
+		} else {
+			flush(i)
+		}
+	}
+	flush(len(s))
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if len(out[j]) > len(out[i]) {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out
 }
 
 // expandTabs replaces leading and embedded tabs with spaces at the given width
