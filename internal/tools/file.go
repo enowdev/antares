@@ -417,6 +417,7 @@ func stripReadFileLinePrefixes(s string) (string, bool) {
 // the two failure modes that read_file → edit_file commonly hits:
 //  1. LF vs CRLF (read_file always displays LF)
 //  2. pasted NUMBER| line prefixes from read_file output
+//  3. a unique near-match when new_string only inserts adjacent text
 //
 // how is a short note for the success message when recovery was used; empty on
 // a plain exact match.
@@ -460,7 +461,104 @@ func resolveEditMatch(content, oldIn, newIn string) (oldString, newString string
 		}
 	}
 
+	// 3. A common README/table operation copies a line from an earlier read,
+	// abbreviates one phrase, and adds a new row immediately after it. Recover
+	// only that narrow insertion shape, and only when one file line is a clear
+	// unique match. The actual on-disk line is retained, so stale wording is not
+	// silently overwritten. Ordinary replacements remain exact-only.
+	if oldLine, newLine, ok := resolveAdjacentInsertion(content, oldIn, newIn, eol); ok {
+		return oldLine, newLine, 1, "matched unique near line for adjacent insertion"
+	}
+
 	return oldIn, newIn, 0, ""
+}
+
+func resolveAdjacentInsertion(content, oldIn, newIn, eol string) (oldLine, newLine string, ok bool) {
+	oldNorm := toEOL(oldIn, "\n")
+	newNorm := toEOL(newIn, "\n")
+	if oldNorm == "" || strings.Contains(oldNorm, "\n") {
+		return "", "", false
+	}
+
+	mode := 0 // 1 = insert after, 2 = insert before
+	insert := ""
+	if strings.HasPrefix(newNorm, oldNorm+"\n") {
+		mode = 1
+		insert = strings.TrimPrefix(newNorm, oldNorm)
+	} else if strings.HasSuffix(newNorm, "\n"+oldNorm) {
+		mode = 2
+		insert = strings.TrimSuffix(newNorm, oldNorm)
+	} else {
+		return "", "", false
+	}
+
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	lines := strings.Split(normalized, "\n")
+	best, second := -1.0, -1.0
+	bestLine := -1
+	for i, line := range lines {
+		if line == "" && i == len(lines)-1 {
+			continue
+		}
+		score := editLineSimilarity(oldNorm, line)
+		if score > best {
+			second, best = best, score
+			bestLine = i
+		} else if score > second {
+			second = score
+		}
+	}
+	if bestLine < 0 || best < 0.78 || (second >= 0 && best-second < 0.12) {
+		return "", "", false
+	}
+
+	actual := lines[bestLine]
+	if mode == 1 {
+		newLine = actual + insert
+	} else {
+		newLine = insert + actual
+	}
+	return toEOL(actual, eol), toEOL(newLine, eol), true
+}
+
+func editLineSimilarity(a, b string) float64 {
+	aSet := editTokenSet(a)
+	bSet := editTokenSet(b)
+	if len(aSet) == 0 || len(bSet) == 0 {
+		return 0
+	}
+	common := 0
+	for token := range aSet {
+		if _, ok := bSet[token]; ok {
+			common++
+		}
+	}
+	return float64(common) / float64(len(aSet)+len(bSet)-common)
+}
+
+func editTokenSet(s string) map[string]struct{} {
+	set := make(map[string]struct{})
+	start := -1
+	flush := func(end int) {
+		if start >= 0 && end-start >= 2 {
+			set[strings.ToLower(s[start:end])] = struct{}{}
+		}
+		start = -1
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		isToken := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+		if isToken {
+			if start < 0 {
+				start = i
+			}
+		} else {
+			flush(i)
+		}
+	}
+	flush(len(s))
+	return set
 }
 
 // editNotFoundMessage explains why an edit missed, with actionable recovery

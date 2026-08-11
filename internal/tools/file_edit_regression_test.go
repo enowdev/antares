@@ -169,6 +169,54 @@ func TestEditFileNotFoundShowsNearMiss(t *testing.T) {
 	}
 }
 
+func TestEditFileRecoversUniqueNearInsertionWithoutChangingExistingLine(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "README.md")
+	actual := "| **pool39v2** | 14 hand + 25 vision-audited | 33 train / 6 val | T4 | 85 (early stop @55) | **0.009** | `artifacts/pool39v2/` |\n"
+	if err := os.WriteFile(path, []byte(actual), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := "| **pool39v2** | 14 hand + 25 vision-audited | 33 train / 6 val | T4 | 85 (ES@55) | **0.009** | `artifacts/pool39v2/` |"
+	newString := old + "\n| **pool39v2_sc** | single-class icon | 33 train / 6 val | T4 | 70 | **0.519** | `artifacts/pool39v2_sc/` |"
+	args, _ := json.Marshal(map[string]any{"path": "README.md", "old_string": old, "new_string": newString})
+	result := (editFileTool{}).Execute(context.Background(), Input{Workspace: workspace, Args: args})
+	if result.IsError {
+		t.Fatalf("unique adjacent insertion should recover: %s", result.Content)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := actual + "| **pool39v2_sc** | single-class icon | 33 train / 6 val | T4 | 70 | **0.519** | `artifacts/pool39v2_sc/` |\n"
+	if string(got) != want {
+		t.Fatalf("recovery changed the existing line:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestEditFileDoesNotRecoverAmbiguousNearInsertion(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "README.md")
+	content := "| **pool39v2** | 85 (early stop @55) | artifacts/a |\n| **pool39v2** | 85 (early stop @55) | artifacts/b |\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := "| **pool39v2** | 85 (ES@55) | artifacts/c |"
+	args, _ := json.Marshal(map[string]any{
+		"path": "README.md", "old_string": old, "new_string": old + "\n| new row |",
+	})
+	result := (editFileTool{}).Execute(context.Background(), Input{Workspace: workspace, Args: args})
+	if !result.IsError || !strings.Contains(result.Content, "old_string not found") {
+		t.Fatalf("ambiguous near insertion must remain exact-only: %+v", result)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("ambiguous recovery modified file: %q", got)
+	}
+}
+
 func TestStripReadFileLinePrefixes(t *testing.T) {
 	in := "10|\tfoo()\n11|\tbar()\n12|}"
 	got, ok := stripReadFileLinePrefixes(in)
