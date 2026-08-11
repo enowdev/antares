@@ -805,10 +805,11 @@ type CodeExecution struct {
 
 // Guardrails detects and stops runaway tool loops.
 type Guardrails struct {
-	WarningsEnabled bool `yaml:"warnings_enabled" json:"warnings_enabled"`
-	HardStopEnabled bool `yaml:"hard_stop_enabled" json:"hard_stop_enabled"`
-	WarnAfter       int  `yaml:"warn_after" json:"warn_after"`
-	HardStopAfter   int  `yaml:"hard_stop_after" json:"hard_stop_after"`
+	WarningsEnabled     bool `yaml:"warnings_enabled" json:"warnings_enabled"`
+	HardStopEnabled     bool `yaml:"hard_stop_enabled" json:"hard_stop_enabled"`
+	WarnAfter           int  `yaml:"warn_after" json:"warn_after"`
+	HardStopAfter       int  `yaml:"hard_stop_after" json:"hard_stop_after"`
+	AbsoluteMaxToolCalls int `yaml:"absolute_max_tool_calls" json:"absolute_max_tool_calls"`
 }
 
 // SessionReset controls automatic session rotation.

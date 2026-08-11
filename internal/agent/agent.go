@@ -395,6 +395,7 @@ func (a *Agent) Run(ctx context.Context, req Request, emit Emit) (*Result, error
 		lastReply  string
 		turn       int
 		toolCalls  int
+		totalToolCalls int  // all tool calls across grContinue resets, never reset
 		verified   int
 		judged     int
 		usedTodo   bool          // the model kept a task list this run
@@ -553,6 +554,14 @@ func (a *Agent) Run(ctx context.Context, req Request, emit Emit) (*Result, error
 			}
 		}
 		toolCalls += len(resp.ToolCalls)
+		totalToolCalls += len(resp.ToolCalls)
+		if g := a.cfg.Guardrails; g.HardStopEnabled && g.AbsoluteMaxToolCalls > 0 && totalToolCalls >= g.AbsoluteMaxToolCalls {
+			_ = emit(Event{Type: EventNotice, Message: fmt.Sprintf(
+				"absolute tool-call ceiling reached (%d calls) — stopping", totalToolCalls)})
+			lastReply = fmt.Sprintf("I reached the absolute tool-call limit of %d and stopped. %s",
+				g.AbsoluteMaxToolCalls, lastReply)
+			break
+		}
 		if a.guardrailTripped(toolCalls, emit) {
 			// The tool-call budget is a loop backstop, not a task deadline. When
 			// there is still work on the todo list, extend it instead of stopping

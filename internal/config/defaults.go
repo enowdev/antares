@@ -123,7 +123,7 @@ func Default() *Config {
 		Gateway:       Gateway{Enabled: false, Telegram: Telegram{RequirePairing: true, StreamEdits: true}, Discord: Discord{RequirePairing: true}},
 		Delegation:    Delegation{Enabled: true, MaxIterations: 40, MaxDepth: 2, MaxParallel: 4},
 		CodeExecution: CodeExecution{Enabled: true, Timeout: 120, MaxToolCalls: 50},
-		Guardrails:    Guardrails{WarningsEnabled: true, HardStopEnabled: true, WarnAfter: 25, HardStopAfter: 60},
+		Guardrails:    Guardrails{WarningsEnabled: true, HardStopEnabled: true, WarnAfter: 25, HardStopAfter: 60, AbsoluteMaxToolCalls: 200},
 		SessionReset:  SessionReset{Mode: "never", IdleMinutes: 180, AtHour: 4},
 		Streaming:     Streaming{Enabled: true},
 		Display: Display{
