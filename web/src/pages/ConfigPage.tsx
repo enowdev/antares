@@ -15,8 +15,11 @@ import {
 import { post } from '@/lib/api'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
-import type { ReasoningCapability } from '@/lib/models'
-import { reasoningOptions } from '@/lib/reasoning'
+import {
+  resolveReasoningControl,
+  type ReasoningCapabilityState,
+} from '@/lib/reasoning'
+import { useReasoningCapability } from '@/lib/reasoningCapability'
 import { cn } from '@/lib/utils'
 import { usePageActions } from '@/components/layout/PageChrome'
 import { Button } from '@/components/ui/button'
@@ -55,15 +58,6 @@ interface ConfigResponse {
   schema: Field[]
 }
 
-interface ReasoningModelsResponse {
-  active: { model: string; provider: string }
-  models: Array<{
-    id: string
-    provider: string
-    reasoning_capability?: ReasoningCapability
-  }>
-}
-
 const ESSENTIALS = '__essentials'
 const YAML = '__yaml'
 
@@ -94,7 +88,6 @@ export default function ConfigPage() {
   const { t } = useI18n()
   const { data, loading, reload } = useApi<ConfigResponse>('/config')
   const rawState = useApi<{ yaml: string }>('/config/raw')
-  const modelsState = useApi<ReasoningModelsResponse>('/model/list-all')
 
   const [edits, setEdits] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
@@ -116,14 +109,17 @@ export default function ConfigPage() {
       (data ? readPath(data.values, 'model.default') : '') ??
       '',
   )
-  const reasoningCapability = useMemo(
+  const reasoningTarget = useMemo(
     () =>
-      modelsState.data?.models.find(
-        (model) =>
-          model.provider === configuredProvider && model.id === configuredModel,
-      )?.reasoning_capability,
-    [configuredModel, configuredProvider, modelsState.data],
+      configuredProvider.trim() && configuredModel.trim()
+        ? {
+            provider: configuredProvider.trim(),
+            model: configuredModel.trim(),
+          }
+        : undefined,
+    [configuredModel, configuredProvider],
   )
+  const reasoningState = useReasoningCapability(reasoningTarget)
 
   const query = filter.trim().toLowerCase()
   const searching = query.length > 0
@@ -237,7 +233,7 @@ export default function ConfigPage() {
             field={f}
             showGroup={withGroup}
             value={valueOf(f)}
-            reasoningCapability={reasoningCapability}
+            reasoningState={reasoningState}
             dirty={f.path in edits}
             revealed={!!revealed[f.path]}
             onReveal={() => setRevealed((r) => ({ ...r, [f.path]: !r[f.path] }))}
@@ -444,7 +440,7 @@ function SectionRail({
 function FieldRow({
   field,
   value,
-  reasoningCapability,
+  reasoningState,
   dirty,
   revealed,
   showGroup,
@@ -453,7 +449,7 @@ function FieldRow({
 }: {
   field: Field
   value: unknown
-  reasoningCapability?: ReasoningCapability
+  reasoningState: ReasoningCapabilityState
   dirty: boolean
   revealed: boolean
   showGroup?: boolean
@@ -490,7 +486,7 @@ function FieldRow({
         {field.options_source === 'reasoning_capability' ? (
           <ReasoningSelect
             value={String(value ?? '')}
-            capability={reasoningCapability}
+            state={reasoningState}
             onChange={onChange}
           />
         ) : field.enum ? (
@@ -537,24 +533,27 @@ function FieldRow({
 
 function ReasoningSelect({
   value,
-  capability,
+  state,
   onChange,
 }: {
   value: string
-  capability?: ReasoningCapability
+  state: ReasoningCapabilityState
   onChange: (value: string) => void
 }) {
   const { t } = useI18n()
-  const options = reasoningOptions(capability)
-  const unsupported =
-    value !== '' && !options.some((option) => option.value === value)
-  const hint = unsupported
-    ? t('reasoning.unsupported', { value })
-    : capability?.mandatory
-      ? t('reasoning.mandatory')
-      : capability
-        ? t('reasoning.autoHint')
-        : t('reasoning.providerControlled')
+  const control = resolveReasoningControl(value, state)
+  const hint =
+    control.hint === 'unsupported'
+      ? t('reasoning.unsupported', { value })
+      : control.hint === 'loading'
+        ? t('reasoning.loading')
+        : control.hint === 'unavailable'
+          ? t('reasoning.unavailable')
+          : control.hint === 'mandatory'
+            ? t('reasoning.mandatory')
+            : control.hint === 'provider-controlled'
+              ? t('reasoning.providerControlled')
+              : t('reasoning.autoHint')
 
   return (
     <div className="space-y-1">
@@ -563,12 +562,12 @@ function ReasoningSelect({
         onChange={(event) => onChange(event.target.value)}
         className="h-9 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 text-sm"
       >
-        {unsupported ? (
+        {control.unsupported ? (
           <option value={value} disabled>
             {t('reasoning.unsupported', { value })}
           </option>
         ) : null}
-        {options.map((option) => (
+        {control.options.map((option) => (
           <option key={option.value || 'auto'} value={option.value}>
             {option.value === '' ? t('reasoning.auto') : option.label}
           </option>

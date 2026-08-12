@@ -243,9 +243,7 @@ function AllModelsView({
                         }
                       >
                         <Lightning className="size-3" />{' '}
-                        {m.reasoning_capability
-                          ? t('models.reasoning')
-                          : t('reasoning.providerControlled')}
+                        {t('models.reasoning')}
                       </Badge>
                     ) : null}
                   </div>
