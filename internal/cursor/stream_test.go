@@ -734,6 +734,60 @@ func TestStreamRunWithOptions410CallsOnResetBeforeGetRunFallback(t *testing.T) {
 	}
 }
 
+// A failed OnReset on the 410 path is a persistence invariant violation, not
+// a soft warning: Antares must abort before ever calling GetRun, so a resume
+// token that could not be dropped is never used to finalize or later replay
+// state inconsistently. This is deliberately stricter than the terminal-
+// result-wins policy for a racing read error, where a result already
+// decoded on the wire is trusted over a later transport failure.
+func TestStreamRunWithOptions410AbortsBeforeGetRunWhenOnResetFails(t *testing.T) {
+	var streamCalls, statusCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stream"):
+			streamCalls.Add(1)
+			w.WriteHeader(http.StatusGone)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": "stream_expired", "message": "stream expired"})
+		case r.URL.Path == "/v1/agents/bc-agent/runs/run-one":
+			statusCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "run-one", "agentId": "bc-agent", "status": "FINISHED", "result": "done",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	var resetCalls atomic.Int32
+	wantErr := errors.New("synthetic persistence failure")
+	client, _ := New(Options{BaseURL: srv.URL, APIKey: "synthetic-key", HTTPClient: srv.Client()})
+	run, err := client.StreamRunWithOptions(context.Background(), "bc-agent", "run-one",
+		StreamOptions{
+			LastEventID: "evt-old",
+			OnReset: func() error {
+				resetCalls.Add(1)
+				return wantErr
+			},
+		},
+		func(StreamEvent) error { return nil })
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want %v", err, wantErr)
+	}
+	if run != nil {
+		t.Fatalf("run = %+v, want nil (no terminal result surfaced when OnReset fails)", run)
+	}
+	if resetCalls.Load() != 1 {
+		t.Fatalf("OnReset calls = %d, want exactly 1", resetCalls.Load())
+	}
+	if streamCalls.Load() != 1 {
+		t.Fatalf("stream calls = %d, want 1", streamCalls.Load())
+	}
+	if statusCalls.Load() != 0 {
+		t.Fatalf("status calls = %d, want 0 (GetRun must not run when OnReset fails)", statusCalls.Load())
+	}
+}
+
 // An OnReset failure must abort the stream immediately instead of
 // proceeding to reconnect with a cleared token the caller could not record.
 func TestStreamRunWithOptionsAbortsWhenOnResetFails(t *testing.T) {

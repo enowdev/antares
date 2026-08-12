@@ -348,6 +348,14 @@ func (c *Client) StreamRunWithOptions(
 				return nil, ctxErr
 			}
 			if IsStatus(err, http.StatusGone) {
+				// Unlike a transport read error racing a decoded "result"
+				// event (where the terminal value already in hand wins),
+				// GetRun has not run yet here: nothing terminal exists to
+				// prefer. OnReset is a persistence invariant, not a
+				// best-effort notification, so a failure aborts immediately
+				// instead of calling GetRun, which would let a stale or
+				// unrecorded resume token be finalized or replayed
+				// inconsistently.
 				if rerr := resetOnce(); rerr != nil {
 					return nil, rerr
 				}

@@ -192,12 +192,72 @@ func TestCreateAgentEncodesPromptImagesAndExactModelParams(t *testing.T) {
 		t.Fatalf("CreateAgent error = %v", err)
 	}
 
-	var got CreateAgentRequest
+	// Round-tripping through the same struct type would not catch a wrong
+	// JSON tag: an incorrect tag on the encode side decodes back to the same
+	// Go value through the identical (equally wrong) tag. Decoding into a
+	// schemaless map instead pins the exact wire keys Cursor's API expects.
+	var got map[string]any
 	if err := json.Unmarshal(gotBody, &got); err != nil {
 		t.Fatalf("decode request body: %v (body=%s)", err, gotBody)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("request body = %+v, want %+v", got, want)
+
+	prompt, ok := got["prompt"].(map[string]any)
+	if !ok {
+		t.Fatalf("prompt = %#v, want object", got["prompt"])
+	}
+	if prompt["text"] != "inspect this" {
+		t.Fatalf("prompt.text = %#v, want %q", prompt["text"], "inspect this")
+	}
+	images, ok := prompt["images"].([]any)
+	if !ok || len(images) != 1 {
+		t.Fatalf("prompt.images = %#v, want exactly one image", prompt["images"])
+	}
+	image, ok := images[0].(map[string]any)
+	if !ok {
+		t.Fatalf("prompt.images[0] = %#v, want object", images[0])
+	}
+	if wantImage := map[string]any{"data": "aGVsbG8=", "mimeType": "image/png"}; !reflect.DeepEqual(image, wantImage) {
+		t.Fatalf("prompt.images[0] = %#v, want %#v (exact keys; empty url must stay omitted)", image, wantImage)
+	}
+
+	model, ok := got["model"].(map[string]any)
+	if !ok {
+		t.Fatalf("model = %#v, want object", got["model"])
+	}
+	if model["id"] != "gpt-5.6-sol" {
+		t.Fatalf("model.id = %#v, want %q", model["id"], "gpt-5.6-sol")
+	}
+	paramsRaw, ok := model["params"].([]any)
+	if !ok {
+		t.Fatalf("model.params = %#v, want array", model["params"])
+	}
+	wantParams := []map[string]any{
+		{"id": "context", "value": "1m"},
+		{"id": "reasoning", "value": "max"},
+		{"id": "fast", "value": "true"},
+	}
+	if len(paramsRaw) != len(wantParams) {
+		t.Fatalf("model.params = %#v, want %d entries in order", paramsRaw, len(wantParams))
+	}
+	for i, raw := range paramsRaw {
+		param, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("model.params[%d] = %#v, want object", i, raw)
+		}
+		if !reflect.DeepEqual(param, wantParams[i]) {
+			t.Fatalf("model.params[%d] = %#v, want %#v (exact id/value, in Cursor's original order)", i, param, wantParams[i])
+		}
+	}
+
+	// The struct-level round trip still catches selection/order mistakes
+	// (e.g. a dropped or reordered param, or an extra field) that the exact
+	// key assertions above cannot see through Go's flexible unmarshaling.
+	var gotStruct CreateAgentRequest
+	if err := json.Unmarshal(gotBody, &gotStruct); err != nil {
+		t.Fatalf("decode request body into CreateAgentRequest: %v (body=%s)", err, gotBody)
+	}
+	if !reflect.DeepEqual(gotStruct, want) {
+		t.Fatalf("request body = %+v, want %+v", gotStruct, want)
 	}
 }
 
