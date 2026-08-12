@@ -177,20 +177,20 @@ func (a *Agent) Models(ctx context.Context, providerID string) ([]llm.ModelInfo,
 }
 
 func (a *Agent) modelsForProvider(ctx context.Context, id string, p config.Provider) ([]llm.ModelInfo, error) {
-	live, ferr := a.cachedProviderCatalog(ctx, id, p, func(fetchCtx context.Context) ([]llm.ModelInfo, error) {
+	live, adapterKind, ferr := a.cachedProviderCatalog(ctx, id, p, func(fetchCtx context.Context) ([]llm.ModelInfo, string, error) {
 		client, err := llm.New(llm.Options{
 			Kind: p.Kind, BaseURL: p.BaseURL, APIKey: p.APIKey,
 			Headers: p.Headers, ProviderID: id, Timeout: 60 * time.Second, APIVersion: p.APIVersion, Region: p.Region,
 		})
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		fetchCtx, cancel := context.WithTimeout(fetchCtx, 45*time.Second)
-		defer cancel()
-		return client.Models(fetchCtx)
+		models, err := client.Models(fetchCtx)
+		return models, client.Kind(), err
 	})
+	reasoningKind := reasoningFamilyForAdapter(p.Kind, adapterKind)
 	if len(p.Models) > 0 {
-		return curatedModelsWithReasoning(id, p, live, p.Kind), ferr
+		return curatedModelsWithReasoning(id, p, live, reasoningKind), ferr
 	}
 	if ferr != nil && len(live) == 0 {
 		return nil, ferr
@@ -201,9 +201,23 @@ func (a *Agent) modelsForProvider(ctx context.Context, id string, p config.Provi
 			continue
 		}
 		target := reasoningTarget{providerID: id, model: live[i].ID, provider: p}
+		target.provider.Kind = reasoningKind
 		live[i] = live[i].WithReasoningCapability(staticReasoningCapability(target))
 	}
 	return live, nil
+}
+
+func reasoningFamilyForAdapter(configuredKind, adapterKind string) string {
+	// Codex/Responses intentionally owns a narrower static table even though
+	// codexClient.Kind reports "openai" for its shared transport family.
+	switch strings.ToLower(strings.TrimSpace(configuredKind)) {
+	case "codex", "responses", "openai-responses":
+		return "codex"
+	}
+	if adapterKind == "" {
+		return normalizedProviderKind(configuredKind)
+	}
+	return normalizedProviderKind(adapterKind)
 }
 
 func curatedModelsWithReasoning(id string, p config.Provider, live []llm.ModelInfo, kind string) []llm.ModelInfo {

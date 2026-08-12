@@ -133,6 +133,94 @@ func TestModelsConcurrentMissesUseSingleProviderFetch(t *testing.T) {
 	}
 }
 
+func TestProviderCatalogueLeaderCancellationDoesNotPoisonSharedFetch(t *testing.T) {
+	var (
+		fetches     atomic.Int32
+		startedOnce sync.Once
+		releaseOnce sync.Once
+	)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/models") {
+			http.NotFound(w, r)
+			return
+		}
+		fetches.Add(1)
+		startedOnce.Do(func() { close(started) })
+		select {
+		case <-release:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"model-a"}]}`))
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer releaseOnce.Do(func() { close(release) })
+
+	a := agentWithConfig(reasoningTestConfig(srv.URL, nil))
+	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leaderResult := make(chan error, 1)
+	go func() {
+		_, err := a.Models(leaderCtx, "router")
+		leaderResult <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("leader provider catalogue fetch did not start")
+	}
+
+	waiterCalling := make(chan struct{})
+	waiterResult := make(chan struct {
+		models []llm.ModelInfo
+		err    error
+	}, 1)
+	go func() {
+		close(waiterCalling)
+		models, err := a.Models(context.Background(), "router")
+		waiterResult <- struct {
+			models []llm.ModelInfo
+			err    error
+		}{models: models, err: err}
+	}()
+	<-waiterCalling
+
+	cancelLeader()
+	select {
+	case err := <-leaderResult:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("leader error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled leader did not return promptly")
+	}
+
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case got := <-waiterResult:
+		if got.err != nil {
+			t.Fatalf("healthy waiter inherited leader cancellation: %v", got.err)
+		}
+		if len(got.models) != 1 || got.models[0].ID != "model-a" {
+			t.Fatalf("healthy waiter models = %#v, want model-a", got.models)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("healthy waiter did not receive shared catalogue")
+	}
+
+	models, err := a.Models(context.Background(), "router")
+	if err != nil {
+		t.Fatalf("healthy successor inherited leader cancellation: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "model-a" {
+		t.Fatalf("healthy successor models = %#v, want cached model-a", models)
+	}
+	if got := fetches.Load(); got != 1 {
+		t.Fatalf("provider catalogue fetches = %d, want one shared fetch", got)
+	}
+}
+
 func TestProviderCatalogueCacheDoesNotShareAcrossCredentials(t *testing.T) {
 	var fetches atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

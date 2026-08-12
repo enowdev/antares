@@ -24,24 +24,33 @@ type providerCatalogScope struct {
 }
 
 type providerCatalogEntry struct {
-	done       chan struct{}
-	ready      bool
-	hasSuccess bool
-	expiresAt  time.Time
-	models     []llm.ModelInfo
-	err        error
+	done        chan struct{}
+	ready       bool
+	hasSuccess  bool
+	expiresAt   time.Time
+	models      []llm.ModelInfo
+	adapterKind string
+	err         error
 }
 
-const providerCatalogTTL = 5 * time.Minute
+const (
+	providerCatalogTTL          = 5 * time.Minute
+	providerCatalogFetchTimeout = 45 * time.Second
+)
 
 func (a *Agent) cachedProviderCatalog(
 	ctx context.Context,
 	providerID string,
 	provider config.Provider,
-	fetch func(context.Context) ([]llm.ModelInfo, error),
-) ([]llm.ModelInfo, error) {
+	fetch func(context.Context) ([]llm.ModelInfo, string, error),
+) ([]llm.ModelInfo, string, error) {
 	scope := providerCatalogScopeFor(providerID, provider)
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+
+		var startFetch bool
 		a.catalogMu.Lock()
 		if a.catalogCache == nil {
 			a.catalogCache = make(map[providerCatalogScope]*providerCatalogEntry)
@@ -49,62 +58,78 @@ func (a *Agent) cachedProviderCatalog(
 		if entry, ok := a.catalogCache[scope]; ok {
 			if entry.ready {
 				if a.providerCatalogTime().Before(entry.expiresAt) {
-					models, err := cloneModelInfo(entry.models), entry.err
+					models, adapterKind, err := cloneModelInfo(entry.models), entry.adapterKind, entry.err
 					a.catalogMu.Unlock()
-					return models, err
+					return models, adapterKind, err
 				}
 				entry.ready = false
 				entry.done = make(chan struct{})
-				a.catalogMu.Unlock()
-				return a.refreshProviderCatalog(ctx, entry, fetch)
+				startFetch = true
 			}
 			done := entry.done
 			a.catalogMu.Unlock()
+			if startFetch {
+				go a.refreshProviderCatalog(entry, fetch)
+			}
 			select {
 			case <-done:
 				continue
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, "", ctx.Err()
 			}
 		}
 
 		entry := &providerCatalogEntry{done: make(chan struct{})}
 		a.catalogCache[scope] = entry
+		done := entry.done
 		a.catalogMu.Unlock()
-		return a.refreshProviderCatalog(ctx, entry, fetch)
+		go a.refreshProviderCatalog(entry, fetch)
+		select {
+		case <-done:
+			continue
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
+		}
 	}
 }
 
 func (a *Agent) refreshProviderCatalog(
-	ctx context.Context,
 	entry *providerCatalogEntry,
-	fetch func(context.Context) ([]llm.ModelInfo, error),
-) ([]llm.ModelInfo, error) {
-	models, err := fetch(ctx)
+	fetch func(context.Context) ([]llm.ModelInfo, string, error),
+) {
+	// The shared fetch belongs to the cache entry, not to whichever caller won
+	// the miss race. Individual waiters may cancel without aborting or poisoning
+	// the provider scope; this independent context bounds orphaned work.
+	ctx, cancel := context.WithTimeout(context.Background(), providerCatalogFetchTimeout)
+	defer cancel()
+	models, adapterKind, err := fetch(ctx)
 
 	a.catalogMu.Lock()
 	if err == nil {
 		entry.models = cloneModelInfo(models)
+		entry.adapterKind = adapterKind
 		entry.err = nil
 		entry.hasSuccess = true
 	} else if entry.hasSuccess {
 		models = cloneModelInfo(entry.models)
+		adapterKind = entry.adapterKind
 		err = nil
 		entry.err = nil
 	} else if len(models) > 0 {
 		entry.models = cloneModelInfo(models)
+		entry.adapterKind = adapterKind
 		entry.err = nil
 		entry.hasSuccess = true
 		err = nil
 	} else {
 		entry.models = nil
+		entry.adapterKind = adapterKind
 		entry.err = err
 	}
 	entry.expiresAt = a.providerCatalogTime().Add(providerCatalogTTL)
 	entry.ready = true
 	close(entry.done)
 	a.catalogMu.Unlock()
-	return cloneModelInfo(models), err
 }
 
 func providerCatalogScopeFor(providerID string, provider config.Provider) providerCatalogScope {
