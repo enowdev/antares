@@ -7,12 +7,16 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/enowdev/antares/internal/agent"
 	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/cursor"
+	"github.com/enowdev/antares/internal/cursorrun"
 )
 
 // trackingIPResolver counts LookupIP calls so tests can prove a handler
@@ -114,6 +118,27 @@ func newCursorTestServer(t *testing.T, seed func(*config.Config)) *Server {
 	s.agent.SetConfig(reloaded)
 	s.reloadFn = func() error { return nil }
 	return s
+}
+
+func installCursorCatalogRunner(s *Server, httpClient *http.Client) {
+	s.cursorRunner = cursorrun.New(cursorrun.Options{
+		ResolveClient: func() (cursor.Options, error) {
+			_, provider := s.config().ResolveProvider("cursor")
+			return cursor.Options{
+				BaseURL: provider.BaseURL, APIKey: provider.APIKey, HTTPClient: httpClient,
+			}, nil
+		},
+		Now: time.Now, CatalogTTL: 5 * time.Minute,
+	})
+}
+
+func requestCursorModels(s *Server) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodGet, "/api/providers/cursor/models", nil)
+	r.Header.Set("Authorization", "Bearer test-token")
+	r.SetPathValue("id", "cursor")
+	rec := httptest.NewRecorder()
+	s.handleProviderModels(rec, r)
+	return rec
 }
 
 // TestConnectCursorPreservesActiveModel guards the primary model boundary:
@@ -310,43 +335,84 @@ func TestModelOptionsReportsCursorAgentCapabilityAndEnvKey(t *testing.T) {
 }
 
 // TestProviderModelsReturnsCursorCatalog covers the provider-specific model
-// endpoint's response shape (ids + display names).
+// endpoint's complete response shape and its shared five-minute cache.
 func TestProviderModelsReturnsCursorCatalog(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(cursor.ModelCatalog{Items: []cursor.Model{{
+			ID:          "composer-2",
+			DisplayName: "Composer 2",
+			Description: "Cloud agent",
+			Aliases:     []string{"composer"},
+			Parameters: []cursor.ModelParameter{{
+				ID: "effort",
+				Values: []cursor.ModelParameterValue{
+					{Value: "high", DisplayName: "High"},
+				},
+			}},
+			Variants: []cursor.ModelVariant{{
+				Params:      []cursor.ModelParameterSelection{{ID: "effort", Value: "high"}},
+				DisplayName: "High effort",
+				IsDefault:   true,
+			}},
+		}}})
+	}))
+	t.Cleanup(upstream.Close)
+
 	s := newCursorTestServer(t, func(cfg *config.Config) {
 		p := cfg.Providers["cursor"]
 		p.APIKey = "synthetic-key"
+		p.BaseURL = upstream.URL
 		cfg.Providers["cursor"] = p
 	})
-	s.cursorFactory = func(cursor.Options) (cursorMetadataClient, error) {
-		return &fakeCursorMetadata{
-			models: cursor.ModelCatalog{Items: []cursor.Model{
-				{ID: "composer-2", DisplayName: "Composer 2"},
-			}},
-		}, nil
-	}
+	installCursorCatalogRunner(s, upstream.Client())
 
-	r := httptest.NewRequest(http.MethodGet, "/api/providers/cursor/models", nil)
-	r.Header.Set("Authorization", "Bearer test-token")
-	r.SetPathValue("id", "cursor")
-	rec := httptest.NewRecorder()
-	s.handleProviderModels(rec, r)
+	rec := requestCursorModels(s)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
 	var body struct {
 		Models []struct {
-			ID          string   `json:"id"`
-			Name        string   `json:"name"`
-			Description string   `json:"description"`
-			Parameters  []string `json:"parameters"`
+			ID          string                  `json:"id"`
+			Name        string                  `json:"name"`
+			Description string                  `json:"description"`
+			Aliases     []string                `json:"aliases"`
+			Parameters  []cursor.ModelParameter `json:"parameters"`
+			Variants    []cursor.ModelVariant   `json:"variants"`
 		} `json:"models"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Models) != 1 || body.Models[0].ID != "composer-2" || body.Models[0].Name != "Composer 2" {
+	if len(body.Models) != 1 || body.Models[0].ID != "composer-2" ||
+		body.Models[0].Name != "Composer 2" ||
+		!reflect.DeepEqual(body.Models[0].Aliases, []string{"composer"}) ||
+		len(body.Models[0].Parameters) != 1 ||
+		len(body.Models[0].Variants) != 1 {
 		t.Fatalf("unexpected models: %+v", body.Models)
+	}
+
+	second := requestCursorModels(s)
+	if second.Code != http.StatusOK {
+		t.Fatalf("second status=%d body=%s", second.Code, second.Body.String())
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("provider endpoint bypassed shared cache: requests=%d", got)
+	}
+
+	s.SetConfig(s.config())
+	third := requestCursorModels(s)
+	if third.Code != http.StatusOK {
+		t.Fatalf("third status=%d body=%s", third.Code, third.Body.String())
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("SetConfig did not invalidate shared cache: requests=%d", got)
 	}
 }
 
@@ -359,21 +425,19 @@ func TestCursorProviderModelsNeedsKeyWithoutNetworkCall(t *testing.T) {
 		p.APIKeyEnv = ""
 		cfg.Providers["cursor"] = p
 	})
-	called := false
-	s.cursorFactory = func(cursor.Options) (cursorMetadataClient, error) {
-		called = true
-		return &fakeCursorMetadata{}, nil
-	}
+	var called atomic.Bool
+	s.cursorRunner = cursorrun.New(cursorrun.Options{
+		ResolveClient: func() (cursor.Options, error) {
+			called.Store(true)
+			return cursor.Options{}, errors.New("resolver must not be called")
+		},
+	})
 
-	r := httptest.NewRequest(http.MethodGet, "/api/providers/cursor/models", nil)
-	r.Header.Set("Authorization", "Bearer test-token")
-	r.SetPathValue("id", "cursor")
-	rec := httptest.NewRecorder()
-	s.handleProviderModels(rec, r)
+	rec := requestCursorModels(s)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if called {
+	if called.Load() {
 		t.Fatal("handleProviderModels reached the network without a resolved key")
 	}
 
@@ -385,6 +449,41 @@ func TestCursorProviderModelsNeedsKeyWithoutNetworkCall(t *testing.T) {
 	}
 	if !body.NeedsKey {
 		t.Fatal("needs_key = false with no resolved credential")
+	}
+}
+
+func TestCursorProviderModelsAuthErrorRemainsSafeFallback(t *testing.T) {
+	secret := "provider-auth-secret"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"unauthorized","message":"rejected ` + secret + `"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	s := newCursorTestServer(t, func(cfg *config.Config) {
+		p := cfg.Providers["cursor"]
+		p.APIKey = secret
+		p.BaseURL = upstream.URL
+		cfg.Providers["cursor"] = p
+	})
+	installCursorCatalogRunner(s, upstream.Client())
+
+	rec := requestCursorModels(s)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Models []any  `json:"models"`
+		Error  string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Models) != 0 || body.Error == "" {
+		t.Fatalf("unexpected auth fallback: %+v", body)
+	}
+	if strings.Contains(rec.Body.String(), secret) {
+		t.Fatalf("auth fallback leaked credential: %s", rec.Body.String())
 	}
 }
 

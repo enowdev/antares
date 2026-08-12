@@ -23,6 +23,7 @@ import (
 	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/cron"
 	"github.com/enowdev/antares/internal/cursor"
+	"github.com/enowdev/antares/internal/cursorrun"
 	"github.com/enowdev/antares/internal/gateway"
 	"github.com/enowdev/antares/internal/mcp"
 	"github.com/enowdev/antares/internal/skills"
@@ -64,6 +65,10 @@ type Server struct {
 	// Only tests set this; production callers get cursor.New via
 	// newCursorMetadataClient.
 	cursorFactory cursorClientFactory
+
+	// cursorRunner owns the shared Cursor model catalogue cache and remote-run
+	// lifecycle. It resolves the current provider config before each operation.
+	cursorRunner cursorrun.Runner
 
 	// providerResolver overrides provider hostname resolution in handler tests.
 	// Production uses net.DefaultResolver.
@@ -122,6 +127,17 @@ func New(o Options) *Server {
 
 		dashSessions: map[string]time.Time{},
 	}
+	s.cursorRunner = cursorrun.New(cursorrun.Options{
+		ResolveClient: func() (cursor.Options, error) {
+			_, provider := s.config().ResolveProvider("cursor")
+			return cursor.Options{
+				BaseURL: provider.BaseURL,
+				APIKey:  strings.TrimSpace(provider.APIKey),
+			}, nil
+		},
+		Now:        time.Now,
+		CatalogTTL: 5 * time.Minute,
+	})
 	// Restore dashboard logins so a daemon restart does not break EventSource
 	// reattach (/api/chat/attach) for browsers that still hold a valid cookie.
 	s.loadDashSessions()
@@ -153,6 +169,9 @@ func (s *Server) SetConfig(cfg *config.Config) {
 	s.mu.Lock()
 	s.cfg = cfg
 	s.mu.Unlock()
+	if s.cursorRunner != nil {
+		s.cursorRunner.InvalidateCatalog()
+	}
 }
 
 func (s *Server) config() *config.Config {

@@ -82,15 +82,14 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := s.newCursorMetadataClient(cursor.Options{BaseURL: p.BaseURL, APIKey: key})
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	catalog, err := client.Models(ctx)
+	if s.cursorRunner == nil {
+		writeError(w, http.StatusBadGateway, errors.New("Cursor is unavailable"))
+		return
+	}
+	catalog, err := s.cursorRunner.Catalog(ctx, false)
 	if err != nil {
 		if cursor.IsAuthError(err) {
 			writeJSON(w, http.StatusOK, map[string]any{"models": []any{}, "error": err.Error()})
@@ -103,17 +102,29 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 	type modelOut struct {
 		ID          string                  `json:"id"`
 		Name        string                  `json:"name"`
-		Description string                  `json:"description"`
+		Description string                  `json:"description,omitempty"`
+		Aliases     []string                `json:"aliases"`
 		Parameters  []cursor.ModelParameter `json:"parameters"`
+		Variants    []cursor.ModelVariant   `json:"variants"`
 	}
 	out := make([]modelOut, 0, len(catalog.Items))
 	for _, m := range catalog.Items {
-		params := m.Parameters
-		if params == nil {
-			params = []cursor.ModelParameter{}
+		aliases := append([]string{}, m.Aliases...)
+		parameters := append([]cursor.ModelParameter{}, m.Parameters...)
+		for i := range parameters {
+			parameters[i].Values = append([]cursor.ModelParameterValue{}, parameters[i].Values...)
+		}
+		variants := append([]cursor.ModelVariant{}, m.Variants...)
+		for i := range variants {
+			variants[i].Params = append([]cursor.ModelParameterSelection{}, variants[i].Params...)
 		}
 		out = append(out, modelOut{
-			ID: m.ID, Name: m.DisplayName, Description: m.Description, Parameters: params,
+			ID:          m.ID,
+			Name:        m.DisplayName,
+			Description: m.Description,
+			Aliases:     aliases,
+			Parameters:  parameters,
+			Variants:    variants,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": out})
