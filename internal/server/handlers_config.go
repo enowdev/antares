@@ -80,7 +80,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := s.validateChangedReasoning(r.Context(), cfg, &next); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeReasoningValidationError(w, err)
 		return
 	}
 	if invalidateDashSessions {
@@ -122,13 +122,12 @@ func (s *Server) handleSaveRawConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	current, err := config.Reload()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
+	// Compare against the last valid in-memory snapshot. Re-reading here would
+	// prevent the raw editor from repairing malformed on-disk YAML, and Reload's
+	// first-run behavior could create a file before a rejected submission.
+	current := s.config()
 	if err := s.validateChangedReasoning(r.Context(), current, next); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeReasoningValidationError(w, err)
 		return
 	}
 	if err := config.SaveRaw(body.YAML); err != nil {

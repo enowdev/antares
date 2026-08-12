@@ -50,7 +50,15 @@ type reasoningTarget struct {
 // configured provider can supply. Documented direct-provider metadata avoids a
 // network dependency; dynamic providers use the Agent-owned cached catalogue.
 func (a *Agent) ReasoningCapability(ctx context.Context, modelRef string) (*llm.ReasoningCapability, error) {
-	target := a.reasoningTarget(modelRef)
+	return a.reasoningCapabilityForConfig(ctx, a.config(), modelRef)
+}
+
+func (a *Agent) reasoningCapabilityForConfig(
+	ctx context.Context,
+	cfg *config.Config,
+	modelRef string,
+) (*llm.ReasoningCapability, error) {
+	target := reasoningTargetForConfig(cfg, modelRef)
 	if capability := staticReasoningCapability(target); capability != nil {
 		return capability, nil
 	}
@@ -73,14 +81,26 @@ func (a *Agent) ReasoningCapability(ctx context.Context, modelRef string) (*llm.
 // ValidateReasoningEffort validates an explicit value without including the
 // submitted value in any error.
 func (a *Agent) ValidateReasoningEffort(ctx context.Context, modelRef, effort string) error {
+	return a.ValidateReasoningEffortForConfig(ctx, a.config(), modelRef, effort)
+}
+
+// ValidateReasoningEffortForConfig validates against an immutable candidate
+// config while retaining the Agent-owned provider catalogue cache. It does not
+// publish the candidate as the live Agent configuration.
+func (a *Agent) ValidateReasoningEffortForConfig(
+	ctx context.Context,
+	cfg *config.Config,
+	modelRef string,
+	effort string,
+) error {
 	if effort == "" {
 		return nil
 	}
-	capability, err := a.ReasoningCapability(ctx, modelRef)
+	capability, err := a.reasoningCapabilityForConfig(ctx, cfg, modelRef)
 	if err != nil {
 		return err
 	}
-	return llm.ValidateReasoningEffort(a.reasoningTarget(modelRef).model, capability, effort)
+	return llm.ValidateReasoningEffort(reasoningTargetForConfig(cfg, modelRef).model, capability, effort)
 }
 
 // resolveReasoning distinguishes a new explicit override from stored legacy
@@ -139,6 +159,13 @@ func (a *Agent) resolveReasoning(ctx context.Context, in reasoningInput) (reason
 
 func (a *Agent) reasoningTarget(modelRef string) reasoningTarget {
 	cfg := a.config()
+	return reasoningTargetForConfig(cfg, modelRef)
+}
+
+func reasoningTargetForConfig(cfg *config.Config, modelRef string) reasoningTarget {
+	if cfg == nil {
+		return reasoningTarget{model: modelRef}
+	}
 	providerID := cfg.Model.Provider
 	model := modelRef
 	if model == "" {

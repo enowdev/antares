@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"net/http"
 
+	"github.com/enowdev/antares/internal/agent"
 	"github.com/enowdev/antares/internal/config"
 )
 
@@ -21,7 +23,7 @@ func (s *Server) validateExplicitReasoning(
 	if modelRef == "" {
 		modelRef = reasoningModelRef(cfg)
 	}
-	return s.agent.ValidateReasoningEffort(ctx, modelRef, effort)
+	return s.agent.ValidateReasoningEffortForConfig(ctx, cfg, modelRef, effort)
 }
 
 // validateChangedReasoning validates only values changed by a mutation.
@@ -44,6 +46,14 @@ func (s *Server) validateChangedReasoning(
 		}
 	}
 	return nil
+}
+
+func writeReasoningValidationError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	if agent.IsReasoningMetadataUnavailable(err) {
+		status = http.StatusServiceUnavailable
+	}
+	writeError(w, status, err)
 }
 
 func reasoningModelRef(cfg *config.Config) string {

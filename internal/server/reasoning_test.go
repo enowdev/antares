@@ -185,6 +185,278 @@ func TestHandleSaveRawConfigRejectsNewUnsupportedReasoningWithoutSaving(t *testi
 	}
 }
 
+func TestHandleSaveRawConfigRepairsMalformedExistingYAML(t *testing.T) {
+	s, _, configPath := newReasoningBoundaryServer(t, nil)
+	if err := os.WriteFile(configPath, []byte("model: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw := "model:\n  provider: openai\n  default: gpt-5\n"
+	body, err := json.Marshal(map[string]string{"yaml": raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/config/raw", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	s.handleSaveRawConfig(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if after := mustReadServerFile(t, configPath); string(after) != raw {
+		t.Fatalf("saved config = %q, want submitted repair %q", after, raw)
+	}
+}
+
+func TestHandleSaveRawConfigRejectedSubmissionDoesNotCreateMissingFile(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "malformed YAML", raw: "model: [\n"},
+		{
+			name: "unsupported reasoning",
+			raw:  "model:\n  provider: openai\n  default: gpt-5\n  reasoning_effort: unsupported\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, a, configPath := newReasoningBoundaryServer(t, nil)
+			if err := os.Remove(configPath); err != nil {
+				t.Fatal(err)
+			}
+			serverBefore := s.config()
+			agentBefore := a.Config()
+			body, err := json.Marshal(map[string]string{"yaml": tt.raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/config/raw", bytes.NewReader(body))
+			rec := httptest.NewRecorder()
+			s.handleSaveRawConfig(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+			if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+				t.Fatalf("rejected raw save created %s: %v", configPath, err)
+			}
+			if s.config() != serverBefore {
+				t.Fatal("rejected raw save replaced the live server config")
+			}
+			if a.Config() != agentBefore {
+				t.Fatal("rejected raw save replaced the live agent config")
+			}
+		})
+	}
+}
+
+func TestHandleSaveRawConfigValidatesNewProviderAgainstCandidateConfig(t *testing.T) {
+	var oldFetches, candidateFetches atomic.Int32
+	oldCatalog := newServerCatalogFixture(t, http.StatusOK, `{
+		"data": [{
+			"id": "model-old",
+			"reasoning": {"supported_efforts": ["low"], "default_effort": "low"}
+		}]
+	}`, &oldFetches)
+	candidateCatalog := newServerCatalogFixture(t, http.StatusOK, `{
+		"data": [{
+			"id": "model-a",
+			"reasoning": {"supported_efforts": ["MiXeD"], "default_effort": "MiXeD"}
+		}]
+	}`, &candidateFetches)
+	s, a, configPath := newReasoningBoundaryServer(t, func(cfg *config.Config) {
+		cfg.Model.Provider = "old-router"
+		cfg.Model.Default = "model-old"
+		cfg.Providers = map[string]config.Provider{
+			"old-router": {
+				Kind:    "openai-compatible",
+				BaseURL: oldCatalog.URL,
+				Enabled: true,
+			},
+		}
+	})
+	raw := "model:\n" +
+		"  provider: candidate-router\n" +
+		"  default: model-a\n" +
+		"  reasoning_effort: MiXeD\n" +
+		"providers:\n" +
+		"  candidate-router:\n" +
+		"    kind: openai-compatible\n" +
+		"    base_url: " + candidateCatalog.URL + "\n" +
+		"    enabled: true\n"
+	body, err := json.Marshal(map[string]string{"yaml": raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/config/raw", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	s.handleSaveRawConfig(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := oldFetches.Load(); got != 0 {
+		t.Fatalf("old live provider catalogue fetches = %d, want 0", got)
+	}
+	if got := candidateFetches.Load(); got != 1 {
+		t.Fatalf("candidate provider catalogue fetches = %d, want 1", got)
+	}
+	if after := mustReadServerFile(t, configPath); string(after) != raw {
+		t.Fatalf("saved config = %q, want candidate text %q", after, raw)
+	}
+	if got := s.config(); got.Model.Provider != "candidate-router" ||
+		got.Model.Default != "model-a" || got.Model.ReasoningEffort != "MiXeD" {
+		t.Fatalf("live server config = %+v", got.Model)
+	}
+	if got := a.Config(); got.Model.Provider != "candidate-router" ||
+		got.Model.Default != "model-a" || got.Model.ReasoningEffort != "MiXeD" {
+		t.Fatalf("live agent config = %+v", got.Model)
+	}
+}
+
+func TestHandleSaveRawConfigRejectsInvalidEffortAgainstCandidateWithoutMutation(t *testing.T) {
+	var oldFetches, candidateFetches atomic.Int32
+	oldCatalog := newServerCatalogFixture(t, http.StatusOK, `{
+		"data": [{
+			"id": "model-old",
+			"reasoning": {"supported_efforts": ["low"], "default_effort": "low"}
+		}]
+	}`, &oldFetches)
+	candidateCatalog := newServerCatalogFixture(t, http.StatusOK, `{
+		"data": [{
+			"id": "model-a",
+			"reasoning": {"supported_efforts": ["MiXeD"], "default_effort": "MiXeD"}
+		}]
+	}`, &candidateFetches)
+	s, a, configPath := newReasoningBoundaryServer(t, func(cfg *config.Config) {
+		cfg.Model.Provider = "old-router"
+		cfg.Model.Default = "model-old"
+		cfg.Providers = map[string]config.Provider{
+			"old-router": {
+				Kind:    "openai-compatible",
+				BaseURL: oldCatalog.URL,
+				Enabled: true,
+			},
+		}
+	})
+	fileBefore := mustReadServerFile(t, configPath)
+	serverBefore := s.config()
+	agentBefore := a.Config()
+	raw := "model:\n" +
+		"  provider: candidate-router\n" +
+		"  default: model-a\n" +
+		"  reasoning_effort: unsupported\n" +
+		"providers:\n" +
+		"  candidate-router:\n" +
+		"    kind: openai-compatible\n" +
+		"    base_url: " + candidateCatalog.URL + "\n" +
+		"    enabled: true\n"
+	body, err := json.Marshal(map[string]string{"yaml": raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/config/raw", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	s.handleSaveRawConfig(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := oldFetches.Load(); got != 0 {
+		t.Fatalf("old live provider catalogue fetches = %d, want 0", got)
+	}
+	if got := candidateFetches.Load(); got != 1 {
+		t.Fatalf("candidate provider catalogue fetches = %d, want 1", got)
+	}
+	if after := mustReadServerFile(t, configPath); !bytes.Equal(after, fileBefore) {
+		t.Fatal("rejected candidate config changed the config file")
+	}
+	if s.config() != serverBefore {
+		t.Fatal("rejected candidate config replaced the live server config")
+	}
+	if a.Config() != agentBefore {
+		t.Fatal("rejected candidate config replaced the live agent config")
+	}
+}
+
+func TestHandleSaveRawConfigDistinguishesUnavailableMetadataFromAutoOnlyModel(t *testing.T) {
+	tests := []struct {
+		name           string
+		catalogStatus  int
+		catalogBody    string
+		wantStatus     int
+		wantError      string
+		forbiddenError string
+	}{
+		{
+			name:          "known Auto-only model",
+			catalogStatus: http.StatusOK,
+			catalogBody:   `{"data":[{"id":"model-a"}]}`,
+			wantStatus:    http.StatusBadRequest,
+			wantError:     "unsupported reasoning override",
+		},
+		{
+			name:           "metadata unavailable",
+			catalogStatus:  http.StatusServiceUnavailable,
+			catalogBody:    `{"error":{"message":"SECRET-UPSTREAM-DIAGNOSTIC"}}`,
+			wantStatus:     http.StatusServiceUnavailable,
+			wantError:      "use Auto or retry",
+			forbiddenError: "SECRET-UPSTREAM-DIAGNOSTIC",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var fetches atomic.Int32
+			catalog := newServerCatalogFixture(
+				t, tt.catalogStatus, tt.catalogBody, &fetches,
+			)
+			s, a, configPath := newReasoningBoundaryServer(t, nil)
+			fileBefore := mustReadServerFile(t, configPath)
+			serverBefore := s.config()
+			agentBefore := a.Config()
+			raw := "model:\n" +
+				"  provider: candidate-router\n" +
+				"  default: model-a\n" +
+				"  reasoning_effort: high\n" +
+				"providers:\n" +
+				"  candidate-router:\n" +
+				"    kind: openai-compatible\n" +
+				"    base_url: " + catalog.URL + "\n" +
+				"    enabled: true\n"
+			body, err := json.Marshal(map[string]string{"yaml": raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/config/raw", bytes.NewReader(body))
+			rec := httptest.NewRecorder()
+			s.handleSaveRawConfig(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantError) {
+				t.Fatalf("body = %s, want %q", rec.Body.String(), tt.wantError)
+			}
+			if tt.forbiddenError != "" && strings.Contains(rec.Body.String(), tt.forbiddenError) {
+				t.Fatalf("response leaked upstream diagnostic: %s", rec.Body.String())
+			}
+			if got := fetches.Load(); got != 1 {
+				t.Fatalf("catalogue fetches = %d, want 1", got)
+			}
+			if after := mustReadServerFile(t, configPath); !bytes.Equal(after, fileBefore) {
+				t.Fatal("rejected config changed the config file")
+			}
+			if s.config() != serverBefore {
+				t.Fatal("rejected config replaced the live server config")
+			}
+			if a.Config() != agentBefore {
+				t.Fatal("rejected config replaced the live agent config")
+			}
+		})
+	}
+}
+
 func TestHandleSaveRoleRejectsExplicitUnsupportedReasoning(t *testing.T) {
 	var roleDir string
 	s, a, _ := newReasoningBoundaryServer(t, func(cfg *config.Config) {
@@ -317,6 +589,29 @@ func newServerReasoningCatalog(t *testing.T, chatRequests *atomic.Int32) *httpte
 		default:
 			http.NotFound(w, r)
 		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func newServerCatalogFixture(
+	t *testing.T,
+	status int,
+	response string,
+	fetches *atomic.Int32,
+) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/models") {
+			http.NotFound(w, r)
+			return
+		}
+		if fetches != nil {
+			fetches.Add(1)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(response))
 	}))
 	t.Cleanup(srv.Close)
 	return srv

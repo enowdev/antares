@@ -123,7 +123,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if err := s.validateExplicitReasoning(
 		r.Context(), s.config(), req.Model, req.ReasoningEffort,
 	); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeReasoningValidationError(w, err)
 		return
 	}
 

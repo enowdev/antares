@@ -92,7 +92,7 @@ func (s *Server) handleSaveRole(w http.ResponseWriter, r *http.Request) {
 		if err := s.validateExplicitReasoning(
 			r.Context(), s.config(), strings.TrimSpace(b.Model), effort,
 		); err != nil {
-			writeError(w, http.StatusBadRequest, err)
+			writeReasoningValidationError(w, err)
 			return
 		}
 	}
