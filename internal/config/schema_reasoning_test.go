@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,65 @@ func TestParseRawDoesNotWriteConfiguration(t *testing.T) {
 	}
 	if after := mustReadConfigFile(t); after != before {
 		t.Fatal("ParseRaw changed the config file")
+	}
+}
+
+func TestParseRawWithEnvAppliesProviderOverlaysWithoutWriting(t *testing.T) {
+	t.Setenv("ANTARES_HOME", t.TempDir())
+	t.Setenv("ANTARES_CONFIG", "")
+	t.Setenv("ANTARES_PROFILE", "default")
+	t.Setenv("ANTARES_MODEL", "")
+	t.Setenv("ANTARES_PROVIDER", "")
+	t.Setenv("ANTARES_BASE_URL", "")
+	t.Setenv("ANTARES_API_KEY", "")
+	t.Setenv("ROUND2_DECLARED_KEY", "declared-secret")
+	t.Setenv("ANTARES_PROVIDER_DECLARED_API_KEY", "")
+	t.Setenv("ANTARES_PROVIDER_DECLARED_BASE_URL", "http://env-declared.example/v1")
+	t.Setenv("ANTARES_PROVIDER_EXPLICIT_API_KEY", "explicit-secret")
+	t.Setenv("ANTARES_PROVIDER_EXPLICIT_BASE_URL", "http://env-explicit.example/v1")
+
+	if err := Save(Default()); err != nil {
+		t.Fatal(err)
+	}
+	liveBefore := Get()
+	fileBefore := mustReadConfigFile(t)
+	raw := "model:\n" +
+		"  provider: declared\n" +
+		"  default: model-a\n" +
+		"providers:\n" +
+		"  declared:\n" +
+		"    kind: openai-compatible\n" +
+		"    base_url: http://raw-declared.example/v1\n" +
+		"    api_key_env: ROUND2_DECLARED_KEY\n" +
+		"    enabled: true\n" +
+		"  explicit:\n" +
+		"    kind: openai-compatible\n" +
+		"    base_url: http://raw-explicit.example/v1\n" +
+		"    enabled: true\n"
+
+	candidate, err := ParseRawWithEnv(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	declared := candidate.Providers["declared"]
+	if declared.APIKey != "declared-secret" ||
+		declared.BaseURL != "http://env-declared.example/v1" {
+		t.Fatalf("declared provider = %+v", declared)
+	}
+	explicit := candidate.Providers["explicit"]
+	if explicit.APIKey != "explicit-secret" ||
+		explicit.BaseURL != "http://env-explicit.example/v1" {
+		t.Fatalf("explicit provider = %+v", explicit)
+	}
+	if after := mustReadConfigFile(t); after != fileBefore {
+		t.Fatal("ParseRawWithEnv changed the config file")
+	}
+	if Get() != liveBefore {
+		t.Fatal("ParseRawWithEnv replaced the live config")
+	}
+	if strings.Contains(fileBefore, "declared-secret") ||
+		strings.Contains(fileBefore, "explicit-secret") {
+		t.Fatal("environment credential was persisted")
 	}
 }
 

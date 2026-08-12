@@ -117,6 +117,18 @@ func ParseRaw(text string) (*Config, error) {
 	return cfg, nil
 }
 
+// ParseRawWithEnv returns a write-free validation candidate with the current
+// process-environment overlays applied exactly as Reload applies them. It does
+// not load dotenv files, update the config cache, or persist derived secrets.
+func ParseRawWithEnv(text string) (*Config, error) {
+	cfg, err := ParseRaw(text)
+	if err != nil {
+		return nil, err
+	}
+	applyEnv(cfg)
+	return cfg, nil
+}
+
 // SaveRaw validates then writes YAML text supplied by the dashboard editor.
 func SaveRaw(text string) error {
 	if _, err := ParseRaw(text); err != nil {

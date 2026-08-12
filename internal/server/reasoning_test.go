@@ -379,6 +379,165 @@ func TestHandleSaveRawConfigRejectsInvalidEffortAgainstCandidateWithoutMutation(
 	}
 }
 
+func TestHandleSaveRawConfigAppliesCandidateProviderEnvWithoutPersistingSecrets(t *testing.T) {
+	const secret = "round2-candidate-secret"
+	tests := []struct {
+		name           string
+		declaredEnv    string
+		providerEnv    string
+		wantCredential string
+	}{
+		{
+			name:           "api_key_env",
+			declaredEnv:    secret,
+			wantCredential: secret,
+		},
+		{
+			name:           "provider-specific API key",
+			declaredEnv:    "wrong-fallback-secret",
+			providerEnv:    secret,
+			wantCredential: secret,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var accepted, rejected, wrongEndpoint atomic.Int32
+			catalog := newAuthenticatedServerCatalogFixture(
+				t, secret, &accepted, &rejected,
+			)
+			wrongCatalog := newServerCatalogFixture(
+				t,
+				http.StatusServiceUnavailable,
+				`{"error":{"message":"wrong raw endpoint"}}`,
+				&wrongEndpoint,
+			)
+			s, a, configPath := newReasoningBoundaryServer(t, nil)
+			t.Setenv("ROUND2_CANDIDATE_API_KEY", tt.declaredEnv)
+			t.Setenv("ANTARES_PROVIDER_CANDIDATE_ROUTER_API_KEY", tt.providerEnv)
+			t.Setenv("ANTARES_PROVIDER_CANDIDATE_ROUTER_BASE_URL", catalog.URL)
+			raw := "model:\n" +
+				"  provider: candidate-router\n" +
+				"  default: model-a\n" +
+				"  reasoning_effort: MiXeD\n" +
+				"providers:\n" +
+				"  candidate-router:\n" +
+				"    kind: openai-compatible\n" +
+				"    base_url: " + wrongCatalog.URL + "\n" +
+				"    api_key_env: ROUND2_CANDIDATE_API_KEY\n" +
+				"    enabled: true\n"
+			body, err := json.Marshal(map[string]string{"yaml": raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/config/raw", bytes.NewReader(body))
+			rec := httptest.NewRecorder()
+			s.handleSaveRawConfig(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+			if got := accepted.Load(); got != 1 {
+				t.Fatalf("authenticated catalogue requests = %d, want 1", got)
+			}
+			if got := rejected.Load(); got != 0 {
+				t.Fatalf("rejected catalogue requests = %d, want 0", got)
+			}
+			if got := wrongEndpoint.Load(); got != 0 {
+				t.Fatalf("raw endpoint requests = %d, want 0", got)
+			}
+			saved := mustReadServerFile(t, configPath)
+			if string(saved) != raw {
+				t.Fatalf("saved config = %q, want submitted text %q", saved, raw)
+			}
+			if bytes.Contains(saved, []byte(secret)) ||
+				bytes.Contains(saved, []byte(catalog.URL)) {
+				t.Fatal("saved config contains environment-derived provider data")
+			}
+			if provider := s.config().Providers["candidate-router"]; provider.APIKey != tt.wantCredential ||
+				provider.BaseURL != catalog.URL {
+				t.Fatalf("live server provider = %+v", provider)
+			}
+			if provider := a.Config().Providers["candidate-router"]; provider.APIKey != tt.wantCredential ||
+				provider.BaseURL != catalog.URL {
+				t.Fatalf("live agent provider = %+v", provider)
+			}
+		})
+	}
+}
+
+func TestHandleSaveRawConfigRejectsMissingOrWrongCandidateProviderEnvWithoutMutation(t *testing.T) {
+	const secret = "round2-candidate-secret"
+	tests := []struct {
+		name        string
+		declaredEnv string
+	}{
+		{name: "missing credential"},
+		{name: "wrong credential", declaredEnv: "wrong-secret"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var accepted, rejected, wrongEndpoint atomic.Int32
+			catalog := newAuthenticatedServerCatalogFixture(
+				t, secret, &accepted, &rejected,
+			)
+			wrongCatalog := newServerCatalogFixture(
+				t,
+				http.StatusServiceUnavailable,
+				`{"error":{"message":"wrong raw endpoint"}}`,
+				&wrongEndpoint,
+			)
+			s, a, configPath := newReasoningBoundaryServer(t, nil)
+			t.Setenv("ROUND2_CANDIDATE_API_KEY", tt.declaredEnv)
+			t.Setenv("ANTARES_PROVIDER_CANDIDATE_ROUTER_API_KEY", "")
+			t.Setenv("ANTARES_PROVIDER_CANDIDATE_ROUTER_BASE_URL", catalog.URL)
+			fileBefore := mustReadServerFile(t, configPath)
+			serverBefore := s.config()
+			agentBefore := a.Config()
+			raw := "model:\n" +
+				"  provider: candidate-router\n" +
+				"  default: model-a\n" +
+				"  reasoning_effort: MiXeD\n" +
+				"providers:\n" +
+				"  candidate-router:\n" +
+				"    kind: openai-compatible\n" +
+				"    base_url: " + wrongCatalog.URL + "\n" +
+				"    api_key_env: ROUND2_CANDIDATE_API_KEY\n" +
+				"    enabled: true\n"
+			body, err := json.Marshal(map[string]string{"yaml": raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/config/raw", bytes.NewReader(body))
+			rec := httptest.NewRecorder()
+			s.handleSaveRawConfig(rec, req)
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+			if got := accepted.Load(); got != 0 {
+				t.Fatalf("authenticated catalogue requests = %d, want 0", got)
+			}
+			if got := rejected.Load(); got != 1 {
+				t.Fatalf("rejected catalogue requests = %d, want 1", got)
+			}
+			if got := wrongEndpoint.Load(); got != 0 {
+				t.Fatalf("raw endpoint requests = %d, want 0", got)
+			}
+			if after := mustReadServerFile(t, configPath); !bytes.Equal(after, fileBefore) {
+				t.Fatal("rejected environment candidate changed the config file")
+			}
+			if s.config() != serverBefore {
+				t.Fatal("rejected environment candidate replaced the live server config")
+			}
+			if a.Config() != agentBefore {
+				t.Fatal("rejected environment candidate replaced the live agent config")
+			}
+		})
+	}
+}
+
 func TestHandleSaveRawConfigDistinguishesUnavailableMetadataFromAutoOnlyModel(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -612,6 +771,44 @@ func newServerCatalogFixture(
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(response))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func newAuthenticatedServerCatalogFixture(
+	t *testing.T,
+	apiKey string,
+	accepted *atomic.Int32,
+	rejected *atomic.Int32,
+) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/models") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("Authorization") != "Bearer "+apiKey {
+			if rejected != nil {
+				rejected.Add(1)
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"message":"invalid synthetic credential"}}`))
+			return
+		}
+		if accepted != nil {
+			accepted.Add(1)
+		}
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "model-a",
+				"reasoning": {
+					"supported_efforts": ["MiXeD"],
+					"default_effort": "MiXeD"
+				}
+			}]
+		}`))
 	}))
 	t.Cleanup(srv.Close)
 	return srv

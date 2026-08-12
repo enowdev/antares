@@ -117,7 +117,7 @@ func (s *Server) handleSaveRawConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	next, err := config.ParseRaw(body.YAML)
+	next, err := config.ParseRawWithEnv(body.YAML)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
