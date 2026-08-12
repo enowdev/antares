@@ -21,7 +21,11 @@ type Field struct {
 	Default any      `json:"default"`
 	Secret  bool     `json:"secret"`
 	Enum    []string `json:"enum,omitempty"`
-	Help    string   `json:"help,omitempty"`
+	// OptionsSource names dynamic option metadata supplied outside the static
+	// schema. Reasoning values are model-specific, so the dashboard resolves
+	// them from the selected model's capability instead of a fixed enum.
+	OptionsSource string `json:"options_source,omitempty"`
+	Help          string `json:"help,omitempty"`
 }
 
 // Tiers a field can belong to.
@@ -48,43 +52,43 @@ var essential = map[string]bool{
 // common holds the settings people actually revisit. Everything not listed
 // here or above is treated as advanced.
 var common = map[string]bool{
-	"model.temperature":           true,
-	"model.max_tokens":            true,
-	"model.context_window":        true,
-	"model.reasoning_effort":      true,
-	"model.auxiliary":             true,
-	"agent.max_turns":             true,
-	"agent.personality":           true,
-	"agent.system_prompt_extra":   true,
-	"agent.timezone":              true,
-	"tools.approval_mode":         true,
-	"tools.web_search.provider":   true,
-	"tools.web_search.api_key":    true,
-	"terminal.backend":            true,
-	"terminal.cwd":                true,
-	"terminal.timeout":            true,
-	"memory.memory_enabled":       true,
-	"memory.user_profile_enabled": true,
-	"rag.embed_model":             true,
-	"rag.embed_provider":          true,
-	"rag.rerank_mode":             true,
-	"rag.per_user":                true,
-	"skills.enabled":              true,
-	"skills.auto_create":          true,
-	"cron.enabled":                true,
-	"cron.timezone":               true,
-	"gateway.enabled":             true,
-	"gateway.telegram.enabled":    true,
-	"gateway.discord.enabled":     true,
-	"mcp.enabled":                 true,
-	"compression.enabled":         true,
-	"streaming.enabled":           true,
-	"delegation.enabled":          true,
-	"display.show_reasoning":            true,
-	"display.tool_progress":             true,
-	"display.max_live_reasoning_chars":  true,
-	"logging.level":               true,
-	"server.host":                 true,
+	"model.temperature":                true,
+	"model.max_tokens":                 true,
+	"model.context_window":             true,
+	"model.reasoning_effort":           true,
+	"model.auxiliary":                  true,
+	"agent.max_turns":                  true,
+	"agent.personality":                true,
+	"agent.system_prompt_extra":        true,
+	"agent.timezone":                   true,
+	"tools.approval_mode":              true,
+	"tools.web_search.provider":        true,
+	"tools.web_search.api_key":         true,
+	"terminal.backend":                 true,
+	"terminal.cwd":                     true,
+	"terminal.timeout":                 true,
+	"memory.memory_enabled":            true,
+	"memory.user_profile_enabled":      true,
+	"rag.embed_model":                  true,
+	"rag.embed_provider":               true,
+	"rag.rerank_mode":                  true,
+	"rag.per_user":                     true,
+	"skills.enabled":                   true,
+	"skills.auto_create":               true,
+	"cron.enabled":                     true,
+	"cron.timezone":                    true,
+	"gateway.enabled":                  true,
+	"gateway.telegram.enabled":         true,
+	"gateway.discord.enabled":          true,
+	"mcp.enabled":                      true,
+	"compression.enabled":              true,
+	"streaming.enabled":                true,
+	"delegation.enabled":               true,
+	"display.show_reasoning":           true,
+	"display.tool_progress":            true,
+	"display.max_live_reasoning_chars": true,
+	"logging.level":                    true,
+	"server.host":                      true,
 }
 
 func tierFor(path string) string {
@@ -115,34 +119,37 @@ var enums = map[string][]string{
 	"session_reset.mode":        {"never", "idle", "daily"},
 	"display.theme":             {"system", "light", "dark"},
 	"logging.level":             {"debug", "info", "warn", "error"},
-	"agent.reasoning_effort":    {"none", "low", "medium", "high"},
-	"model.reasoning_effort":    {"none", "low", "medium", "high"},
 	"tools.web_search.provider": {"browser", "brave", "tavily", "searxng", "none"},
 }
 
+var optionsSources = map[string]string{
+	"agent.reasoning_effort": "reasoning_capability",
+	"model.reasoning_effort": "reasoning_capability",
+}
+
 var help = map[string]string{
-	"model.default":             "Model id as your provider spells it, e.g. anthropic/claude-sonnet-4.5.",
-	"model.provider":            "Which entry under providers to call.",
-	"model.auxiliary":           "Cheaper model used for summarising and other background work.",
-	"model.context_window":      "Used to decide when to compact; set it to match your model.",
-	"database.driver":           "sqlite for a single node, postgres when you share state.",
-	"database.dsn":              "sqlite: a file path. postgres: postgres://user:pass@host:5432/db?sslmode=disable",
-	"server.auth_token":         "Leave empty to keep the dashboard open — sensible behind a private network.",
-	"server.host":               "0.0.0.0 exposes it on every interface; 127.0.0.1 keeps it local.",
-	"agent.workspace":           "The only directory file tools may read or write.",
-	"agent.system_prompt_extra": "Appended to the system prompt on every turn.",
-	"tools.toolset":             "Preset deciding which tools reach the model.",
-	"tools.approval_mode":       "auto runs mutating tools directly; deny blocks them.",
-	"rag.rerank_mode":           "How to reorder results: llm (an auxiliary model scores them), api (an external reranker), or off.",
-	"rag.embed_model":           "The embedding model for indexing and search, e.g. text-embedding-3-small.",
-	"rag.per_user":              "Keep a separate memory per chat user (Discord/Telegram), so the agent can recall topics and facts about each specific person. Stores cross-conversation data about individuals; off by default.",
-	"compression.threshold":     "Fraction of the context window that triggers automatic compaction.",
-	"terminal.backend":          "local runs on this machine; docker and ssh sandbox it elsewhere.",
-	"memory.memory_enabled":     "Lets the agent store durable facts between sessions.",
-	"skills.auto_create":        "Allows the agent to write new skills on its own.",
-	"osint.google_cookie":       "Optional. A logged-in Google Cookie header enables osint_google to resolve an email to its public profile. ToS-sensitive; uses your own session. Leave empty to disable.",
-	"display.show_reasoning": "Stream and show model reasoning/thinking in the dashboard (and TUI). Off skips emitting reasoning events so long thinking traces never hit the UI.",
-	"display.tool_progress":  "Show live tool progress lines while a tool runs.",
+	"model.default":                    "Model id as your provider spells it, e.g. anthropic/claude-sonnet-4.5.",
+	"model.provider":                   "Which entry under providers to call.",
+	"model.auxiliary":                  "Cheaper model used for summarising and other background work.",
+	"model.context_window":             "Used to decide when to compact; set it to match your model.",
+	"database.driver":                  "sqlite for a single node, postgres when you share state.",
+	"database.dsn":                     "sqlite: a file path. postgres: postgres://user:pass@host:5432/db?sslmode=disable",
+	"server.auth_token":                "Leave empty to keep the dashboard open — sensible behind a private network.",
+	"server.host":                      "0.0.0.0 exposes it on every interface; 127.0.0.1 keeps it local.",
+	"agent.workspace":                  "The only directory file tools may read or write.",
+	"agent.system_prompt_extra":        "Appended to the system prompt on every turn.",
+	"tools.toolset":                    "Preset deciding which tools reach the model.",
+	"tools.approval_mode":              "auto runs mutating tools directly; deny blocks them.",
+	"rag.rerank_mode":                  "How to reorder results: llm (an auxiliary model scores them), api (an external reranker), or off.",
+	"rag.embed_model":                  "The embedding model for indexing and search, e.g. text-embedding-3-small.",
+	"rag.per_user":                     "Keep a separate memory per chat user (Discord/Telegram), so the agent can recall topics and facts about each specific person. Stores cross-conversation data about individuals; off by default.",
+	"compression.threshold":            "Fraction of the context window that triggers automatic compaction.",
+	"terminal.backend":                 "local runs on this machine; docker and ssh sandbox it elsewhere.",
+	"memory.memory_enabled":            "Lets the agent store durable facts between sessions.",
+	"skills.auto_create":               "Allows the agent to write new skills on its own.",
+	"osint.google_cookie":              "Optional. A logged-in Google Cookie header enables osint_google to resolve an email to its public profile. ToS-sensitive; uses your own session. Leave empty to disable.",
+	"display.show_reasoning":           "Stream and show model reasoning/thinking in the dashboard (and TUI). Off skips emitting reasoning events so long thinking traces never hit the UI.",
+	"display.tool_progress":            "Show live tool progress lines while a tool runs.",
 	"display.max_live_reasoning_chars": "Max characters of reasoning kept in the browser while a turn streams (trailing window). Prevents tab freezes on long thinking. Default 48000. 0 = unlimited. Full text is still saved server-side and restored after the turn.",
 }
 
@@ -220,14 +227,15 @@ func walk(v reflect.Value, prefix, group string, out *[]Field) {
 		}
 
 		f := Field{
-			Path:    path,
-			Label:   humanize(name),
-			Group:   grp,
-			Tier:    tierFor(path),
-			Default: fv.Interface(),
-			Secret:  secretKey(path),
-			Enum:    enums[path],
-			Help:    help[path],
+			Path:          path,
+			Label:         humanize(name),
+			Group:         grp,
+			Tier:          tierFor(path),
+			Default:       fv.Interface(),
+			Secret:        secretKey(path),
+			Enum:          enums[path],
+			OptionsSource: optionsSources[path],
+			Help:          help[path],
 		}
 		switch fv.Kind() {
 		case reflect.Bool:

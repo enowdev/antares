@@ -107,11 +107,20 @@ func Raw() (string, error) {
 	return string(b), err
 }
 
-// SaveRaw validates then writes YAML text supplied by the dashboard editor.
-func SaveRaw(text string) error {
+// ParseRaw validates YAML text supplied by the dashboard editor without
+// changing either the active config file or the in-memory config cache.
+func ParseRaw(text string) (*Config, error) {
 	cfg := Default()
 	if err := yaml.Unmarshal([]byte(text), cfg); err != nil {
-		return fmt.Errorf("invalid YAML: %w", err)
+		return nil, fmt.Errorf("invalid YAML: %w", err)
+	}
+	return cfg, nil
+}
+
+// SaveRaw validates then writes YAML text supplied by the dashboard editor.
+func SaveRaw(text string) error {
+	if _, err := ParseRaw(text); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(ConfigFile()), 0o700); err != nil {
 		return err

@@ -19,7 +19,12 @@ import (
 // found:false — the caller then asks the user for the value.
 func (s *Server) handleProviderModelInfo(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	modelID := strings.TrimSpace(r.URL.Query().Get("id"))
+	modelID := strings.TrimSpace(r.URL.Query().Get("model"))
+	if modelID == "" {
+		// Keep accepting the earlier dashboard parameter while model is rolled
+		// out; model is the canonical API name.
+		modelID = strings.TrimSpace(r.URL.Query().Get("id"))
+	}
 	if modelID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("a model id is required"))
 		return
@@ -40,9 +45,12 @@ func (s *Server) handleProviderModelInfo(w http.ResponseWriter, r *http.Request)
 	for _, m := range models {
 		if m.ID == modelID {
 			writeJSON(w, http.StatusOK, map[string]any{
-				"found":          true,
-				"context_window": m.ContextWindow,
-				"name":           m.Name,
+				"found":                true,
+				"id":                   m.ID,
+				"context_window":       m.ContextWindow,
+				"name":                 m.Name,
+				"reasoning":            m.Reasoning,
+				"reasoning_capability": m.ReasoningCapability,
 			})
 			return
 		}

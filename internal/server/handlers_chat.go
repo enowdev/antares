@@ -120,6 +120,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("message is required"))
 		return
 	}
+	if err := s.validateExplicitReasoning(
+		r.Context(), s.config(), req.Model, req.ReasoningEffort,
+	); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 
 	// Persist the picked role against the session so a reload reflects it. The
 	// session id is only known once the run assigns one, so a brand-new

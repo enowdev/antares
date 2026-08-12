@@ -61,23 +61,32 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(paths)
 
+	next := *cfg
+	invalidateDashSessions := false
 	for _, path := range paths {
 		value := body.Updates[path]
 		// A redacted secret coming back unchanged means "leave it alone".
 		if str, ok := value.(string); ok && strings.Contains(str, "••••") {
 			continue
 		}
-		if err := cfg.SetPath(path, value); err != nil {
+		if err := next.SetPath(path, value); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 		// Changing (or clearing) the dashboard password must not leave old
 		// logins valid.
 		if path == "server.dashboard_password_hash" {
-			s.invalidateDashSessions()
+			invalidateDashSessions = true
 		}
 	}
-	if err := config.Save(cfg); err != nil {
+	if err := s.validateChangedReasoning(r.Context(), cfg, &next); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if invalidateDashSessions {
+		s.invalidateDashSessions()
+	}
+	if err := config.Save(&next); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -105,6 +114,20 @@ func (s *Server) handleSaveRawConfig(w http.ResponseWriter, r *http.Request) {
 		YAML string `json:"yaml"`
 	}
 	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	next, err := config.ParseRaw(body.YAML)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	current, err := config.Reload()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.validateChangedReasoning(r.Context(), current, next); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

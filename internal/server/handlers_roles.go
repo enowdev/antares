@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/enowdev/antares/internal/roles"
 	"github.com/enowdev/antares/internal/tools"
@@ -82,9 +83,22 @@ func (s *Server) handleSaveRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	effort := strings.TrimSpace(b.Effort)
+	previousEffort := ""
+	if previous, ok := reg.Get(b.Name); ok {
+		previousEffort = previous.Effort
+	}
+	if effort != previousEffort {
+		if err := s.validateExplicitReasoning(
+			r.Context(), s.config(), strings.TrimSpace(b.Model), effort,
+		); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
 	saved, err := reg.Save(roles.Role{
 		Name: b.Name, Title: b.Title, Summary: b.Summary, Category: b.Category,
-		Toolset: b.Toolset, Model: b.Model, Effort: b.Effort, MaxTurns: b.MaxTurns,
+		Toolset: b.Toolset, Model: b.Model, Effort: effort, MaxTurns: b.MaxTurns,
 		Tags: b.Tags, Danger: b.Danger, Subrole: b.Subrole, Parent: b.Parent,
 		Prompt: b.Body,
 	})
