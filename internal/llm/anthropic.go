@@ -166,6 +166,55 @@ func anthropicLegacyBudget(model, effort string) (int, bool) {
 	return 0, false
 }
 
+// anthropicThinkingBody resolves the "thinking"/"output_config" fields for a
+// validated, non-empty reasoning effort. ok is false when the model cannot
+// actually honor this specific value: either it is a pre-adaptive model whose
+// hardcoded budget table has no entry for effort (e.g. an attached capability
+// advertised a value this local catalogue does not know how to map). Callers
+// must treat ok == false as a hard failure rather than silently sending the
+// request without the override — see anthropicClient.validateReasoning.
+func anthropicThinkingBody(model, effort string, capability *ReasoningCapability) (thinking map[string]any, outputConfig map[string]any, ok bool) {
+	if anthropicSupportsAdaptiveThinking(model) {
+		if disable := reasoningDisableValue(capability); disable != "" && effort == disable {
+			return map[string]any{"type": "disabled"}, nil, true
+		}
+		return map[string]any{"type": "adaptive"}, map[string]any{"effort": effort}, true
+	}
+	// Pre-adaptive models only understand fixed token budgets, and only for
+	// the catalogued legacy families and their documented effort ladders.
+	if budget, ok := anthropicLegacyBudget(model, effort); ok {
+		return map[string]any{"type": "enabled", "budget_tokens": budget}, nil, true
+	}
+	return nil, nil, false
+}
+
+// validateReasoning fails before any network call when the request's
+// reasoning effort cannot be honored: either the value itself is not
+// advertised by the model's capability (delegated to reasoningValue), or —
+// for pre-adaptive Anthropic models — the value is validated by an attached
+// capability but has no entry in the local fixed-budget table, which would
+// otherwise silently vanish from the outgoing request.
+func (c *anthropicClient) validateReasoning(req Request) error {
+	value, err := reasoningValue(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL)
+	if err != nil {
+		return err
+	}
+	if value == "" {
+		return nil
+	}
+	capability := resolvedReasoningCapability(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL)
+	if _, _, ok := anthropicThinkingBody(req.Model, value, capability); !ok {
+		var allowed []string
+		if capability != nil {
+			for _, v := range capability.Values {
+				allowed = append(allowed, v.Value)
+			}
+		}
+		return &UnsupportedReasoningEffortError{Model: req.Model, Allowed: allowed}
+	}
+	return nil
+}
+
 func (c *anthropicClient) buildBody(req Request, stream bool) map[string]any {
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
@@ -229,20 +278,14 @@ func (c *anthropicClient) buildBody(req Request, stream bool) map[string]any {
 	}
 	if value, err := reasoningValue(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL); err == nil && value != "" {
 		capability := resolvedReasoningCapability(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL)
-		switch {
-		case anthropicSupportsAdaptiveThinking(req.Model):
-			if disable := reasoningDisableValue(capability); disable != "" && value == disable {
-				body["thinking"] = map[string]any{"type": "disabled"}
-			} else {
-				body["thinking"] = map[string]any{"type": "adaptive"}
-				body["output_config"] = map[string]any{"effort": value}
-			}
-		default:
-			// Pre-adaptive models only understand fixed token budgets, and
-			// only for the catalogued legacy families; an unrecognised model
-			// gets no thinking override rather than a guessed budget.
-			if budget, ok := anthropicLegacyBudget(req.Model, value); ok {
-				body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+		// A value that cannot be mapped (ok == false) is left out of the body
+		// here; callers reach this only via Chat/Stream, which fail the
+		// request first via validateReasoning so that case is unreachable in
+		// practice. buildBody stays a pure, non-erroring body builder.
+		if thinking, outputConfig, ok := anthropicThinkingBody(req.Model, value, capability); ok {
+			body["thinking"] = thinking
+			if outputConfig != nil {
+				body["output_config"] = outputConfig
 			}
 		}
 	}
@@ -279,7 +322,7 @@ type antResponse struct {
 }
 
 func (c *anthropicClient) Chat(ctx context.Context, req Request) (*Response, error) {
-	if _, err := reasoningValue(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL); err != nil {
+	if err := c.validateReasoning(req); err != nil {
 		return nil, err
 	}
 	var raw antResponse
@@ -324,7 +367,7 @@ func (c *anthropicClient) fromResponse(raw *antResponse) (*Response, error) {
 }
 
 func (c *anthropicClient) Stream(ctx context.Context, req Request, emit func(Event) error) (*Response, error) {
-	if _, err := reasoningValue(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL); err != nil {
+	if err := c.validateReasoning(req); err != nil {
 		return nil, err
 	}
 	httpResp, err := c.opts.doStream(ctx, "POST", c.opts.BaseURL+"/messages", c.buildBody(req, true), c.headers())

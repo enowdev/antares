@@ -49,7 +49,7 @@ func StaticReasoningCapability(kind, provider, baseURL, model string) *Reasoning
 		entries = openAIReasoningCapabilities
 	case kind == "codex" && provider == "openai" && baseURL == "https://api.openai.com/v1":
 		entries = codexReasoningCapabilities
-	case kind == "anthropic" && provider == "anthropic" && baseURL == "https://api.anthropic.com":
+	case kind == "anthropic" && provider == "anthropic" && isAnthropicDirectBaseURL(baseURL):
 		entries = anthropicReasoningCapabilities
 	case kind == "gemini" && provider == "google" && baseURL == "https://generativelanguage.googleapis.com/v1beta":
 		entries = geminiReasoningCapabilities
@@ -67,6 +67,15 @@ func StaticReasoningCapability(kind, provider, baseURL, model string) *Reasoning
 		}
 	}
 	return nil
+}
+
+// isAnthropicDirectBaseURL recognises both forms of Anthropic's own base URL
+// seen at runtime: the bare host (as documented) and the "/v1" form that this
+// codebase's provider defaults actually configure. Both are exact, canonical
+// Anthropic hosts — this is not a broad prefix match, so a custom or
+// Anthropic-compatible endpoint still falls back to Auto-only.
+func isAnthropicDirectBaseURL(baseURL string) bool {
+	return baseURL == "https://api.anthropic.com" || baseURL == "https://api.anthropic.com/v1"
 }
 
 func exactModelOrDatedSnapshot(family, model string) bool {

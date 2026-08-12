@@ -1,9 +1,13 @@
 package llm
 
 import (
+	"context"
 	"encoding/hex"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -52,5 +56,42 @@ func TestNewBedrockNeedsRegion(t *testing.T) {
 	c, err := New(Options{Kind: "bedrock", Region: "us-west-2"})
 	if err != nil || c.Kind() != "bedrock" {
 		t.Fatalf("expected a bedrock client, got %v %v", c, err)
+	}
+}
+
+// TestBedrockReasoningValidationBlocksRequestBeforeSigning guards a bypass:
+// bedrockClient.Chat builds its body via anthropicClient.buildBody directly
+// rather than anthropicClient.Chat, so it must run the same pre-request
+// reasoning validation itself. Without it, an invalid explicit reasoning
+// value was silently dropped by buildBody and a signed, billable request
+// still went upstream.
+func TestBedrockReasoningValidationBlocksRequestBeforeSigning(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	cap, err := NewReasoningCapability([]ReasoningValue{{Value: "low", Label: "Low"}}, "low", false, ReasoningCapabilityStatic)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{BaseURL: srv.URL, HTTPClient: srv.Client()}
+	c := &bedrockClient{opts: opts, region: "us-east-1", inner: &anthropicClient{opts: opts}, endpoint: srv.URL}
+
+	_, err = c.Chat(context.Background(), Request{
+		Model:               "anthropic.claude-3-5-sonnet-20241022-v2:0",
+		ReasoningEffort:     "max",
+		ReasoningCapability: cap,
+	})
+	var unsupported *UnsupportedReasoningEffortError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("err = %v, want UnsupportedReasoningEffortError", err)
+	}
+	if got := atomic.LoadInt32(&hits); got != 0 {
+		t.Fatalf("requests sent = %d, want 0 (must fail before signing/sending)", got)
 	}
 }

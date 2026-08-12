@@ -115,6 +115,52 @@ func TestAnthropicLegacyThinkingBudgetBody(t *testing.T) {
 	}
 }
 
+// TestAnthropicLegacyUnmappableEffortFailsBeforeRequest guards a silent-drop
+// bug: a value can pass validation against an *attached* capability (e.g. a
+// hypothetical live capability advertising more values than this codebase's
+// hardcoded legacy budget table knows) yet have no entry in
+// anthropicLegacyThinkingBudgets for that model family. buildBody previously
+// just omitted "thinking" in that case, silently downgrading the turn to
+// Auto. Chat/Stream must now fail before any request is sent.
+func TestAnthropicLegacyUnmappableEffortFailsBeforeRequest(t *testing.T) {
+	cap, err := NewReasoningCapability(
+		[]ReasoningValue{{Value: "low", Label: "Low"}, {Value: "xhigh", Label: "Extra High"}},
+		"low", false, ReasoningCapabilityStatic,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := &anthropicClient{opts: Options{BaseURL: srv.URL, HTTPClient: srv.Client()}}
+	_, err = c.Chat(context.Background(), Request{
+		Model: "claude-3-7-sonnet", ReasoningEffort: "xhigh", ReasoningCapability: cap,
+	})
+	var unsupported *UnsupportedReasoningEffortError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("err = %v, want UnsupportedReasoningEffortError", err)
+	}
+	if got := atomic.LoadInt32(&hits); got != 0 {
+		t.Fatalf("requests sent = %d, want 0", got)
+	}
+
+	// buildBody alone (bypassing Chat) must also stay silent-safe: it must not
+	// fabricate a "thinking" override it cannot actually honor.
+	body := (&anthropicClient{}).buildBody(Request{
+		Model: "claude-3-7-sonnet", ReasoningEffort: "xhigh", ReasoningCapability: cap,
+	}, false)
+	if _, ok := body["thinking"]; ok {
+		t.Fatalf("buildBody emitted a thinking override for an unmappable legacy effort: %#v", body["thinking"])
+	}
+}
+
 func TestAnthropicAdaptiveDisableBody(t *testing.T) {
 	cap, err := NewReasoningCapability(
 		[]ReasoningValue{

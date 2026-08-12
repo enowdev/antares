@@ -151,6 +151,18 @@ func TestStaticReasoningCapabilityRepresentativeFamilies(t *testing.T) {
 	}
 }
 
+// TestStaticReasoningCapabilityAcceptsRuntimeAnthropicBaseURL guards against a
+// regression where every default-config, direct-Anthropic chat request failed
+// pre-request validation: the provider default base URL configured in
+// internal/config/defaults.go is "https://api.anthropic.com/v1", but the
+// catalog originally matched only the bare "https://api.anthropic.com" host.
+func TestStaticReasoningCapabilityAcceptsRuntimeAnthropicBaseURL(t *testing.T) {
+	cap := StaticReasoningCapability("anthropic", "anthropic", "https://api.anthropic.com/v1", "claude-sonnet-5")
+	if cap == nil {
+		t.Fatal("got nil capability for the runtime default Anthropic base URL (with /v1)")
+	}
+}
+
 func TestStaticReasoningCapabilityDoesNotGuessUnknownCompatibleModels(t *testing.T) {
 	if got := StaticReasoningCapability("openai-compatible", "custom", "https://example.test/v1", "gpt-5"); got != nil {
 		t.Fatalf("got %#v, want Auto-only", got)

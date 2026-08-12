@@ -71,6 +71,14 @@ func (c *bedrockClient) Chat(ctx context.Context, req Request) (*Response, error
 	if req.Model == "" {
 		return nil, errors.New("bedrock needs a model id, e.g. anthropic.claude-3-5-sonnet-20241022-v2:0")
 	}
+	// Bedrock reuses anthropicClient.buildBody directly rather than going
+	// through anthropicClient.Chat, so it must run the same pre-request
+	// reasoning validation itself. Otherwise an invalid explicit effort is
+	// silently dropped by buildBody and a signed, billable request still goes
+	// upstream.
+	if err := c.inner.validateReasoning(req); err != nil {
+		return nil, err
+	}
 	payload, err := json.Marshal(c.bedrockBody(req))
 	if err != nil {
 		return nil, err

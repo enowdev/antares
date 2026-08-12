@@ -7,13 +7,18 @@ import "path/filepath"
 func Default() *Config {
 	return &Config{
 		Model: Model{
-			Default:          "anthropic/claude-sonnet-4.5",
-			Provider:         "openrouter",
-			Temperature:      0.7,
-			TopP:             1.0,
-			MaxTokens:        8192,
-			ContextWindow:    200000,
-			ReasoningEffort:  "medium",
+			Default:       "anthropic/claude-sonnet-4.5",
+			Provider:      "openrouter",
+			Temperature:   0.7,
+			TopP:          1.0,
+			MaxTokens:     8192,
+			ContextWindow: 200000,
+			// Auto ("") by default: reasoning effort is a provider/model-specific
+			// opaque value now, and OpenRouter can route to thousands of backing
+			// models with different (or no) reasoning ladders. A non-empty
+			// default here would fail pre-request validation for any model
+			// that doesn't advertise it.
+			ReasoningEffort:  "",
 			ParallelToolCall: true,
 		},
 		Providers: map[string]Provider{
@@ -60,7 +65,7 @@ func Default() *Config {
 			CORSOrigins: []string{},
 		},
 		Agent: Agent{
-			MaxTurns: 200, MaxToolCalls: 32, ReasoningEffort: "medium",
+			MaxTurns: 200, MaxToolCalls: 32, ReasoningEffort: "",
 			Personality: "default", Workspace: "~/antares-workspace",
 			Timezone: "Local", Language: "auto", IdleTimeoutSecs: 900,
 			RepeatLimit: 3, VerifyReplies: false, VerifyMax: 2, GoalMaxIterations: 10,
