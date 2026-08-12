@@ -169,33 +169,38 @@ func (a *Agent) Probe(ctx context.Context) (bool, string) {
 // A live fetch that fails still yields any manual list rather than nothing.
 func (a *Agent) Models(ctx context.Context, providerID string) ([]llm.ModelInfo, error) {
 	id, p := a.config().ResolveProvider(providerID)
-
-	client, err := llm.New(llm.Options{
-		Kind: p.Kind, BaseURL: p.BaseURL, APIKey: p.APIKey,
-		Headers: p.Headers, ProviderID: id, Timeout: 60 * time.Second, APIVersion: p.APIVersion, Region: p.Region,
-	})
-	if err != nil {
-		if len(p.Models) > 0 {
-			return curatedModelsWithReasoning(id, p, nil, p.Kind), nil
-		}
-		return nil, err
+	models, err := a.modelsForProvider(ctx, id, p)
+	if err != nil && len(p.Models) > 0 {
+		return models, nil
 	}
-	fetchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
+	return models, err
+}
 
-	live, ferr := client.Models(fetchCtx)
+func (a *Agent) modelsForProvider(ctx context.Context, id string, p config.Provider) ([]llm.ModelInfo, error) {
+	live, ferr := a.cachedProviderCatalog(ctx, id, p, func(fetchCtx context.Context) ([]llm.ModelInfo, error) {
+		client, err := llm.New(llm.Options{
+			Kind: p.Kind, BaseURL: p.BaseURL, APIKey: p.APIKey,
+			Headers: p.Headers, ProviderID: id, Timeout: 60 * time.Second, APIVersion: p.APIVersion, Region: p.Region,
+		})
+		if err != nil {
+			return nil, err
+		}
+		fetchCtx, cancel := context.WithTimeout(fetchCtx, 45*time.Second)
+		defer cancel()
+		return client.Models(fetchCtx)
+	})
 	if len(p.Models) > 0 {
-		return curatedModelsWithReasoning(id, p, live, client.Kind()), nil
+		return curatedModelsWithReasoning(id, p, live, p.Kind), ferr
 	}
 	if ferr != nil && len(live) == 0 {
 		return nil, ferr
 	}
 	for i := range live {
+		live[i].Provider = id
 		if live[i].ReasoningCapability != nil {
 			continue
 		}
 		target := reasoningTarget{providerID: id, model: live[i].ID, provider: p}
-		target.provider.Kind = client.Kind()
 		live[i] = live[i].WithReasoningCapability(staticReasoningCapability(target))
 	}
 	return live, nil

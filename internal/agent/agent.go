@@ -194,21 +194,27 @@ type Agent struct {
 
 	mu     sync.Mutex
 	active map[string]context.CancelFunc
+
+	catalogMu    sync.Mutex
+	catalogCache map[providerCatalogScope]*providerCatalogEntry
+	catalogNow   func() time.Time
 }
 
 // New builds an agent.
 func New(cfg *config.Config, db store.Store, reg *tools.Registry, shell *tools.ShellManager, ragProvider tools.RAGProvider) *Agent {
 	a := &Agent{
 		db: db, reg: reg, shell: shell, rag: ragProvider,
-		checks:   checkpoint.NewStore(config.Path("checkpoints")),
-		roles:    roles.NewRegistry(nil),
-		findings: findings.NewStore(config.Path("findings")),
-		intel:    engagement.NewStore(config.Path("intel")),
-		roleperf: roleperf.NewTracker(config.Path("role-performance.json")),
-		board:    board.New(config.Path("boards")),
-		bg:       newBGManager(),
-		bgAct:    newBgActivity(),
-		active:   map[string]context.CancelFunc{},
+		checks:       checkpoint.NewStore(config.Path("checkpoints")),
+		roles:        roles.NewRegistry(nil),
+		findings:     findings.NewStore(config.Path("findings")),
+		intel:        engagement.NewStore(config.Path("intel")),
+		roleperf:     roleperf.NewTracker(config.Path("role-performance.json")),
+		board:        board.New(config.Path("boards")),
+		bg:           newBGManager(),
+		bgAct:        newBgActivity(),
+		active:       map[string]context.CancelFunc{},
+		catalogCache: make(map[providerCatalogScope]*providerCatalogEntry),
+		catalogNow:   time.Now,
 	}
 	a.cfg.Store(cfg)
 	return a

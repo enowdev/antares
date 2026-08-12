@@ -291,11 +291,15 @@ func TestRunResolvesStoredRoleReasoningOnceBeforeTurnLoop(t *testing.T) {
 }
 
 func TestRunCarriesMatchingReasoningCapabilityThroughFallbackEntries(t *testing.T) {
-	var primaryChats atomic.Int32
+	var (
+		primaryModels atomic.Int32
+		primaryChats  atomic.Int32
+	)
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/models"):
+			primaryModels.Add(1)
 			_, _ = w.Write([]byte(`{
 				"data": [
 					{"id": "primary-model", "reasoning": {"supported_efforts": ["HIGH"], "default_effort": "HIGH"}}
@@ -314,11 +318,13 @@ func TestRunCarriesMatchingReasoningCapabilityThroughFallbackEntries(t *testing.
 	var (
 		mu             sync.Mutex
 		fallbackEffort any
+		fallbackModels atomic.Int32
 	)
 	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/models"):
+			fallbackModels.Add(1)
 			_, _ = w.Write([]byte(`{
 				"data": [
 					{"id": "fallback-model", "reasoning": {"supported_efforts": ["HIGH"], "default_effort": "HIGH"}}
@@ -374,6 +380,12 @@ func TestRunCarriesMatchingReasoningCapabilityThroughFallbackEntries(t *testing.
 	}
 	if got := primaryChats.Load(); got != 1 {
 		t.Fatalf("primary chat calls = %d, want one", got)
+	}
+	if got := primaryModels.Load(); got != 1 {
+		t.Fatalf("primary catalogue fetches = %d, want one shared by fallback setup and run resolution", got)
+	}
+	if got := fallbackModels.Load(); got != 1 {
+		t.Fatalf("fallback catalogue fetches = %d, want one", got)
 	}
 	mu.Lock()
 	defer mu.Unlock()

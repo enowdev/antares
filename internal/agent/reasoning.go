@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/enowdev/antares/internal/config"
@@ -22,6 +23,23 @@ type reasoningResolution struct {
 	DiscardedLegacy string
 }
 
+// ReasoningMetadataUnavailableError distinguishes an unavailable provider
+// catalogue from a model that is known not to support a submitted value. Its
+// message is deliberately constant and bounded: upstream diagnostics and the
+// submitted value are never exposed.
+type ReasoningMetadataUnavailableError struct{}
+
+func (*ReasoningMetadataUnavailableError) Error() string {
+	return "reasoning metadata is temporarily unavailable; use Auto or retry"
+}
+
+func (*ReasoningMetadataUnavailableError) ReasoningMetadataUnavailable() bool { return true }
+
+func IsReasoningMetadataUnavailable(err error) bool {
+	var unavailable *ReasoningMetadataUnavailableError
+	return errors.As(err, &unavailable)
+}
+
 type reasoningTarget struct {
 	providerID string
 	model      string
@@ -30,18 +48,19 @@ type reasoningTarget struct {
 
 // ReasoningCapability returns the best model-specific reasoning metadata the
 // configured provider can supply. Documented direct-provider metadata avoids a
-// network dependency; dynamic providers are queried through Agent.Models.
+// network dependency; dynamic providers use the Agent-owned cached catalogue.
 func (a *Agent) ReasoningCapability(ctx context.Context, modelRef string) (*llm.ReasoningCapability, error) {
 	target := a.reasoningTarget(modelRef)
 	if capability := staticReasoningCapability(target); capability != nil {
 		return capability, nil
 	}
 
-	models, err := a.Models(ctx, target.providerID)
+	models, err := a.modelsForProvider(ctx, target.providerID, target.provider)
 	if err != nil {
-		// Model catalogues are optional. Unknown metadata means Auto-only; it
-		// must not make an otherwise valid chat depend on a /models endpoint.
-		return nil, nil
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, &ReasoningMetadataUnavailableError{}
 	}
 	for _, model := range models {
 		if model.ID == target.model && model.ReasoningCapability != nil {
@@ -54,6 +73,9 @@ func (a *Agent) ReasoningCapability(ctx context.Context, modelRef string) (*llm.
 // ValidateReasoningEffort validates an explicit value without including the
 // submitted value in any error.
 func (a *Agent) ValidateReasoningEffort(ctx context.Context, modelRef, effort string) error {
+	if effort == "" {
+		return nil
+	}
 	capability, err := a.ReasoningCapability(ctx, modelRef)
 	if err != nil {
 		return err
@@ -65,8 +87,28 @@ func (a *Agent) ValidateReasoningEffort(ctx context.Context, modelRef, effort st
 // values. An invalid explicit override is an error; invalid stored values are
 // skipped in role, agent, model order so old configuration degrades to Auto.
 func (a *Agent) resolveReasoning(ctx context.Context, in reasoningInput) (reasoningResolution, error) {
+	agentValue := in.Agent
+	if agentValue == "" {
+		agentValue = a.config().Agent.ReasoningEffort
+	}
+	modelValue := in.Model
+	if modelValue == "" {
+		modelValue = a.config().Model.ReasoningEffort
+	}
+	storedValues := []string{in.Role, agentValue, modelValue}
+
 	capability, err := a.ReasoningCapability(ctx, in.ModelRef)
 	if err != nil {
+		if IsReasoningMetadataUnavailable(err) && in.Explicit == "" {
+			resolution := reasoningResolution{}
+			for _, stored := range storedValues {
+				if stored != "" {
+					resolution.DiscardedLegacy = stored
+					break
+				}
+			}
+			return resolution, nil
+		}
 		return reasoningResolution{}, err
 	}
 	resolution := reasoningResolution{Capability: capability}
@@ -80,15 +122,7 @@ func (a *Agent) resolveReasoning(ctx context.Context, in reasoningInput) (reason
 		return resolution, nil
 	}
 
-	agentValue := in.Agent
-	if agentValue == "" {
-		agentValue = a.config().Agent.ReasoningEffort
-	}
-	modelValue := in.Model
-	if modelValue == "" {
-		modelValue = a.config().Model.ReasoningEffort
-	}
-	for _, stored := range []string{in.Role, agentValue, modelValue} {
+	for _, stored := range storedValues {
 		if stored == "" {
 			continue
 		}
