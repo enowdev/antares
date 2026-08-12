@@ -169,6 +169,32 @@ func TestStaticReasoningCapabilityDoesNotGuessUnknownCompatibleModels(t *testing
 	}
 }
 
+// TestStaticReasoningCapabilityAcceptsShippedGeminiProviderID guards against a
+// regression where direct Gemini's static catalog only matched the documented
+// canonical provider id "google", but internal/config/defaults.go's shipped
+// provider map key (and therefore the real runtime llm.Options.ProviderID) is
+// "gemini". Without this, the static fallback never fired for the actual
+// default Gemini provider.
+func TestStaticReasoningCapabilityAcceptsShippedGeminiProviderID(t *testing.T) {
+	for _, provider := range []string{"google", "gemini"} {
+		cap := StaticReasoningCapability("gemini", provider, "https://generativelanguage.googleapis.com/v1beta", "gemini-3.6-flash")
+		if cap == nil {
+			t.Errorf("provider %q: got nil capability, want a match", provider)
+		}
+	}
+}
+
+// TestStaticReasoningCapabilityRejectsUnknownGeminiCompatibleProvider ensures
+// widening the Gemini provider match to also accept "gemini" stayed an exact
+// two-value allowlist rather than a broad match: an arbitrary custom or
+// Gemini-compatible reverse-proxy provider id must still resolve to nil
+// (Auto-only), exactly like every other kind's unknown-provider case.
+func TestStaticReasoningCapabilityRejectsUnknownGeminiCompatibleProvider(t *testing.T) {
+	if got := StaticReasoningCapability("gemini", "my-gemini-proxy", "https://generativelanguage.googleapis.com/v1beta", "gemini-3.6-flash"); got != nil {
+		t.Fatalf("got %#v, want Auto-only for an unrecognised Gemini-compatible provider id", got)
+	}
+}
+
 func reasoningValues(cap *ReasoningCapability) []string {
 	if cap == nil {
 		return nil

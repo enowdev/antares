@@ -307,7 +307,11 @@ func (c *geminiClient) buildBody(req Request) map[string]any {
 		gen["stopSequences"] = req.StopSequences
 	}
 	if value, err := reasoningValue(req, c.Kind(), c.opts.ProviderID, c.opts.BaseURL); err == nil {
-		if tc := geminiThinkingConfig(req.Model, value); tc != nil {
+		// An unmappable value (ok == false) is left out of the body here;
+		// callers reach this only via Chat/Stream, which fail the request
+		// first via validateReasoning, so that case is unreachable in
+		// practice. buildBody stays a pure, non-erroring body builder.
+		if tc, ok := geminiThinkingConfig(req.Model, value); ok && tc != nil {
 			gen["thinkingConfig"] = tc
 		}
 	}
@@ -380,41 +384,76 @@ func (c *geminiClient) endpoint(model, method string, stream bool) string {
 // Minimal is a real, distinct thinking level for Gemini 3 — not an Off
 // synonym. Gemini 3 has no true Off; its static capability never advertises
 // "none", so the "none" case below only guards a stray legacy value.
-func geminiThinkingConfig(model, effort string) map[string]any {
+//
+// ok is false when effort cannot actually be honored on model: an
+// unrecognised keyword, or "minimal" requested against a legacy
+// thinkingBudget model that has no such level. config == nil with ok == true
+// is a real, intentional mapping (Auto, or Gemini 3's documented lack of a
+// true Off) — callers must not conflate the two. See
+// geminiClient.validateReasoning, which fails the request before any network
+// call when ok is false rather than silently omitting the override.
+func geminiThinkingConfig(model, effort string) (config map[string]any, ok bool) {
 	e := strings.ToLower(strings.TrimSpace(effort))
 	if e == "" {
-		return nil
+		return nil, true
 	}
 	useLevel := geminiModelUsesThinkingLevel(model)
 	switch e {
 	case "none":
 		if useLevel {
-			return nil
+			return nil, true
 		}
-		return map[string]any{"thinkingBudget": 0}
+		return map[string]any{"thinkingBudget": 0}, true
 	case "minimal":
 		if !useLevel {
-			return nil
+			return nil, false
 		}
-		return map[string]any{"thinkingLevel": "MINIMAL", "includeThoughts": true}
+		return map[string]any{"thinkingLevel": "MINIMAL", "includeThoughts": true}, true
 	case "low":
 		if useLevel {
-			return map[string]any{"thinkingLevel": "LOW", "includeThoughts": true}
+			return map[string]any{"thinkingLevel": "LOW", "includeThoughts": true}, true
 		}
-		return map[string]any{"thinkingBudget": 2048, "includeThoughts": true}
+		return map[string]any{"thinkingBudget": 2048, "includeThoughts": true}, true
 	case "medium":
 		if useLevel {
-			return map[string]any{"thinkingLevel": "MEDIUM", "includeThoughts": true}
+			return map[string]any{"thinkingLevel": "MEDIUM", "includeThoughts": true}, true
 		}
-		return map[string]any{"thinkingBudget": 8192, "includeThoughts": true}
+		return map[string]any{"thinkingBudget": 8192, "includeThoughts": true}, true
 	case "high":
 		if useLevel {
-			return map[string]any{"thinkingLevel": "HIGH", "includeThoughts": true}
+			return map[string]any{"thinkingLevel": "HIGH", "includeThoughts": true}, true
 		}
-		return map[string]any{"thinkingBudget": 24576, "includeThoughts": true}
+		return map[string]any{"thinkingBudget": 24576, "includeThoughts": true}, true
 	default:
+		return nil, false
+	}
+}
+
+// validateReasoning fails before any network call when the request's
+// reasoning effort cannot be honored: either the value itself is not
+// advertised by the model's capability (delegated to reasoningValue), or the
+// value is validated by an attached capability but geminiThinkingConfig has
+// no mapping for it on this model — which would otherwise silently vanish
+// from the outgoing request (buildBody just omits thinkingConfig).
+func (c *geminiClient) validateReasoning(req Request) error {
+	value, err := reasoningValue(req, c.Kind(), c.opts.ProviderID, c.opts.BaseURL)
+	if err != nil {
+		return err
+	}
+	if value == "" {
 		return nil
 	}
+	if _, ok := geminiThinkingConfig(req.Model, value); !ok {
+		capability := resolvedReasoningCapability(req, c.Kind(), c.opts.ProviderID, c.opts.BaseURL)
+		var allowed []string
+		if capability != nil {
+			for _, v := range capability.Values {
+				allowed = append(allowed, v.Value)
+			}
+		}
+		return &UnsupportedReasoningEffortError{Model: req.Model, Allowed: allowed}
+	}
+	return nil
 }
 
 func geminiModelUsesThinkingLevel(model string) bool {
@@ -463,7 +502,7 @@ func parseGeminiParts(parts []gemPart) (content, reasoning string, calls []ToolC
 }
 
 func (c *geminiClient) Chat(ctx context.Context, req Request) (*Response, error) {
-	if _, err := reasoningValue(req, c.Kind(), c.opts.ProviderID, c.opts.BaseURL); err != nil {
+	if err := c.validateReasoning(req); err != nil {
 		return nil, err
 	}
 	// Prefer stream collection: some Gemini-compatible reverse proxies aggregate
@@ -499,7 +538,7 @@ func (c *geminiClient) Chat(ctx context.Context, req Request) (*Response, error)
 }
 
 func (c *geminiClient) Stream(ctx context.Context, req Request, emit func(Event) error) (*Response, error) {
-	if _, err := reasoningValue(req, c.Kind(), c.opts.ProviderID, c.opts.BaseURL); err != nil {
+	if err := c.validateReasoning(req); err != nil {
 		return nil, err
 	}
 	httpResp, err := c.opts.doStream(ctx, "POST", c.endpoint(req.Model, "streamGenerateContent", true), c.buildBody(req), c.headers())

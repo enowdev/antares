@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
 func TestGeminiThinkingConfigUsesLevelForGemini3(t *testing.T) {
-	tc := geminiThinkingConfig("gemini-3.6-flash-high", "high")
-	if tc == nil {
+	tc, ok := geminiThinkingConfig("gemini-3.6-flash-high", "high")
+	if !ok || tc == nil {
 		t.Fatal("expected thinkingConfig")
 	}
 	if tc["thinkingLevel"] != "HIGH" {
@@ -26,8 +29,8 @@ func TestGeminiThinkingConfigUsesLevelForGemini3(t *testing.T) {
 }
 
 func TestGeminiThinkingConfigUsesBudgetFor25(t *testing.T) {
-	tc := geminiThinkingConfig("gemini-2.5-flash", "medium")
-	if tc == nil {
+	tc, ok := geminiThinkingConfig("gemini-2.5-flash", "medium")
+	if !ok || tc == nil {
 		t.Fatal("expected thinkingConfig")
 	}
 	if tc["thinkingBudget"] != 8192 {
@@ -39,16 +42,42 @@ func TestGeminiThinkingConfigUsesBudgetFor25(t *testing.T) {
 }
 
 func TestGemini3MinimalIsNotDisable(t *testing.T) {
-	got := geminiThinkingConfig("gemini-3.6-flash", "minimal")
+	got, ok := geminiThinkingConfig("gemini-3.6-flash", "minimal")
 	want := map[string]any{"thinkingLevel": "MINIMAL", "includeThoughts": true}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %#v, want %#v", got, want)
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v, ok=%v, want %#v, ok=true", got, ok, want)
 	}
 }
 
 func TestGeminiThinkingConfigGemini3HasNoTrueOff(t *testing.T) {
-	if got := geminiThinkingConfig("gemini-3.6-flash", "none"); got != nil {
-		t.Fatalf("got %#v, want nil (Gemini 3 has no true Off, only Minimal)", got)
+	got, ok := geminiThinkingConfig("gemini-3.6-flash", "none")
+	if !ok || got != nil {
+		t.Fatalf("got %#v, ok=%v, want nil, ok=true (Gemini 3 has no true Off, only Minimal — that's a valid mapping, not a failure)", got, ok)
+	}
+}
+
+// TestGeminiThinkingConfigMinimalUnmappableForLegacyBudgetModel guards the
+// second half of geminiThinkingConfig's ok contract: "minimal" has no
+// documented meaning for a pre-Gemini-3 thinkingBudget model, so it must be
+// reported as unmappable (ok == false) rather than silently treated as a
+// no-op, matching how an entirely unrecognised keyword is handled.
+func TestGeminiThinkingConfigMinimalUnmappableForLegacyBudgetModel(t *testing.T) {
+	if _, ok := geminiThinkingConfig("gemini-2.5-flash", "minimal"); ok {
+		t.Fatal("got ok=true, want ok=false: legacy budget models have no minimal thinking level")
+	}
+}
+
+// TestGeminiThinkingConfigUnrecognisedEffortIsUnmappable guards the general
+// case behind the review finding: an effort value this switch has never
+// heard of (as could be attached via a live/static ReasoningCapability that
+// advertises more values than this local mapping knows) must report
+// ok == false rather than silently mapping to no override.
+func TestGeminiThinkingConfigUnrecognisedEffortIsUnmappable(t *testing.T) {
+	if _, ok := geminiThinkingConfig("gemini-2.5-flash", "xhigh"); ok {
+		t.Fatal("got ok=true, want ok=false for an unrecognised effort keyword")
+	}
+	if _, ok := geminiThinkingConfig("gemini-3.6-flash", "xhigh"); ok {
+		t.Fatal("got ok=true, want ok=false for an unrecognised effort keyword on a Gemini 3 model")
 	}
 }
 
@@ -93,6 +122,56 @@ func TestGeminiRejectsUnsupportedOffBeforeRequest(t *testing.T) {
 	var unsupported *UnsupportedReasoningEffortError
 	if !errors.As(err, &unsupported) {
 		t.Fatalf("err = %v, want UnsupportedReasoningEffortError", err)
+	}
+}
+
+// TestGeminiUnmappableLegacyEffortFailsBeforeRequest guards a silent-drop
+// bug: an effort can pass validation against an *attached* capability (e.g. a
+// live capability advertising a value this local geminiThinkingConfig switch
+// does not recognise for the model) yet have no mapping at all.
+// geminiThinkingConfig previously returned nil in that case and buildBody
+// just omitted thinkingConfig, silently downgrading the turn to Auto. Chat
+// must now fail before any request is sent.
+func TestGeminiUnmappableLegacyEffortFailsBeforeRequest(t *testing.T) {
+	cap, err := NewReasoningCapability(
+		[]ReasoningValue{{Value: "low", Label: "Low"}, {Value: "xhigh", Label: "Extra High"}},
+		"low", false, ReasoningCapabilityStatic,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := &geminiClient{opts: Options{BaseURL: srv.URL, HTTPClient: srv.Client()}}
+	_, err = c.Chat(context.Background(), Request{
+		Model: "gemini-2.5-flash", ReasoningEffort: "xhigh", ReasoningCapability: cap,
+	})
+	var unsupported *UnsupportedReasoningEffortError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("err = %v, want UnsupportedReasoningEffortError", err)
+	}
+	if got := atomic.LoadInt32(&hits); got != 0 {
+		t.Fatalf("requests sent = %d, want 0", got)
+	}
+
+	// buildBody alone (bypassing Chat) must also stay silent-safe: it must
+	// not fabricate a thinkingConfig it cannot actually honor.
+	body := (&geminiClient{}).buildBody(Request{
+		Model: "gemini-2.5-flash", ReasoningEffort: "xhigh", ReasoningCapability: cap,
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	gen, _ := body["generationConfig"].(map[string]any)
+	if gen != nil {
+		if _, ok := gen["thinkingConfig"]; ok {
+			t.Fatalf("buildBody emitted a thinkingConfig for an unmappable effort: %#v", gen["thinkingConfig"])
+		}
 	}
 }
 

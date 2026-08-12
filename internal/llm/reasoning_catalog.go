@@ -51,7 +51,7 @@ func StaticReasoningCapability(kind, provider, baseURL, model string) *Reasoning
 		entries = codexReasoningCapabilities
 	case kind == "anthropic" && provider == "anthropic" && isAnthropicDirectBaseURL(baseURL):
 		entries = anthropicReasoningCapabilities
-	case kind == "gemini" && provider == "google" && baseURL == "https://generativelanguage.googleapis.com/v1beta":
+	case kind == "gemini" && isGeminiDirectProvider(provider) && baseURL == "https://generativelanguage.googleapis.com/v1beta":
 		entries = geminiReasoningCapabilities
 	default:
 		return nil
@@ -76,6 +76,16 @@ func StaticReasoningCapability(kind, provider, baseURL, model string) *Reasoning
 // Anthropic-compatible endpoint still falls back to Auto-only.
 func isAnthropicDirectBaseURL(baseURL string) bool {
 	return baseURL == "https://api.anthropic.com" || baseURL == "https://api.anthropic.com/v1"
+}
+
+// isGeminiDirectProvider recognises both the documented canonical provider id
+// ("google") and the shipped provider id this codebase actually configures
+// for direct Gemini ("gemini" — internal/config/defaults.go's providers map
+// key). This is an exact two-value allowlist, not a broad match: any other
+// provider id (a custom or Gemini-compatible reverse proxy) still falls back
+// to Auto-only, matching direct-request behavior for other kinds.
+func isGeminiDirectProvider(provider string) bool {
+	return provider == "google" || provider == "gemini"
 }
 
 func exactModelOrDatedSnapshot(family, model string) bool {
