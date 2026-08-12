@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -148,6 +149,55 @@ func TestCreateAgentRepoAndFollowUpPayloads(t *testing.T) {
 	}
 	if seen[0]["autoCreatePR"] != true {
 		t.Fatalf("create payload = %#v", seen[0])
+	}
+}
+
+// The Cursor Cloud Agents API accepts a stable envelope of hidden variant
+// params alongside optional prompt images; both must round-trip byte-exact
+// so a chosen model variant and any attachments are never silently altered.
+func TestCreateAgentEncodesPromptImagesAndExactModelParams(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"agent": map[string]any{
+				"id": "a1", "status": "ACTIVE", "url": "https://cursor.com/agents/a1", "latestRunId": "r1",
+			},
+			"run": map[string]any{"id": "r1", "agentId": "a1", "status": "CREATING"},
+		})
+	}))
+	defer srv.Close()
+
+	want := CreateAgentRequest{
+		Prompt: Prompt{
+			Text:   "inspect this",
+			Images: []PromptImage{{Data: "aGVsbG8=", MimeType: "image/png"}},
+		},
+		Model: &ModelSelection{
+			ID: "gpt-5.6-sol",
+			Params: []ModelParameterSelection{
+				{ID: "context", Value: "1m"},
+				{ID: "reasoning", Value: "max"},
+				{ID: "fast", Value: "true"},
+			},
+		},
+	}
+
+	client, _ := New(Options{BaseURL: srv.URL, APIKey: "synthetic-key", HTTPClient: srv.Client()})
+	if _, err := client.CreateAgent(context.Background(), want); err != nil {
+		t.Fatalf("CreateAgent error = %v", err)
+	}
+
+	var got CreateAgentRequest
+	if err := json.Unmarshal(gotBody, &got); err != nil {
+		t.Fatalf("decode request body: %v (body=%s)", err, gotBody)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("request body = %+v, want %+v", got, want)
 	}
 }
 

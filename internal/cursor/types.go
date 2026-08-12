@@ -48,16 +48,39 @@ type ModelCatalog struct {
 }
 
 type StreamEvent struct {
-	ID       string
-	Type     string
-	Status   string
-	Text     string
-	ToolName string
-	Raw      json.RawMessage
+	ID     string
+	Type   string
+	Status string
+	Text   string
+	RunID  string
+	Raw    json.RawMessage
+
+	// Tool call fields, populated only for Type == "tool_call". CallID
+	// identifies one tool invocation across its "running" and "completed"
+	// updates. ToolArgs/ToolResult are the raw JSON values Cursor sent;
+	// either is nil when Cursor omitted it (not yet available, or dropped
+	// because it exceeded the stream's inline size limit, in which case the
+	// matching *Truncated flag is set).
+	ToolName        string
+	CallID          string
+	ToolArgs        json.RawMessage
+	ToolResult      json.RawMessage
+	ArgsTruncated   bool
+	ResultTruncated bool
+}
+
+// PromptImage is an image attachment on a prompt. Exactly one of Data (a
+// base64-encoded payload) or URL should be set, per the Cursor Cloud Agents
+// API; MimeType is required alongside Data.
+type PromptImage struct {
+	Data     string `json:"data,omitempty"`
+	URL      string `json:"url,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
 }
 
 type Prompt struct {
-	Text string `json:"text"`
+	Text   string        `json:"text"`
+	Images []PromptImage `json:"images,omitempty"`
 }
 
 type ModelSelection struct {

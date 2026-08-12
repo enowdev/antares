@@ -102,14 +102,31 @@ func parseSSE(r io.Reader, emit func(StreamEvent) error) (lastID string, termina
 				Status string `json:"status"`
 			}
 			decodeErr = json.Unmarshal(raw, &payload)
+			out.RunID = payload.RunID
 			out.Status = payload.Status
 		case "tool_call":
+			// Cursor Cloud Agents API, "Stream A Run" — tool call payloads
+			// (https://cursor.com/docs/cloud-agent/api/endpoints#stream-a-run):
+			// { callId, name, status, args?, result?, truncated?: {args?, result?} }
 			var payload struct {
-				Name   string `json:"name"`
-				Status string `json:"status"`
+				CallID    string          `json:"callId"`
+				Name      string          `json:"name"`
+				Status    string          `json:"status"`
+				Args      json.RawMessage `json:"args,omitempty"`
+				Result    json.RawMessage `json:"result,omitempty"`
+				Truncated struct {
+					Args   bool `json:"args"`
+					Result bool `json:"result"`
+				} `json:"truncated"`
 			}
 			decodeErr = json.Unmarshal(raw, &payload)
-			out.ToolName, out.Status = payload.Name, payload.Status
+			out.CallID = payload.CallID
+			out.ToolName = payload.Name
+			out.Status = payload.Status
+			out.ToolArgs = payload.Args
+			out.ToolResult = payload.Result
+			out.ArgsTruncated = payload.Truncated.Args
+			out.ResultTruncated = payload.Truncated.Result
 		case "result":
 			var payload struct {
 				RunID      string    `json:"runId"`
@@ -127,6 +144,7 @@ func parseSSE(r io.Reader, emit func(StreamEvent) error) (lastID string, termina
 					DurationMS: payload.DurationMS,
 					Git:        payload.Git,
 				}
+				out.RunID = payload.RunID
 				out.Status = payload.Status
 				out.Text = payload.Text
 			}
@@ -246,14 +264,40 @@ func (c *Client) streamOnce(
 	return lastID, terminal, false, nil
 }
 
+// StreamOptions configures StreamRunWithOptions. LastEventID lets a caller
+// resume a stream from a token persisted before this process started,
+// instead of always replaying from the beginning of the run.
+//
+// OnReset is invoked at most once per call, before Antares discards the
+// current Last-Event-ID following a 400 invalid_last_event_id response or a
+// 410 stream_expired response. It lets a caller drop its own persisted copy
+// of that token so a dead resume point is never reused on a later call. An
+// error returned from OnReset aborts the stream immediately.
+type StreamOptions struct {
+	LastEventID string
+	OnReset     func() error
+}
+
 // StreamRun streams a run's events, transparently reconnecting on ordinary
-// disconnects while preserving Last-Event-ID. The retry budget applies only
-// to consecutive disconnects that make no event-ID progress.
-// It returns the run's terminal state once a "result" event is decoded, or
-// once the stream ends and GetRun confirms completion.
+// disconnects while preserving Last-Event-ID. It is a compatibility wrapper
+// over StreamRunWithOptions with no caller-supplied resume token.
 func (c *Client) StreamRun(
 	ctx context.Context,
 	agentID, runID string,
+	emit func(StreamEvent) error,
+) (*Run, error) {
+	return c.StreamRunWithOptions(ctx, agentID, runID, StreamOptions{}, emit)
+}
+
+// StreamRunWithOptions streams a run's events, transparently reconnecting on
+// ordinary disconnects while preserving Last-Event-ID. The retry budget
+// applies only to consecutive disconnects that make no event-ID progress.
+// It returns the run's terminal state once a "result" event is decoded, or
+// once the stream ends and GetRun confirms completion.
+func (c *Client) StreamRunWithOptions(
+	ctx context.Context,
+	agentID, runID string,
+	options StreamOptions,
 	emit func(StreamEvent) error,
 ) (*Run, error) {
 	if strings.TrimSpace(agentID) == "" {
@@ -266,8 +310,18 @@ func (c *Client) StreamRun(
 	backoffs := [3]time.Duration{250 * time.Millisecond, 500 * time.Millisecond, 1 * time.Second}
 	const maxNoProgress = 4
 
-	var lastID string
+	lastID := options.LastEventID
 	var resetUsed bool
+	resetOnce := func() error {
+		if resetUsed {
+			return nil
+		}
+		resetUsed = true
+		if options.OnReset == nil {
+			return nil
+		}
+		return options.OnReset()
+	}
 	noProgress := 0
 	var retryDelay time.Duration
 
@@ -294,12 +348,17 @@ func (c *Client) StreamRun(
 				return nil, ctxErr
 			}
 			if IsStatus(err, http.StatusGone) {
+				if rerr := resetOnce(); rerr != nil {
+					return nil, rerr
+				}
 				return c.GetRun(ctx, agentID, runID)
 			}
 			var apiErr *APIError
 			if errors.As(err, &apiErr) && apiErr.Status == http.StatusBadRequest &&
 				apiErr.Code == "invalid_last_event_id" && !resetUsed {
-				resetUsed = true
+				if rerr := resetOnce(); rerr != nil {
+					return nil, rerr
+				}
 				lastID = ""
 				continue
 			}

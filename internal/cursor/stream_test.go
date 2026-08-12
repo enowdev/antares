@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -602,6 +603,250 @@ func TestStreamRunReturnsEmitErrorImmediately(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("calls = %d, want 1 (no retry after emit error)", calls.Load())
+	}
+}
+
+// StreamRunWithOptions is the real implementation; StreamRun must remain a
+// thin wrapper that calls it with an empty StreamOptions.
+func TestStreamRunWithOptionsUsesSuppliedLastEventID(t *testing.T) {
+	var gotHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("Last-Event-ID")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w,
+			"id: evt-9\nevent: result\ndata: {\"runId\":\"run-one\",\"status\":\"FINISHED\",\"text\":\"done\"}\n\n"+
+				"id: evt-10\nevent: done\ndata: {}\n\n")
+	}))
+	defer srv.Close()
+
+	client, _ := New(Options{BaseURL: srv.URL, APIKey: "synthetic-key", HTTPClient: srv.Client()})
+	run, err := client.StreamRunWithOptions(context.Background(), "bc-agent", "run-one",
+		StreamOptions{LastEventID: "evt-8"},
+		func(StreamEvent) error { return nil })
+	if err != nil || run.Status != "FINISHED" {
+		t.Fatalf("StreamRunWithOptions = %+v, %v", run, err)
+	}
+	if gotHeader != "evt-8" {
+		t.Fatalf("initial Last-Event-ID = %q, want evt-8", gotHeader)
+	}
+}
+
+// A stale caller-supplied resume token must trigger OnReset before Antares
+// replays the run with a cleared token, so a persisted copy of the token
+// (e.g. across process restarts) does not keep resurrecting a dead cursor.
+func TestStreamRunWithOptionsInvalidLastEventIDCallsOnResetBeforeReplay(t *testing.T) {
+	var calls atomic.Int32
+	order := make(chan string, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch calls.Add(1) {
+		case 1:
+			if got := r.Header.Get("Last-Event-ID"); got != "stale-evt" {
+				t.Errorf("first Last-Event-ID = %q, want stale-evt", got)
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": "invalid_last_event_id", "message": "unknown event id"})
+		case 2:
+			order <- "reconnect"
+			if got := r.Header.Get("Last-Event-ID"); got != "" {
+				t.Errorf("reconnect Last-Event-ID = %q, want reset to empty", got)
+			}
+			_, _ = io.WriteString(w,
+				"id: evt-1\nevent: result\ndata: {\"runId\":\"run-one\",\"status\":\"FINISHED\",\"text\":\"done\"}\n\n"+
+					"id: evt-2\nevent: done\ndata: {}\n\n")
+		default:
+			t.Errorf("unexpected extra call %d", calls.Load())
+		}
+	}))
+	defer srv.Close()
+
+	var resetCalls atomic.Int32
+	client, _ := New(Options{BaseURL: srv.URL, APIKey: "synthetic-key", HTTPClient: srv.Client()})
+	run, err := client.StreamRunWithOptions(context.Background(), "bc-agent", "run-one",
+		StreamOptions{
+			LastEventID: "stale-evt",
+			OnReset: func() error {
+				resetCalls.Add(1)
+				order <- "reset"
+				return nil
+			},
+		},
+		func(StreamEvent) error { return nil })
+	if err != nil || run.Status != "FINISHED" || run.Result != "done" {
+		t.Fatalf("StreamRunWithOptions = %+v, %v", run, err)
+	}
+	if resetCalls.Load() != 1 {
+		t.Fatalf("OnReset calls = %d, want exactly 1", resetCalls.Load())
+	}
+	close(order)
+	var got []string
+	for v := range order {
+		got = append(got, v)
+	}
+	if want := []string{"reset", "reconnect"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("call order = %v, want %v (OnReset must run before replay)", got, want)
+	}
+}
+
+// A run whose retention window elapsed (410) is a signal the resume token is
+// dead too, even though Antares does not retry the stream itself: OnReset
+// must still fire before the GetRun fallback so a persisted token is
+// dropped instead of being reused on the next call.
+func TestStreamRunWithOptions410CallsOnResetBeforeGetRunFallback(t *testing.T) {
+	var streamCalls, statusCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stream"):
+			streamCalls.Add(1)
+			w.WriteHeader(http.StatusGone)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": "stream_expired", "message": "stream expired"})
+		case r.URL.Path == "/v1/agents/bc-agent/runs/run-one":
+			statusCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "run-one", "agentId": "bc-agent", "status": "FINISHED", "result": "done",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	var resetCalls atomic.Int32
+	client, _ := New(Options{BaseURL: srv.URL, APIKey: "synthetic-key", HTTPClient: srv.Client()})
+	run, err := client.StreamRunWithOptions(context.Background(), "bc-agent", "run-one",
+		StreamOptions{
+			LastEventID: "evt-old",
+			OnReset: func() error {
+				resetCalls.Add(1)
+				return nil
+			},
+		},
+		func(StreamEvent) error { return nil })
+	if err != nil || run.Status != "FINISHED" || run.Result != "done" {
+		t.Fatalf("StreamRunWithOptions = %+v, %v", run, err)
+	}
+	if resetCalls.Load() != 1 {
+		t.Fatalf("OnReset calls = %d, want exactly 1", resetCalls.Load())
+	}
+	if streamCalls.Load() != 1 || statusCalls.Load() != 1 {
+		t.Fatalf("stream calls = %d, status calls = %d; want 1 and 1 (no stream retry after 410)",
+			streamCalls.Load(), statusCalls.Load())
+	}
+}
+
+// An OnReset failure must abort the stream immediately instead of
+// proceeding to reconnect with a cleared token the caller could not record.
+func TestStreamRunWithOptionsAbortsWhenOnResetFails(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		calls.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": "invalid_last_event_id", "message": "unknown event id"})
+	}))
+	defer srv.Close()
+
+	wantErr := errors.New("synthetic persistence failure")
+	client, _ := New(Options{BaseURL: srv.URL, APIKey: "synthetic-key", HTTPClient: srv.Client()})
+	_, err := client.StreamRunWithOptions(context.Background(), "bc-agent", "run-one",
+		StreamOptions{
+			LastEventID: "stale-evt",
+			OnReset:     func() error { return wantErr },
+		},
+		func(StreamEvent) error { return nil })
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want %v", err, wantErr)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("stream calls = %d, want 1 (no reconnect after OnReset failure)", calls.Load())
+	}
+}
+
+// The terminal-result-wins guarantee must hold through the new entry point
+// directly, not only through the StreamRun compatibility wrapper.
+func TestStreamRunWithOptionsTerminalResultWinsOverLaterReadError(t *testing.T) {
+	client, calls := truncatedStreamClient(t, func(int32, *http.Request) (string, error) {
+		return "id: evt-1\nevent: result\ndata: {\"runId\":\"run-one\",\"status\":\"FINISHED\",\"text\":\"done\"}\n\n",
+			io.ErrUnexpectedEOF
+	})
+
+	run, err := client.StreamRunWithOptions(context.Background(), "bc-agent", "run-one", StreamOptions{},
+		func(StreamEvent) error { return nil })
+	if err != nil || run == nil || run.Status != "FINISHED" || run.Result != "done" {
+		t.Fatalf("StreamRunWithOptions = %+v, %v; want the decoded result to outrank the read error", run, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("stream calls = %d, want 1", calls.Load())
+	}
+}
+
+// Full tool-call identity, args, result, and truncation flags must survive
+// decoding exactly as Cursor documents the tool_call envelope, and status
+// events must carry their run id too.
+func TestCompleteToolCallEventDecodesIDArgsResultAndTruncation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w,
+			"event: status\ndata: {\"runId\":\"run-one\",\"status\":\"RUNNING\"}\n\n"+
+				"id: evt-1\nevent: tool_call\ndata: {\"callId\":\"call-1\",\"name\":\"read_file\",\"status\":\"running\","+
+				"\"args\":{\"path\":\"README.md\"}}\n\n"+
+				"id: evt-2\nevent: tool_call\ndata: {\"callId\":\"call-1\",\"name\":\"read_file\",\"status\":\"completed\","+
+				"\"args\":{\"path\":\"README.md\"},\"result\":{\"content\":\"# Project\"},"+
+				"\"truncated\":{\"args\":true,\"result\":true}}\n\n"+
+				"id: evt-3\nevent: result\ndata: {\"runId\":\"run-one\",\"status\":\"FINISHED\",\"text\":\"done\"}\n\n"+
+				"id: evt-4\nevent: done\ndata: {}\n\n")
+	}))
+	defer srv.Close()
+
+	client, _ := New(Options{BaseURL: srv.URL, APIKey: "synthetic-key", HTTPClient: srv.Client()})
+	var events []StreamEvent
+	run, err := client.StreamRun(context.Background(), "bc-agent", "run-one", func(e StreamEvent) error {
+		events = append(events, e)
+		return nil
+	})
+	if err != nil || run.Status != "FINISHED" {
+		t.Fatalf("StreamRun = %+v, %v", run, err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("events = %#v, want status, two tool_call events, and result", events)
+	}
+
+	status := events[0]
+	if status.Type != "status" || status.RunID != "run-one" || status.Status != "RUNNING" {
+		t.Fatalf("status event = %+v", status)
+	}
+
+	running := events[1]
+	if running.CallID != "call-1" || running.ToolName != "read_file" || running.Status != "running" {
+		t.Fatalf("running tool_call = %+v", running)
+	}
+	if string(running.ToolArgs) != `{"path":"README.md"}` {
+		t.Fatalf("running args = %s, want {\"path\":\"README.md\"}", running.ToolArgs)
+	}
+	if running.ToolResult != nil {
+		t.Fatalf("running result = %s, want nil (tool still running)", running.ToolResult)
+	}
+	if running.ArgsTruncated || running.ResultTruncated {
+		t.Fatalf("running truncation = args=%v result=%v, want both false", running.ArgsTruncated, running.ResultTruncated)
+	}
+
+	completed := events[2]
+	if completed.CallID != "call-1" || completed.ToolName != "read_file" || completed.Status != "completed" {
+		t.Fatalf("completed tool_call = %+v", completed)
+	}
+	if string(completed.ToolArgs) != `{"path":"README.md"}` {
+		t.Fatalf("completed args = %s", completed.ToolArgs)
+	}
+	if string(completed.ToolResult) != `{"content":"# Project"}` {
+		t.Fatalf("completed result = %s", completed.ToolResult)
+	}
+	if !completed.ArgsTruncated || !completed.ResultTruncated {
+		t.Fatalf("completed truncation = args=%v result=%v, want both true", completed.ArgsTruncated, completed.ResultTruncated)
+	}
+
+	resultEvt := events[3]
+	if resultEvt.Type != "result" || resultEvt.RunID != "run-one" {
+		t.Fatalf("result event = %+v", resultEvt)
 	}
 }
 
