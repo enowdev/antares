@@ -1,7 +1,10 @@
 package llm
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -32,6 +35,64 @@ func TestGeminiThinkingConfigUsesBudgetFor25(t *testing.T) {
 	}
 	if _, hasLevel := tc["thinkingLevel"]; hasLevel {
 		t.Fatal("gemini-2.5 should not use thinkingLevel")
+	}
+}
+
+func TestGemini3MinimalIsNotDisable(t *testing.T) {
+	got := geminiThinkingConfig("gemini-3.6-flash", "minimal")
+	want := map[string]any{"thinkingLevel": "MINIMAL", "includeThoughts": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+}
+
+func TestGeminiThinkingConfigGemini3HasNoTrueOff(t *testing.T) {
+	if got := geminiThinkingConfig("gemini-3.6-flash", "none"); got != nil {
+		t.Fatalf("got %#v, want nil (Gemini 3 has no true Off, only Minimal)", got)
+	}
+}
+
+func TestGeminiLegacyBudgetZeroWhenOffSupported(t *testing.T) {
+	cap, err := NewReasoningCapability(
+		[]ReasoningValue{
+			{Value: "none", Label: "Off", Kind: ReasoningValueDisable},
+			{Value: "low", Label: "Low"},
+			{Value: "medium", Label: "Medium"},
+			{Value: "high", Label: "High"},
+		},
+		"medium", false, ReasoningCapabilityStatic,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &geminiClient{}
+	body := c.buildBody(Request{
+		Model: "gemini-2.5-flash", ReasoningEffort: "none", ReasoningCapability: cap,
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	gen, _ := body["generationConfig"].(map[string]any)
+	tc, _ := gen["thinkingConfig"].(map[string]any)
+	want := map[string]any{"thinkingBudget": 0}
+	if !reflect.DeepEqual(tc, want) {
+		t.Fatalf("thinkingConfig = %#v, want %#v", tc, want)
+	}
+}
+
+func TestGeminiRejectsUnsupportedOffBeforeRequest(t *testing.T) {
+	cap, err := NewReasoningCapability(
+		[]ReasoningValue{{Value: "low", Label: "Low"}, {Value: "high", Label: "High"}},
+		"low", false, ReasoningCapabilityStatic,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &geminiClient{}
+	_, err = c.Chat(context.Background(), Request{
+		Model: "gemini-2.5-flash", ReasoningEffort: "none", ReasoningCapability: cap,
+	})
+	var unsupported *UnsupportedReasoningEffortError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("err = %v, want UnsupportedReasoningEffortError", err)
 	}
 }
 
@@ -108,11 +169,19 @@ func TestParseGeminiPartsCapturesSignature(t *testing.T) {
 }
 
 func TestBuildBodyGemini3HighThinking(t *testing.T) {
+	cap, err := NewReasoningCapability(
+		[]ReasoningValue{{Value: "low", Label: "Low"}, {Value: "high", Label: "High"}},
+		"low", false, ReasoningCapabilityStatic,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	c := &geminiClient{}
 	body := c.buildBody(Request{
-		Model:           "gemini-3.6-flash-high",
-		ReasoningEffort: "high",
-		Messages:        []Message{{Role: RoleUser, Content: "hi"}},
+		Model:               "gemini-3.6-flash-high",
+		ReasoningEffort:     "high",
+		ReasoningCapability: cap,
+		Messages:            []Message{{Role: RoleUser, Content: "hi"}},
 	})
 	gen, _ := body["generationConfig"].(map[string]any)
 	tc, _ := gen["thinkingConfig"].(map[string]any)
@@ -124,11 +193,11 @@ func TestBuildBodyGemini3HighThinking(t *testing.T) {
 
 func TestNormalizeGeminiBaseURLMatchesCLI(t *testing.T) {
 	cases := map[string]string{
-		"http://127.0.0.1:8080/antigravity":        "http://127.0.0.1:8080/antigravity/v1beta",
-		"http://127.0.0.1:8080/antigravity/":       "http://127.0.0.1:8080/antigravity/v1beta",
-		"http://127.0.0.1:8080/antigravity/v1beta": "http://127.0.0.1:8080/antigravity/v1beta",
+		"http://127.0.0.1:8080/antigravity":                "http://127.0.0.1:8080/antigravity/v1beta",
+		"http://127.0.0.1:8080/antigravity/":               "http://127.0.0.1:8080/antigravity/v1beta",
+		"http://127.0.0.1:8080/antigravity/v1beta":         "http://127.0.0.1:8080/antigravity/v1beta",
 		"https://generativelanguage.googleapis.com/v1beta": "https://generativelanguage.googleapis.com/v1beta",
-		"http://localhost:8080/v1":                 "http://localhost:8080/v1",
+		"http://localhost:8080/v1":                         "http://localhost:8080/v1",
 	}
 	for in, want := range cases {
 		if got := normalizeGeminiBaseURL(in); got != want {

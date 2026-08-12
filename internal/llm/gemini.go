@@ -306,8 +306,10 @@ func (c *geminiClient) buildBody(req Request) map[string]any {
 	if len(req.StopSequences) > 0 {
 		gen["stopSequences"] = req.StopSequences
 	}
-	if tc := geminiThinkingConfig(req.Model, req.ReasoningEffort); tc != nil {
-		gen["thinkingConfig"] = tc
+	if value, err := reasoningValue(req, c.Kind(), c.opts.ProviderID, c.opts.BaseURL); err == nil {
+		if tc := geminiThinkingConfig(req.Model, value); tc != nil {
+			gen["thinkingConfig"] = tc
+		}
 	}
 	if len(gen) > 0 {
 		body["generationConfig"] = gen
@@ -374,6 +376,10 @@ func (c *geminiClient) endpoint(model, method string, stream bool) string {
 // Gemini 3 series prefer thinkingLevel (MINIMAL/LOW/MEDIUM/HIGH); 2.5 series
 // use thinkingBudget token counts. includeThoughts requests thought summaries
 // when the endpoint exposes them (not all reverse proxies return thought text).
+//
+// Minimal is a real, distinct thinking level for Gemini 3 — not an Off
+// synonym. Gemini 3 has no true Off; its static capability never advertises
+// "none", so the "none" case below only guards a stray legacy value.
 func geminiThinkingConfig(model, effort string) map[string]any {
 	e := strings.ToLower(strings.TrimSpace(effort))
 	if e == "" {
@@ -383,9 +389,14 @@ func geminiThinkingConfig(model, effort string) map[string]any {
 	switch e {
 	case "none":
 		if useLevel {
-			return map[string]any{"thinkingLevel": "MINIMAL", "includeThoughts": false}
+			return nil
 		}
 		return map[string]any{"thinkingBudget": 0}
+	case "minimal":
+		if !useLevel {
+			return nil
+		}
+		return map[string]any{"thinkingLevel": "MINIMAL", "includeThoughts": true}
 	case "low":
 		if useLevel {
 			return map[string]any{"thinkingLevel": "LOW", "includeThoughts": true}
@@ -452,6 +463,9 @@ func parseGeminiParts(parts []gemPart) (content, reasoning string, calls []ToolC
 }
 
 func (c *geminiClient) Chat(ctx context.Context, req Request) (*Response, error) {
+	if _, err := reasoningValue(req, c.Kind(), c.opts.ProviderID, c.opts.BaseURL); err != nil {
+		return nil, err
+	}
 	// Prefer stream collection: some Gemini-compatible reverse proxies aggregate
 	// non-stream generateContent by keeping only the final STOP chunk, which is
 	// often empty text after a functionCall chunk. streamGenerateContent preserves
@@ -485,6 +499,9 @@ func (c *geminiClient) Chat(ctx context.Context, req Request) (*Response, error)
 }
 
 func (c *geminiClient) Stream(ctx context.Context, req Request, emit func(Event) error) (*Response, error) {
+	if _, err := reasoningValue(req, c.Kind(), c.opts.ProviderID, c.opts.BaseURL); err != nil {
+		return nil, err
+	}
 	httpResp, err := c.opts.doStream(ctx, "POST", c.endpoint(req.Model, "streamGenerateContent", true), c.buildBody(req), c.headers())
 	if err != nil {
 		return nil, err

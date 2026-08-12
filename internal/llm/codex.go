@@ -42,8 +42,8 @@ func (c *codexClient) buildBody(req Request, stream bool) map[string]any {
 	if req.Temperature > 0 {
 		body["temperature"] = req.Temperature
 	}
-	if e := strings.ToLower(req.ReasoningEffort); e != "" && e != "none" {
-		body["reasoning"] = map[string]any{"effort": e}
+	if value, err := reasoningValue(req, "codex", c.opts.ProviderID, c.opts.BaseURL); err == nil && value != "" {
+		body["reasoning"] = map[string]any{"effort": value}
 	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, 0, len(req.Tools))
@@ -143,6 +143,9 @@ type responsesReply struct {
 }
 
 func (c *codexClient) Chat(ctx context.Context, req Request) (*Response, error) {
+	if _, err := reasoningValue(req, "codex", c.opts.ProviderID, c.opts.BaseURL); err != nil {
+		return nil, err
+	}
 	var raw responsesReply
 	if err := c.opts.doJSON(ctx, "POST", c.opts.BaseURL+"/responses", c.buildBody(req, false), c.headers(), &raw); err != nil {
 		return nil, err

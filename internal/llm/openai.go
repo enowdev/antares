@@ -19,6 +19,17 @@ type openAIClient struct {
 
 func (c *openAIClient) Kind() string { return "openai" }
 
+// reasoningKind reports the static-catalogue key for this vendor. Only the
+// direct OpenAI API has a documented per-model effort ladder; every other
+// vendor (compat, Azure, Copilot, OpenRouter) is Auto-only unless the caller
+// attaches a resolved capability explicitly.
+func (c *openAIClient) reasoningKind() string {
+	if c.vendor == "openai" {
+		return "openai"
+	}
+	return "openai-compatible"
+}
+
 func (c *openAIClient) headers() map[string]string {
 	if c.vendor == "copilot" {
 		// Copilot needs a freshly-exchanged token plus editor headers.
@@ -189,12 +200,15 @@ func (c *openAIClient) buildBody(req Request, stream bool) map[string]any {
 			body["parallel_tool_calls"] = false
 		}
 	}
-	if e := strings.ToLower(req.ReasoningEffort); e != "" && e != "none" {
+	if value, err := reasoningValue(req, c.reasoningKind(), c.opts.ProviderID, c.opts.BaseURL); err == nil && value != "" {
 		// OpenAI uses reasoning_effort; OpenRouter accepts a reasoning object.
-		body["reasoning_effort"] = e
+		// Every validated value is sent as-is, including a marked disable
+		// value: omitting it would leave reasoning enabled at the model's
+		// default instead of honoring the user's explicit Off choice.
 		if strings.Contains(c.opts.BaseURL, "openrouter.ai") {
-			delete(body, "reasoning_effort")
-			body["reasoning"] = map[string]any{"effort": e}
+			body["reasoning"] = map[string]any{"effort": value}
+		} else {
+			body["reasoning_effort"] = value
 		}
 	}
 	for k, v := range req.Extra {
@@ -254,6 +268,9 @@ func (u *oaUsage) normalise() Usage {
 }
 
 func (c *openAIClient) Chat(ctx context.Context, req Request) (*Response, error) {
+	if _, err := reasoningValue(req, c.reasoningKind(), c.opts.ProviderID, c.opts.BaseURL); err != nil {
+		return nil, err
+	}
 	var raw oaResponse
 	if err := c.opts.doJSON(ctx, "POST", c.endpoint("/chat/completions", req.Model), c.buildBody(req, false), c.headers(), &raw); err != nil {
 		return nil, err
@@ -283,6 +300,9 @@ func (c *openAIClient) Chat(ctx context.Context, req Request) (*Response, error)
 }
 
 func (c *openAIClient) Stream(ctx context.Context, req Request, emit func(Event) error) (*Response, error) {
+	if _, err := reasoningValue(req, c.reasoningKind(), c.opts.ProviderID, c.opts.BaseURL); err != nil {
+		return nil, err
+	}
 	httpResp, err := c.opts.doStream(ctx, "POST", c.endpoint("/chat/completions", req.Model), c.buildBody(req, true), c.headers())
 	if err != nil {
 		return nil, err
@@ -418,6 +438,7 @@ func (c *openAIClient) Models(ctx context.Context) ([]ModelInfo, error) {
 			Architecture *struct {
 				InputModalities []string `json:"input_modalities"`
 			} `json:"architecture"`
+			Reasoning *openRouterReasoningMetadata `json:"reasoning"`
 		} `json:"data"`
 	}
 	if err := c.opts.doJSON(ctx, "GET", c.opts.BaseURL+"/models", nil, c.headers(), &raw); err != nil {
@@ -442,6 +463,9 @@ func (c *openAIClient) Models(ctx context.Context) ([]ModelInfo, error) {
 					info.Vision = true
 				}
 			}
+		}
+		if capability := openRouterReasoningCapability(m.Reasoning); capability != nil {
+			info = info.WithReasoningCapability(capability)
 		}
 		out = append(out, info)
 	}

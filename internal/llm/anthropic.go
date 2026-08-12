@@ -133,6 +133,39 @@ func toAnthropic(req Request) []antMessage {
 	return out
 }
 
+// anthropicSupportsAdaptiveThinking reports whether model belongs to the
+// adaptive-thinking generation (Claude Sonnet 5 and later dated snapshots),
+// which uses "thinking":{"type":"adaptive"} plus output_config.effort instead
+// of a fixed token budget.
+func anthropicSupportsAdaptiveThinking(model string) bool {
+	return exactModelOrDatedSnapshot("claude-sonnet-5", model)
+}
+
+// anthropicLegacyThinkingBudgets lists pre-adaptive extended-thinking model
+// families and the token budgets published for their effort ladder.
+// https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
+var anthropicLegacyThinkingBudgets = []struct {
+	family  string
+	budgets map[string]int
+}{
+	{family: "claude-3-7-sonnet", budgets: map[string]int{"low": 2048, "medium": 8192, "high": 16384}},
+}
+
+// anthropicLegacyBudget resolves the fixed token budget for a catalogued
+// legacy model and effort value. It never guesses a budget for an
+// unrecognised model or an effort value outside that model's documented
+// ladder.
+func anthropicLegacyBudget(model, effort string) (int, bool) {
+	for _, entry := range anthropicLegacyThinkingBudgets {
+		if !exactModelOrDatedSnapshot(entry.family, model) {
+			continue
+		}
+		budget, ok := entry.budgets[effort]
+		return budget, ok
+	}
+	return 0, false
+}
+
 func (c *anthropicClient) buildBody(req Request, stream bool) map[string]any {
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
@@ -194,21 +227,34 @@ func (c *anthropicClient) buildBody(req Request, stream bool) map[string]any {
 			}
 		}
 	}
-	switch strings.ToLower(req.ReasoningEffort) {
-	case "low":
-		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 2048}
-	case "medium":
-		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 8192}
-	case "high":
-		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 16384}
-	}
-	if _, ok := body["thinking"]; ok {
-		// Thinking requires headroom beyond the budget.
-		if maxTokens < 16384 {
-			body["max_tokens"] = 16384
+	if value, err := reasoningValue(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL); err == nil && value != "" {
+		capability := resolvedReasoningCapability(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL)
+		switch {
+		case anthropicSupportsAdaptiveThinking(req.Model):
+			if disable := reasoningDisableValue(capability); disable != "" && value == disable {
+				body["thinking"] = map[string]any{"type": "disabled"}
+			} else {
+				body["thinking"] = map[string]any{"type": "adaptive"}
+				body["output_config"] = map[string]any{"effort": value}
+			}
+		default:
+			// Pre-adaptive models only understand fixed token budgets, and
+			// only for the catalogued legacy families; an unrecognised model
+			// gets no thinking override rather than a guessed budget.
+			if budget, ok := anthropicLegacyBudget(req.Model, value); ok {
+				body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+			}
 		}
+	}
+	if th, ok := body["thinking"].(map[string]any); ok {
+		// Thinking (adaptive or fixed-budget) is incompatible with
+		// temperature/top_p sampling controls.
 		delete(body, "top_p")
 		delete(body, "temperature")
+		if _, hasBudget := th["budget_tokens"]; hasBudget && maxTokens < 16384 {
+			// Fixed-budget thinking requires headroom beyond the budget.
+			body["max_tokens"] = 16384
+		}
 	}
 	for k, v := range req.Extra {
 		body[k] = v
@@ -233,6 +279,9 @@ type antResponse struct {
 }
 
 func (c *anthropicClient) Chat(ctx context.Context, req Request) (*Response, error) {
+	if _, err := reasoningValue(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL); err != nil {
+		return nil, err
+	}
 	var raw antResponse
 	if err := c.opts.doJSON(ctx, "POST", c.opts.BaseURL+"/messages", c.buildBody(req, false), c.headers(), &raw); err != nil {
 		return nil, err
@@ -275,6 +324,9 @@ func (c *anthropicClient) fromResponse(raw *antResponse) (*Response, error) {
 }
 
 func (c *anthropicClient) Stream(ctx context.Context, req Request, emit func(Event) error) (*Response, error) {
+	if _, err := reasoningValue(req, "anthropic", c.opts.ProviderID, c.opts.BaseURL); err != nil {
+		return nil, err
+	}
 	httpResp, err := c.opts.doStream(ctx, "POST", c.opts.BaseURL+"/messages", c.buildBody(req, true), c.headers())
 	if err != nil {
 		return nil, err
