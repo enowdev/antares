@@ -7,7 +7,10 @@ import {
   reasoningPreferenceKey,
   saveReasoningPreference,
 } from './reasoning.ts'
-import { createReasoningCapabilityLoader } from './reasoningCapability.ts'
+import {
+  createReasoningCapabilityLoader,
+  createReasoningCapabilityScheduler,
+} from './reasoningCapability.ts'
 
 describe('reasoning options', () => {
   test('preserve opaque values and mark only explicit disable', () => {
@@ -213,6 +216,84 @@ describe('targeted reasoning capability loader', () => {
     expect(await load(target)).toEqual({ status: 'unavailable' })
     expect(calls).toBe(2)
   })
+
+  test('bounds authoritative results with least-recently-used eviction', async () => {
+    const calls = []
+    const load = createReasoningCapabilityLoader(async (target) => {
+      calls.push(target.model)
+      return { found: true }
+    }, 2)
+    const target = (model) => ({ provider: 'openrouter', model })
+
+    await load(target('model-a'))
+    await load(target('model-b'))
+    await load(target('model-a'))
+    await load(target('model-c'))
+    await load(target('model-a'))
+    await load(target('model-b'))
+
+    expect(calls).toEqual(['model-a', 'model-b', 'model-c', 'model-b'])
+  })
+})
+
+describe('targeted reasoning capability scheduler', () => {
+  test('collapses rapid target changes to the final delayed lookup', async () => {
+    const timers = manualTimers()
+    const calls = []
+    const results = []
+    const schedule = createReasoningCapabilityScheduler(
+      async (target) => {
+        calls.push(target.model)
+        return { status: 'ready' }
+      },
+      300,
+      timers,
+    )
+    const target = (model) => ({ provider: 'openrouter', model })
+
+    schedule(target('g'), (state) => results.push(state))
+    timers.advance(100)
+    schedule(target('gp'), (state) => results.push(state))
+    timers.advance(100)
+    schedule(target('gpt-5'), (state) => results.push(state))
+    timers.advance(299)
+    expect(calls).toEqual([])
+
+    timers.advance(1)
+    await flushPromises()
+    expect(calls).toEqual(['gpt-5'])
+    expect(results).toEqual([{ status: 'ready' }])
+  })
+
+  test('ignores completion from a superseded in-flight target', async () => {
+    const timers = manualTimers()
+    const calls = []
+    const pending = new Map()
+    const results = []
+    const schedule = createReasoningCapabilityScheduler(
+      (target) => {
+        calls.push(target.model)
+        return new Promise((resolve) => pending.set(target.model, resolve))
+      },
+      300,
+      timers,
+    )
+    const target = (model) => ({ provider: 'openrouter', model })
+
+    schedule(target('partial'), (state) => results.push(['partial', state]))
+    timers.advance(300)
+    schedule(target('final'), (state) => results.push(['final', state]))
+    timers.advance(300)
+    expect(calls).toEqual(['partial', 'final'])
+
+    pending.get('partial')({ status: 'unavailable' })
+    await flushPromises()
+    expect(results).toEqual([])
+
+    pending.get('final')({ status: 'ready' })
+    await flushPromises()
+    expect(results).toEqual([['final', { status: 'ready' }]])
+  })
 })
 
 function memoryStorage(initial = {}) {
@@ -231,4 +312,38 @@ function capability(values) {
     can_disable: false,
     source: 'static',
   }
+}
+
+function manualTimers() {
+  let now = 0
+  let nextId = 0
+  const tasks = new Map()
+
+  return {
+    setTimeout(callback, delayMs) {
+      const id = ++nextId
+      tasks.set(id, { at: now + delayMs, callback })
+      return id
+    },
+    clearTimeout(id) {
+      tasks.delete(id)
+    },
+    advance(ms) {
+      now += ms
+      for (;;) {
+        const due = [...tasks.entries()]
+          .filter(([, task]) => task.at <= now)
+          .sort((left, right) => left[1].at - right[1].at || left[0] - right[0])
+        if (due.length === 0) return
+        const [id, task] = due[0]
+        tasks.delete(id)
+        task.callback()
+      }
+    },
+  }
+}
+
+async function flushPromises() {
+  await Promise.resolve()
+  await Promise.resolve()
 }
