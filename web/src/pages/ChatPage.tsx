@@ -26,6 +26,12 @@ import {
 } from '@/lib/chatStreamQueue'
 import { copyText } from '@/lib/clipboard'
 import { useI18n, useTimeAgo, type MessageKey } from '@/lib/i18n'
+import type { ChatModelSelection, ReasoningCapability } from '@/lib/models'
+import {
+  loadReasoningPreference,
+  reasoningOptions,
+  saveReasoningPreference,
+} from '@/lib/reasoning'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/primitives'
@@ -363,24 +369,45 @@ export default function ChatPage() {
     if (r) localStorage.setItem('antares:last-role', r)
     else localStorage.removeItem('antares:last-role')
   }, [])
-  // Per-turn reasoning effort picked in the composer. Empty means "use the
-  // configured default" (agent.reasoning_effort, then model). Persisted so the
-  // choice survives a reload, mirroring the role picker.
-  const [reasoning, setReasoning] = useState(
-    () => localStorage.getItem('antares:reasoning') ?? '',
-  )
-  const pickReasoning = useCallback((r: string) => {
-    setReasoning(r)
-    if (r) localStorage.setItem('antares:reasoning', r)
-    else localStorage.removeItem('antares:reasoning')
+  // The model, its capability, and its scoped reasoning value move together.
+  // Updating the ref synchronously prevents a send immediately after switching
+  // models from carrying the previous model's override.
+  const [modelSelection, setModelSelection] = useState<ChatModelSelection>()
+  const [reasoning, setReasoning] = useState('')
+  const composerReasoningRef = useRef<{
+    selection: ChatModelSelection
+    capability?: ReasoningCapability
+    value: string
+  } | null>(null)
+  const selectModel = useCallback((selection: ChatModelSelection) => {
+    const capability = selection.reasoningCapability
+    const { value } = loadReasoningPreference(
+      localStorage,
+      selection.provider,
+      selection.model,
+      capability,
+    )
+    composerReasoningRef.current = { selection, capability, value }
+    setModelSelection(selection)
+    setReasoning(value)
   }, [])
-  // Per-chat model override, chosen via the picker in the composer. Kept in a
-  // ref so the stream request closure always reads the latest selection.
-  const [activeModel, setActiveModel] = useState('')
-  const activeModelRef = useRef('')
-  useEffect(() => {
-    activeModelRef.current = activeModel
-  }, [activeModel])
+  const pickReasoning = useCallback((value: string) => {
+    const current = composerReasoningRef.current
+    if (!current) return
+    const next = reasoningOptions(current.capability).some(
+      (option) => option.value === value,
+    )
+      ? value
+      : ''
+    saveReasoningPreference(
+      localStorage,
+      current.selection.provider,
+      current.selection.model,
+      next,
+    )
+    composerReasoningRef.current = { ...current, value: next }
+    setReasoning(next)
+  }, [])
   // Project session: the folder this chat is bound to. Chosen on a NEW chat and
   // sent with the first message; once the session exists it is fixed (locked).
   const [projectDir, setProjectDir] = useState('')
@@ -1086,6 +1113,7 @@ export default function ChatPage() {
     setStreaming(true)
     setLive({ turn: 1 })
 
+    const composerReasoning = composerReasoningRef.current
     abortRef.current = streamPost(
       '/chat',
       {
@@ -1095,10 +1123,16 @@ export default function ChatPage() {
         role,
         // Per-chat model override; omitted when unset so the server falls
         // back to the configured default.
-        ...(activeModelRef.current ? { model: activeModelRef.current } : {}),
+        ...(composerReasoning
+          ? {
+              model: `${composerReasoning.selection.provider}/${composerReasoning.selection.model}`,
+            }
+          : {}),
         // Per-turn reasoning override; omitted when unset so the server falls
         // back to the configured default.
-        ...(reasoning ? { reasoning_effort: reasoning } : {}),
+        ...(composerReasoning?.value
+          ? { reasoning_effort: composerReasoning.value }
+          : {}),
         // Only meaningful when starting a new session; the server ignores it once
         // the session exists. Read from the ref so an auto-analyze turn fired
         // right after binding still carries the project.
@@ -1170,7 +1204,7 @@ export default function ChatPage() {
       },
     )
     },
-    [role, reasoning, projectDir, streaming, sessionId, navigate, runCommand, applyEvent, drainPatches, t],
+    [role, projectDir, streaming, sessionId, navigate, runCommand, applyEvent, drainPatches, t],
   )
 
   const send = useCallback(() => {
@@ -1446,8 +1480,13 @@ export default function ChatPage() {
         roleSlot={
           <div className="flex min-w-0 items-center gap-1.5">
             <RolePicker value={role} onChange={pickRole} compact />
-            <ModelPicker onModelChange={setActiveModel} />
-            <ReasoningPicker value={reasoning} onChange={pickReasoning} compact />
+            <ModelPicker onModelChange={selectModel} />
+            <ReasoningPicker
+              value={reasoning}
+              capability={modelSelection?.reasoningCapability}
+              onChange={pickReasoning}
+              compact
+            />
             <ProjectPicker
               value={projectDir}
               onChange={(dir) => {

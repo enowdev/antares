@@ -15,6 +15,8 @@ import {
 import { post } from '@/lib/api'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
+import type { ReasoningCapability } from '@/lib/models'
+import { reasoningOptions } from '@/lib/reasoning'
 import { cn } from '@/lib/utils'
 import { usePageActions } from '@/components/layout/PageChrome'
 import { Button } from '@/components/ui/button'
@@ -44,12 +46,22 @@ interface Field {
   default: unknown
   secret: boolean
   enum?: string[]
+  options_source?: string
   help?: string
 }
 
 interface ConfigResponse {
   values: Record<string, unknown>
   schema: Field[]
+}
+
+interface ReasoningModelsResponse {
+  active: { model: string; provider: string }
+  models: Array<{
+    id: string
+    provider: string
+    reasoning_capability?: ReasoningCapability
+  }>
 }
 
 const ESSENTIALS = '__essentials'
@@ -82,6 +94,7 @@ export default function ConfigPage() {
   const { t } = useI18n()
   const { data, loading, reload } = useApi<ConfigResponse>('/config')
   const rawState = useApi<{ yaml: string }>('/config/raw')
+  const modelsState = useApi<ReasoningModelsResponse>('/model/list-all')
 
   const [edits, setEdits] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
@@ -92,6 +105,25 @@ export default function ConfigPage() {
   const [yamlDraft, setYamlDraft] = useState<string | null>(null)
   const [section, setSection] = useState<string>(ESSENTIALS)
   const [showAdvanced, setShowAdvanced] = useState(false)
+
+  const configuredProvider = String(
+    edits['model.provider'] ??
+      (data ? readPath(data.values, 'model.provider') : '') ??
+      '',
+  )
+  const configuredModel = String(
+    edits['model.default'] ??
+      (data ? readPath(data.values, 'model.default') : '') ??
+      '',
+  )
+  const reasoningCapability = useMemo(
+    () =>
+      modelsState.data?.models.find(
+        (model) =>
+          model.provider === configuredProvider && model.id === configuredModel,
+      )?.reasoning_capability,
+    [configuredModel, configuredProvider, modelsState.data],
+  )
 
   const query = filter.trim().toLowerCase()
   const searching = query.length > 0
@@ -205,6 +237,7 @@ export default function ConfigPage() {
             field={f}
             showGroup={withGroup}
             value={valueOf(f)}
+            reasoningCapability={reasoningCapability}
             dirty={f.path in edits}
             revealed={!!revealed[f.path]}
             onReveal={() => setRevealed((r) => ({ ...r, [f.path]: !r[f.path] }))}
@@ -411,6 +444,7 @@ function SectionRail({
 function FieldRow({
   field,
   value,
+  reasoningCapability,
   dirty,
   revealed,
   showGroup,
@@ -419,6 +453,7 @@ function FieldRow({
 }: {
   field: Field
   value: unknown
+  reasoningCapability?: ReasoningCapability
   dirty: boolean
   revealed: boolean
   showGroup?: boolean
@@ -452,7 +487,13 @@ function FieldRow({
       </div>
 
       <div className="min-w-0 sm:flex-1">
-        {field.enum ? (
+        {field.options_source === 'reasoning_capability' ? (
+          <ReasoningSelect
+            value={String(value ?? '')}
+            capability={reasoningCapability}
+            onChange={onChange}
+          />
+        ) : field.enum ? (
           <select
             value={String(value ?? '')}
             onChange={(e) => onChange(e.target.value)}
@@ -490,6 +531,50 @@ function FieldRow({
           />
         )}
       </div>
+    </div>
+  )
+}
+
+function ReasoningSelect({
+  value,
+  capability,
+  onChange,
+}: {
+  value: string
+  capability?: ReasoningCapability
+  onChange: (value: string) => void
+}) {
+  const { t } = useI18n()
+  const options = reasoningOptions(capability)
+  const unsupported =
+    value !== '' && !options.some((option) => option.value === value)
+  const hint = unsupported
+    ? t('reasoning.unsupported', { value })
+    : capability?.mandatory
+      ? t('reasoning.mandatory')
+      : capability
+        ? t('reasoning.autoHint')
+        : t('reasoning.providerControlled')
+
+  return (
+    <div className="space-y-1">
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 text-sm"
+      >
+        {unsupported ? (
+          <option value={value} disabled>
+            {t('reasoning.unsupported', { value })}
+          </option>
+        ) : null}
+        {options.map((option) => (
+          <option key={option.value || 'auto'} value={option.value}>
+            {option.value === '' ? t('reasoning.auto') : option.label}
+          </option>
+        ))}
+      </select>
+      <p className="text-[11px] leading-relaxed text-muted-foreground">{hint}</p>
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { Eye, Lightning, MagnifyingGlass, Wrench } from '@phosphor-icons/react'
 import { post } from '@/lib/api'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
+import type { ReasoningCapability } from '@/lib/models'
 import { cn } from '@/lib/utils'
 import { PageLayout } from '@/components/layout/PageLayout'
 import { Pagination } from '@/components/ui/Pagination'
@@ -21,6 +22,7 @@ interface ModelInfo {
   vision: boolean
   tools: boolean
   reasoning: boolean
+  reasoning_capability?: ReasoningCapability
 }
 
 interface ProviderInfo {
@@ -229,8 +231,21 @@ function AllModelsView({
                       </Badge>
                     ) : null}
                     {m.reasoning ? (
-                      <Badge variant="secondary" className="hidden sm:inline-flex">
-                        <Lightning className="size-3" /> {t('models.reasoning')}
+                      <Badge
+                        variant="secondary"
+                        className="hidden sm:inline-flex"
+                        title={
+                          m.reasoning_capability
+                            ? m.reasoning_capability.values
+                                .map((value) => value.label)
+                                .join(', ') || t('reasoning.providerControlled')
+                            : t('reasoning.providerControlled')
+                        }
+                      >
+                        <Lightning className="size-3" />{' '}
+                        {m.reasoning_capability
+                          ? t('models.reasoning')
+                          : t('reasoning.providerControlled')}
                       </Badge>
                     ) : null}
                   </div>

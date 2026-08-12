@@ -3,6 +3,8 @@ import { Lightning, PencilSimple, Plus, Spinner, TrashSimple, UsersThree, Warnin
 import { del, get, post } from '@/lib/api'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
+import type { ReasoningCapability } from '@/lib/models'
+import { reasoningOptions } from '@/lib/reasoning'
 import { cn } from '@/lib/utils'
 import { PageLayout } from '@/components/layout/PageLayout'
 import { Button } from '@/components/ui/button'
@@ -72,6 +74,17 @@ interface RolesResponse {
   categories?: string[]
 }
 
+interface ReasoningModel {
+  id: string
+  provider: string
+  reasoning_capability?: ReasoningCapability
+}
+
+interface ModelsCatalog {
+  active: { model: string; provider: string }
+  models: ReasoningModel[]
+}
+
 const CATEGORY_LABEL: Record<string, string> = {
   general: 'General',
   engineering: 'Engineering',
@@ -106,6 +119,7 @@ function orderWithSubroles(roles: Role[]): Role[] {
 export default function RolesPage() {
   const { t } = useI18n()
   const { data, loading, reload } = useApi<RolesResponse>('/roles')
+  const modelsState = useApi<ModelsCatalog>('/model/list-all')
   const [editing, setEditing] = useState<Role | null>(null)
   const [creating, setCreating] = useState(false)
   const [tab, setTab] = useState<'roles' | 'performance'>('roles')
@@ -253,6 +267,7 @@ export default function RolesPage() {
           role={editing}
           toolsets={data?.toolsets ?? []}
           categories={data?.categories ?? Object.keys(CATEGORY_LABEL)}
+          models={modelsState.data}
           onClose={closeEditor}
           onSaved={onSaved}
         />
@@ -335,8 +350,6 @@ const EMPTY: Draft = {
   body: '',
 }
 
-const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh']
-
 /** Assemble the raw .md (front matter + body) from a draft, for the Raw tab. */
 function toRaw(d: Draft): string {
   const fm: string[] = [`name: ${d.name}`, `title: ${d.title}`]
@@ -355,12 +368,14 @@ function RoleEditor({
   role,
   toolsets,
   categories,
+  models,
   onClose,
   onSaved,
 }: {
   role: Role | null
   toolsets: string[]
   categories: string[]
+  models?: ModelsCatalog
   onClose: () => void
   onSaved: () => void
 }) {
@@ -406,6 +421,41 @@ function RoleEditor({
   }, [role])
 
   const raw = useMemo(() => toRaw(d), [d])
+  const reasoningCapability = useMemo(() => {
+    if (!models) return undefined
+    const modelRef = d.model.trim()
+    if (!modelRef) {
+      return models.models.find(
+        (model) =>
+          model.provider === models.active.provider &&
+          model.id === models.active.model,
+      )?.reasoning_capability
+    }
+
+    // Prefer an exact id on the inherited provider because aggregator model
+    // ids commonly contain slashes (for example anthropic/claude-*).
+    const inheritedProviderMatch = models.models.find(
+      (model) =>
+        model.provider === models.active.provider && model.id === modelRef,
+    )
+    if (inheritedProviderMatch) {
+      return inheritedProviderMatch.reasoning_capability
+    }
+    return models.models.find(
+      (model) => `${model.provider}/${model.id}` === modelRef,
+    )?.reasoning_capability
+  }, [d.model, models])
+  const effortOptions = reasoningOptions(reasoningCapability)
+  const unsupportedEffort =
+    d.effort !== '' &&
+    !effortOptions.some((option) => option.value === d.effort)
+  const effortHint = unsupportedEffort
+    ? t('reasoning.unsupported', { value: d.effort })
+    : reasoningCapability?.mandatory
+      ? t('reasoning.mandatory')
+      : reasoningCapability
+        ? t('reasoning.autoHint')
+        : t('reasoning.providerControlled')
 
   const save = async () => {
     setBusy(true)
@@ -533,11 +583,16 @@ function RoleEditor({
                     onChange={(e) => set('model', e.target.value)}
                   />
                 </Field>
-                <Field label={t('roles.fEffort')}>
+                <Field label={t('roles.fEffort')} hint={effortHint}>
                   <NativeSelect value={d.effort} onChange={(v) => set('effort', v)}>
-                    {EFFORTS.map((e) => (
-                      <option key={e || 'inherit'} value={e}>
-                        {e || t('roles.effortInherit')}
+                    {unsupportedEffort ? (
+                      <option value={d.effort} disabled>
+                        {t('reasoning.unsupported', { value: d.effort })}
+                      </option>
+                    ) : null}
+                    {effortOptions.map((option) => (
+                      <option key={option.value || 'auto'} value={option.value}>
+                        {option.value === '' ? t('reasoning.auto') : option.label}
                       </option>
                     ))}
                   </NativeSelect>

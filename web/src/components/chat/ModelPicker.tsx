@@ -8,6 +8,10 @@ import {
 } from "@phosphor-icons/react";
 import { get, isDashboardPasswordRequired, post } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import type {
+  ChatModelSelection,
+  ReasoningCapability,
+} from "@/lib/models";
 import { cn } from "@/lib/utils";
 
 interface AllModel {
@@ -15,11 +19,34 @@ interface AllModel {
   name: string;
   provider: string;
   provider_label: string;
+  reasoning_capability?: ReasoningCapability;
 }
 
 interface ListAll {
   active: { model: string; provider: string };
   models: AllModel[];
+}
+
+interface ModelOptions {
+  active: { model: string; provider: string };
+  providers?: Array<{ id: string; label: string }>;
+}
+
+interface ModelInfo {
+  found: boolean;
+  id?: string;
+  name?: string;
+  reasoning_capability?: ReasoningCapability;
+}
+
+function modelSelection(model: AllModel): ChatModelSelection {
+  return {
+    provider: model.provider,
+    model: model.id,
+    name: model.name,
+    providerLabel: model.provider_label,
+    reasoningCapability: model.reasoning_capability,
+  };
 }
 
 /**
@@ -30,7 +57,7 @@ interface ListAll {
 export function ModelPicker({
   onModelChange,
 }: {
-  onModelChange?: (model: string) => void;
+  onModelChange?: (selection: ChatModelSelection) => void;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -41,6 +68,7 @@ export function ModelPicker({
   const [pickError, setPickError] = useState<string>();
   const [pickGate, setPickGate] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const resolutionRef = useRef(0);
 
   const [activeConfig, setActiveConfig] = useState<{
     model: string;
@@ -50,27 +78,65 @@ export function ModelPicker({
   const load = () => {
     setLoading(true);
     return get<ListAll>("/model/list-all")
-      .then((d) => setData(d))
+      .then((d) => {
+        setData(d);
+        const activeModel = d.models.find(
+          (model) =>
+            model.id === d.active?.model &&
+            model.provider === d.active?.provider,
+        );
+        if (activeModel) onModelChange?.(modelSelection(activeModel));
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
 
-  // On mount, fetch just the active model from the cheap /model/options endpoint
-  // (config only, no per-provider probing) so the trigger shows the persisted
-  // last-used model immediately instead of the "pick a model" placeholder —
-  // otherwise it looks like the selection resets on every reload.
-  const loadActive = () =>
-    get<{ active: { model: string; provider: string } }>("/model/options")
-      .then((d) => {
-        setActiveConfig(d.active);
-        if (d.active?.model && d.active?.provider) {
-          onModelChange?.(`${d.active.provider}/${d.active.model}`);
+  // The cheap options call identifies the persisted active pair. Resolve that
+  // one model through model-info so the composer has capability metadata before
+  // it restores a model-scoped reasoning preference.
+  useEffect(() => {
+    let cancelled = false;
+    const sequence = ++resolutionRef.current;
+    get<ModelOptions>("/model/options")
+      .then(async (options) => {
+        if (cancelled || sequence !== resolutionRef.current) return;
+        const active = options.active;
+        setActiveConfig(active);
+        if (!active?.model || !active?.provider) return;
+
+        const providerLabel =
+          options.providers?.find((provider) => provider.id === active.provider)
+            ?.label ?? active.provider;
+        const fallback: ChatModelSelection = {
+          provider: active.provider,
+          model: active.model,
+          name: active.model,
+          providerLabel,
+        };
+
+        try {
+          const info = await get<ModelInfo>(
+            `/providers/${encodeURIComponent(active.provider)}/model-info?model=${encodeURIComponent(active.model)}`,
+          );
+          if (cancelled || sequence !== resolutionRef.current) return;
+          onModelChange?.({
+            ...fallback,
+            name: info.found ? info.name || active.model : active.model,
+            reasoningCapability: info.found
+              ? info.reasoning_capability
+              : undefined,
+          });
+        } catch {
+          if (!cancelled && sequence === resolutionRef.current) {
+            onModelChange?.(fallback);
+          }
         }
       })
       .catch(() => {});
-  useEffect(() => {
-    loadActive();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [onModelChange]);
 
   // The full model list (which probes every provider) is fetched lazily on open,
   // and refreshed each open so a newly connected provider's models appear.
@@ -105,6 +171,7 @@ export function ModelPicker({
   }, [data, query]);
 
   const pick = async (m: AllModel) => {
+    ++resolutionRef.current;
     setSaving(`${m.provider}/${m.id}`);
     setPickError(undefined);
     try {
@@ -113,7 +180,7 @@ export function ModelPicker({
       setData((d) =>
         d ? { ...d, active: { model: m.id, provider: m.provider } } : d,
       );
-      onModelChange?.(`${m.provider}/${m.id}`);
+      onModelChange?.(modelSelection(m));
       setOpen(false);
       setQuery("");
     } catch (e) {

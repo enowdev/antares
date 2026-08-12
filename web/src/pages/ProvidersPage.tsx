@@ -7,6 +7,7 @@ import {
   Eye,
   EyeSlash,
   Key,
+  Lightning,
   Plugs,
   ShieldCheck,
   Trash,
@@ -15,6 +16,7 @@ import { del, get, post } from '@/lib/api'
 import { agentModelsErrorText, isAgentProvider, providerModelsPath, type ProviderCapability } from '@/lib/providerCapabilities'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
+import type { ReasoningCapability } from '@/lib/models'
 import { cn } from '@/lib/utils'
 import { PageLayout } from '@/components/layout/PageLayout'
 import { Button } from '@/components/ui/button'
@@ -244,6 +246,8 @@ interface AllModel {
   provider: string
   provider_label: string
   context_window: number
+  reasoning: boolean
+  reasoning_capability?: ReasoningCapability
 }
 
 interface AgentModel {
@@ -338,7 +342,7 @@ function ProviderModal({
     if (!q) return
     try {
       const r = await get<{ found: boolean; context_window?: number }>(
-        `/providers/${encodeURIComponent(p.id)}/model-info?id=${encodeURIComponent(q)}`,
+        `/providers/${encodeURIComponent(p.id)}/model-info?model=${encodeURIComponent(q)}`,
       )
       if (r.found && r.context_window) {
         setNewCtx(String(r.context_window))
@@ -536,6 +540,14 @@ function ProviderModal({
                             {m.context_window > 0 ? (
                               <p className="text-[10px] text-muted-foreground">
                                 {t('models.ctx', { n: Math.round(m.context_window / 1000) })}
+                              </p>
+                            ) : null}
+                            {m.reasoning ? (
+                              <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                <Lightning className="size-3" />
+                                {m.reasoning_capability
+                                  ? t('models.reasoning')
+                                  : t('reasoning.providerControlled')}
                               </p>
                             ) : null}
                           </div>
