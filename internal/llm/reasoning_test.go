@@ -2,6 +2,7 @@ package llm
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -62,8 +63,47 @@ func TestValidateReasoningEffortRejectsUnknownOverride(t *testing.T) {
 	if !errors.As(err, &unsupported) {
 		t.Fatalf("err = %v, want UnsupportedReasoningEffortError", err)
 	}
-	if unsupported.Model != "gpt-example" || unsupported.Effort != "high" || !slices.Equal(unsupported.Allowed, []string{"low"}) {
+	if unsupported.Model != "gpt-example" || !slices.Equal(unsupported.Allowed, []string{"low"}) {
 		t.Fatalf("error = %#v", unsupported)
+	}
+}
+
+func TestValidateReasoningEffortDoesNotExposeSubmittedOverride(t *testing.T) {
+	const submitted = "reasoning-override-secret"
+	cap, err := NewReasoningCapability(
+		[]ReasoningValue{{Value: "low", Label: "Low"}},
+		"low", false, ReasoningCapabilityStatic,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ValidateReasoningEffort("gpt-example", cap, submitted)
+	var unsupported *UnsupportedReasoningEffortError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("err = %v, want UnsupportedReasoningEffortError", err)
+	}
+	if strings.Contains(err.Error(), submitted) {
+		t.Fatalf("error leaks submitted override: %q", err)
+	}
+	if _, found := reflect.TypeOf(*unsupported).FieldByName("Effort"); found {
+		t.Fatal("UnsupportedReasoningEffortError exposes the submitted override")
+	}
+}
+
+func TestModelInfoWithReasoningCapabilityEnablesReasoning(t *testing.T) {
+	cap, err := NewReasoningCapability(
+		[]ReasoningValue{{Value: "low", Label: "Low"}},
+		"low", false, ReasoningCapabilityStatic,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := (ModelInfo{ID: "gpt-example"}).WithReasoningCapability(cap)
+	if !info.Reasoning {
+		t.Fatal("Reasoning = false, want true when capability is attached")
+	}
+	if info.ReasoningCapability != cap {
+		t.Fatalf("ReasoningCapability = %#v, want %#v", info.ReasoningCapability, cap)
 	}
 }
 

@@ -80,12 +80,11 @@ func NewReasoningCapability(values []ReasoningValue, defaultValue string, mandat
 // UnsupportedReasoningEffortError reports an override not advertised by a model.
 type UnsupportedReasoningEffortError struct {
 	Model   string
-	Effort  string
 	Allowed []string
 }
 
 func (e *UnsupportedReasoningEffortError) Error() string {
-	return fmt.Sprintf("reasoning effort %q is not supported by model %q (allowed: %v)", e.Effort, e.Model, e.Allowed)
+	return fmt.Sprintf("unsupported reasoning override for model %q (allowed: %v)", e.Model, e.Allowed)
 }
 
 // ValidateReasoningEffort accepts Auto (an empty effort) for every model and
@@ -103,5 +102,5 @@ func ValidateReasoningEffort(model string, capability *ReasoningCapability, effo
 			}
 		}
 	}
-	return &UnsupportedReasoningEffortError{Model: model, Effort: effort, Allowed: allowed}
+	return &UnsupportedReasoningEffortError{Model: model, Allowed: allowed}
 }

@@ -167,6 +167,16 @@ type ModelInfo struct {
 	ReasoningCapability *ReasoningCapability `json:"reasoning_capability,omitempty"`
 }
 
+// WithReasoningCapability returns a copy enriched with model-specific
+// reasoning metadata. A capability implies the legacy Reasoning marker.
+func (m ModelInfo) WithReasoningCapability(capability *ReasoningCapability) ModelInfo {
+	m.ReasoningCapability = capability
+	if capability != nil {
+		m.Reasoning = true
+	}
+	return m
+}
+
 // Client is a provider adapter.
 type Client interface {
 	// Kind reports the adapter family (openai, anthropic, gemini, ...).
