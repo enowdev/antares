@@ -783,12 +783,20 @@ func (a *Agent) applyRole(req *Request) {
 	if req.Model == "" && role.Model != "" {
 		req.Model = role.Model
 	}
-	if req.ReasoningEffort == "" && role.Effort != "" {
-		req.ReasoningEffort = role.Effort
-	}
 	if req.MaxTurns == 0 && role.MaxTurns > 0 {
 		req.MaxTurns = role.MaxTurns
 	}
+}
+
+func (a *Agent) roleReasoningEffort(name string) string {
+	if a.roles == nil || strings.TrimSpace(name) == "" {
+		return ""
+	}
+	role, ok := a.roles.Get(name)
+	if !ok {
+		return ""
+	}
+	return role.Effort
 }
 
 // roleInfos exposes the roles to the tools layer.

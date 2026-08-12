@@ -41,17 +41,71 @@ func TestFallbackOverridesModel(t *testing.T) {
 	}
 }
 
+func TestFallbackReplacesPrimaryReasoningCapability(t *testing.T) {
+	primaryCapability, err := NewReasoningCapability(
+		[]ReasoningValue{{Value: "high", Label: "HIGH"}},
+		"high", false, ReasoningCapabilityLive,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallbackCapability, err := NewReasoningCapability(
+		[]ReasoningValue{{Value: "low", Label: "LOW"}},
+		"low", false, ReasoningCapabilityLive,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := &modelRecorder{}
+	c := NewFallback([]FallbackEntry{
+		{
+			Client:              &fakeClient{failN: 10, failErr: &apiError{Status: 500}},
+			Model:               "primary",
+			ReasoningCapability: primaryCapability,
+		},
+		{
+			Client:              rec,
+			Model:               "fallback",
+			ReasoningCapability: fallbackCapability,
+		},
+	})
+	_, err = c.Chat(context.Background(), Request{
+		Model:               "original",
+		ReasoningEffort:     "high",
+		ReasoningCapability: primaryCapability,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.gotModel != "fallback" {
+		t.Fatalf("model = %q, want fallback", rec.gotModel)
+	}
+	if rec.gotCapability != fallbackCapability {
+		t.Fatalf("capability = %#v, want fallback entry capability %#v", rec.gotCapability, fallbackCapability)
+	}
+	if rec.gotEffort != "" {
+		t.Fatalf("reasoning effort = %q, want Auto for unsupported legacy value", rec.gotEffort)
+	}
+}
+
 type modelRecorder struct {
-	gotModel string
+	gotModel      string
+	gotEffort     string
+	gotCapability *ReasoningCapability
 }
 
 func (m *modelRecorder) Kind() string { return "rec" }
 func (m *modelRecorder) Chat(ctx context.Context, req Request) (*Response, error) {
 	m.gotModel = req.Model
+	m.gotEffort = req.ReasoningEffort
+	m.gotCapability = req.ReasoningCapability
 	return &Response{Content: "ok"}, nil
 }
 func (m *modelRecorder) Stream(ctx context.Context, req Request, emit func(Event) error) (*Response, error) {
 	m.gotModel = req.Model
+	m.gotEffort = req.ReasoningEffort
+	m.gotCapability = req.ReasoningCapability
 	return &Response{Content: "ok"}, nil
 }
 func (m *modelRecorder) Models(context.Context) ([]ModelInfo, error) { return nil, nil }

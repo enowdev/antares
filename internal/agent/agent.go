@@ -309,6 +309,7 @@ func (a *Agent) Run(ctx context.Context, req Request, emit Emit) (*Result, error
 			req.Role = stored
 		}
 	}
+	roleReasoningEffort := a.roleReasoningEffort(req.Role)
 	a.applyRole(&req)
 	if !req.Quiet {
 		if err := emit(Event{Type: EventSession, ID: sess.ID, Title: sess.Title}); err != nil {
@@ -327,11 +328,33 @@ func (a *Agent) Run(ctx context.Context, req Request, emit Emit) (*Result, error
 		a.mu.Unlock()
 	}()
 
-	client, modelName, providerName, err := a.newClient(req.Model, sess.ID)
+	client, modelName, providerName, err := a.newClientContext(runCtx, req.Model, sess.ID)
 	if err != nil {
 		_ = emit(Event{Type: EventError, Err: err.Error()})
 		_ = emit(Event{Type: EventDone})
 		return nil, err
+	}
+	reasoning, err := a.resolveReasoning(runCtx, reasoningInput{
+		ModelRef: providerName + "/" + modelName,
+		Explicit: req.ReasoningEffort,
+		Role:     roleReasoningEffort,
+		Agent:    cfg.Agent.ReasoningEffort,
+		Model:    cfg.Model.ReasoningEffort,
+	})
+	if err != nil {
+		_ = emit(Event{Type: EventError, Err: err.Error()})
+		_ = emit(Event{Type: EventDone})
+		return nil, err
+	}
+	if reasoning.DiscardedLegacy != "" {
+		_ = emit(Event{
+			Type: EventNotice,
+			Message: fmt.Sprintf(
+				"configured reasoning effort %q is unsupported by %s and was ignored",
+				reasoning.DiscardedLegacy,
+				modelName,
+			),
+		})
 	}
 
 	history, err := a.loadHistory(ctx, sess, req)
@@ -441,17 +464,18 @@ func (a *Agent) Run(ctx context.Context, req Request, emit Emit) (*Result, error
 		history = a.maybeCompact(runCtx, history, systemPrompt, modelName, toolSpecs, emit, sess)
 
 		llmReq := llm.Request{
-			Model:             modelName,
-			System:            systemPrompt,
-			Messages:          ensureToolResults(history),
-			Tools:             toolSpecs,
-			Temperature:       cfg.Model.Temperature,
-			TopP:              cfg.Model.TopP,
-			MaxTokens:         cfg.Model.MaxTokens,
-			StopSequences:     cfg.Agent.StopSequences,
-			ReasoningEffort:   firstNonEmpty(req.ReasoningEffort, cfg.Agent.ReasoningEffort, cfg.Model.ReasoningEffort),
-			ParallelToolCalls: cfg.Model.ParallelToolCall,
-			PromptCache:       cfg.PromptCaching.Enabled,
+			Model:               modelName,
+			System:              systemPrompt,
+			Messages:            ensureToolResults(history),
+			Tools:               toolSpecs,
+			Temperature:         cfg.Model.Temperature,
+			TopP:                cfg.Model.TopP,
+			MaxTokens:           cfg.Model.MaxTokens,
+			StopSequences:       cfg.Agent.StopSequences,
+			ReasoningEffort:     reasoning.Value,
+			ReasoningCapability: reasoning.Capability,
+			ParallelToolCalls:   cfg.Model.ParallelToolCall,
+			PromptCache:         cfg.PromptCaching.Enabled,
 		}
 
 		resp, err := a.callModel(runCtx, client, llmReq, cfg.Streaming.Enabled, emit)

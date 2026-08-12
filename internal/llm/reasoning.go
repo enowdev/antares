@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -85,6 +86,13 @@ type UnsupportedReasoningEffortError struct {
 
 func (e *UnsupportedReasoningEffortError) Error() string {
 	return fmt.Sprintf("unsupported reasoning override for model %q (allowed: %v)", e.Model, e.Allowed)
+}
+
+// IsUnsupportedReasoningEffort reports whether err is an unsupported
+// reasoning override without requiring callers to inspect or expose its value.
+func IsUnsupportedReasoningEffort(err error) bool {
+	var unsupported *UnsupportedReasoningEffortError
+	return errors.As(err, &unsupported)
 }
 
 // ValidateReasoningEffort accepts Auto (an empty effort) for every model and

@@ -7,8 +7,9 @@ import (
 
 // FallbackEntry is one client and the model to ask it for.
 type FallbackEntry struct {
-	Client Client
-	Model  string
+	Client              Client
+	Model               string
+	ReasoningCapability *ReasoningCapability
 }
 
 // fallbackClient tries each entry in order, moving to the next when one fails
@@ -37,9 +38,8 @@ func (c *fallbackClient) Kind() string {
 
 func (c *fallbackClient) Chat(ctx context.Context, req Request) (*Response, error) {
 	var lastErr error
-	for _, e := range c.entries {
-		r := req
-		r.Model = e.Model
+	for i, e := range c.entries {
+		r := fallbackRequest(req, e, i > 0)
 		resp, err := e.Client.Chat(ctx, r)
 		if err == nil {
 			return resp, nil
@@ -62,8 +62,7 @@ func (c *fallbackClient) Stream(ctx context.Context, req Request, emit func(Even
 			emitted = true
 			return emit(ev)
 		}
-		r := req
-		r.Model = e.Model
+		r := fallbackRequest(req, e, i > 0)
 		resp, err := e.Client.Stream(ctx, r, wrapped)
 		if err == nil {
 			return resp, nil
@@ -74,6 +73,15 @@ func (c *fallbackClient) Stream(ctx context.Context, req Request, emit func(Even
 		lastErr = err
 	}
 	return nil, lastErr
+}
+
+func fallbackRequest(req Request, entry FallbackEntry, isFallback bool) Request {
+	req.Model = entry.Model
+	req.ReasoningCapability = entry.ReasoningCapability
+	if isFallback && ValidateReasoningEffort(entry.Model, entry.ReasoningCapability, req.ReasoningEffort) != nil {
+		req.ReasoningEffort = ""
+	}
+	return req
 }
 
 // Models and Embed use the primary only — a fallback for enumeration or

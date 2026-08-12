@@ -422,6 +422,10 @@ func (rt *runtimeServices) messageIsRelevant(ctx context.Context, b *config.Bind
 		"\n\nMessage:\n" + strings.TrimSpace(text) +
 		"\n\nDoes this message fit the criteria and deserve a reply? Answer with exactly one word: YES or NO."
 
+	reasoningEffort := ""
+	if err := rt.agent.ValidateReasoningEffort(ctx, b.Model, "low"); err == nil {
+		reasoningEffort = "low"
+	}
 	var out strings.Builder
 	_, err := rt.agent.Run(ctx, agent.Request{
 		Message:         prompt,
@@ -429,7 +433,7 @@ func (rt *runtimeServices) messageIsRelevant(ctx context.Context, b *config.Bind
 		Toolset:         "minimal",
 		Quiet:           true,
 		MaxTurns:        1,
-		ReasoningEffort: "low",
+		ReasoningEffort: reasoningEffort,
 	}, func(e agent.Event) error {
 		if e.Type == agent.EventText {
 			out.WriteString(e.Delta)

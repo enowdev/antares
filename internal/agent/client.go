@@ -8,6 +8,7 @@ import (
 
 	"log/slog"
 
+	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/llm"
 )
 
@@ -16,6 +17,14 @@ import (
 // models are configured, the returned client tries each in turn on a hard
 // failure. sessionID pins gateway sticky routing (Gemini CLI–compatible) when set.
 func (a *Agent) newClient(modelOverride, sessionID string) (client llm.Client, model, provider string, err error) {
+	return a.buildClient(context.Background(), modelOverride, sessionID, false)
+}
+
+func (a *Agent) newClientContext(ctx context.Context, modelOverride, sessionID string) (client llm.Client, model, provider string, err error) {
+	return a.buildClient(ctx, modelOverride, sessionID, true)
+}
+
+func (a *Agent) buildClient(ctx context.Context, modelOverride, sessionID string, withReasoningCapabilities bool) (client llm.Client, model, provider string, err error) {
 	primary, model, provider, err := a.resolveClient(modelOverride, sessionID)
 	if err != nil {
 		return nil, "", "", err
@@ -23,22 +32,41 @@ func (a *Agent) newClient(modelOverride, sessionID string) (client llm.Client, m
 
 	// Only the default path (no explicit override) uses the fallback chain, so
 	// a deliberately chosen model is honoured exactly.
-	entries := []llm.FallbackEntry{{Client: primary, Model: model}}
+	entries := []llm.FallbackEntry{{
+		Client: primary,
+		Model:  model,
+	}}
 	if modelOverride == "" {
 		for _, spec := range a.config().Model.Fallback {
 			spec = strings.TrimSpace(spec)
 			if spec == "" {
 				continue
 			}
-			fc, fm, _, ferr := a.resolveClient(spec, sessionID)
+			fc, fm, fp, ferr := a.resolveClient(spec, sessionID)
 			if ferr != nil {
 				slog.Debug("fallback model unavailable", "spec", spec, "error", ferr)
 				continue
 			}
-			entries = append(entries, llm.FallbackEntry{Client: fc, Model: fm})
+			if withReasoningCapabilities && len(entries) == 1 {
+				entries[0].ReasoningCapability = a.reasoningCapabilityForResolved(ctx, provider, model)
+			}
+			entry := llm.FallbackEntry{Client: fc, Model: fm}
+			if withReasoningCapabilities {
+				entry.ReasoningCapability = a.reasoningCapabilityForResolved(ctx, fp, fm)
+			}
+			entries = append(entries, entry)
 		}
 	}
 	return llm.NewFallback(entries), model, provider, nil
+}
+
+func (a *Agent) reasoningCapabilityForResolved(ctx context.Context, provider, model string) *llm.ReasoningCapability {
+	capability, err := a.ReasoningCapability(ctx, provider+"/"+model)
+	if err != nil {
+		slog.Debug("reasoning metadata unavailable", "provider", provider, "model", model, "error", err)
+		return nil
+	}
+	return capability
 }
 
 // resolveClient builds one provider adapter for a model spec.
@@ -132,48 +160,73 @@ func (a *Agent) Probe(ctx context.Context) (bool, string) {
 
 // Models lists the models a provider offers.
 //
-// If providers.<id>.models is non-empty it is treated as a whitelist: only
-// those ids are returned (no live /models merge). This keeps curated local
-// gateways (e.g. Sub2API antigravity) from flooding the UI with broken or
-// deprecated upstream catalog entries.
+// If providers.<id>.models is non-empty it is treated as a whitelist: live
+// metadata may enrich those ids, but unlisted live models are never appended.
+// This keeps curated local gateways (e.g. Sub2API antigravity) from flooding
+// the UI with broken or deprecated upstream catalog entries.
 //
 // If the list is empty, the provider's /models endpoint is queried live.
 // A live fetch that fails still yields any manual list rather than nothing.
 func (a *Agent) Models(ctx context.Context, providerID string) ([]llm.ModelInfo, error) {
 	id, p := a.config().ResolveProvider(providerID)
 
-	// Curated whitelist: skip live catalog entirely.
-	if len(p.Models) > 0 {
-		out := make([]llm.ModelInfo, 0, len(p.Models))
-		seen := make(map[string]bool, len(p.Models))
-		for _, mid := range p.Models {
-			if mid == "" || seen[mid] {
-				continue
-			}
-			seen[mid] = true
-			out = append(out, llm.ModelInfo{
-				ID:            mid,
-				Name:          mid,
-				Provider:      id,
-				ContextWindow: p.ModelMeta[mid].ContextWindow,
-			})
-		}
-		return out, nil
-	}
-
 	client, err := llm.New(llm.Options{
 		Kind: p.Kind, BaseURL: p.BaseURL, APIKey: p.APIKey,
 		Headers: p.Headers, ProviderID: id, Timeout: 60 * time.Second, APIVersion: p.APIVersion, Region: p.Region,
 	})
 	if err != nil {
+		if len(p.Models) > 0 {
+			return curatedModelsWithReasoning(id, p, nil, p.Kind), nil
+		}
 		return nil, err
 	}
 	fetchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
 	live, ferr := client.Models(fetchCtx)
+	if len(p.Models) > 0 {
+		return curatedModelsWithReasoning(id, p, live, client.Kind()), nil
+	}
 	if ferr != nil && len(live) == 0 {
 		return nil, ferr
 	}
+	for i := range live {
+		if live[i].ReasoningCapability != nil {
+			continue
+		}
+		target := reasoningTarget{providerID: id, model: live[i].ID, provider: p}
+		target.provider.Kind = client.Kind()
+		live[i] = live[i].WithReasoningCapability(staticReasoningCapability(target))
+	}
 	return live, nil
+}
+
+func curatedModelsWithReasoning(id string, p config.Provider, live []llm.ModelInfo, kind string) []llm.ModelInfo {
+	liveByID := make(map[string]llm.ModelInfo, len(live))
+	for _, model := range live {
+		liveByID[model.ID] = model
+	}
+
+	out := make([]llm.ModelInfo, 0, len(p.Models))
+	seen := make(map[string]bool, len(p.Models))
+	for _, mid := range p.Models {
+		if mid == "" || seen[mid] {
+			continue
+		}
+		seen[mid] = true
+		info := llm.ModelInfo{
+			ID:            mid,
+			Name:          mid,
+			Provider:      id,
+			ContextWindow: p.ModelMeta[mid].ContextWindow,
+		}
+		capability := liveByID[mid].ReasoningCapability
+		if capability == nil {
+			target := reasoningTarget{providerID: id, model: mid, provider: p}
+			target.provider.Kind = kind
+			capability = staticReasoningCapability(target)
+		}
+		out = append(out, info.WithReasoningCapability(capability))
+	}
+	return out
 }
