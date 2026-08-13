@@ -311,3 +311,236 @@ The subsequent complete hermetic suite passed as shown above.
   sticky. This prevents duplicate paid/mutating operations but requires future
   explicit operator reconciliation rather than automatic retry.
 - No remaining Task 12 functional or race-detector failures are known.
+
+## Fix Round 1 (2026-08-13)
+
+### Status
+
+Addressed all nine lifecycle/security review findings with focused
+red-green tests. Ambiguous create/cancel outcomes remain non-retryable, but
+are now explicitly described and locally deletable without issuing any remote
+retry or cancellation.
+
+### Implementation
+
+1. Split direct-run local control into explicit approval, create, and watch
+   phases. Stop cancels approval before the POST boundary, records detachment
+   without cancelling a non-idempotent create POST, and installs/cancels the
+   watcher only after returned IDs are durable.
+2. Restored ordinary-chat supersede semantics: under the session lifecycle
+   lock, ordinary chat rejects unfinished Cursor state, invalidates reuse, and
+   replaces the hub entry with `put`.
+3. Classified cancellation outcomes:
+   - context/transport uncertainty, API status zero, HTTP 408, and 5xx become
+     `ANTARES_CANCEL_OUTCOME_AMBIGUOUS`;
+   - definitive 4xx restores the pre-POST status and permits a new approved
+     attempt;
+   - 404 records `ANTARES_CANCEL_NO_ACTIVE_RUN`, invalidates reuse, and returns
+     success;
+   - a durable cancel-in-flight marker without a matching process-local
+     reservation is reconciled to cancel-ambiguous and never re-submitted.
+4. Marked live logs as ordinary, direct Cursor, or Cursor recovery. Attach now
+   requires dashboard protection before selecting any credential-using direct
+   or recovery path and before any runner call; ordinary live/done attach stays
+   compatible.
+5. Replaced the global lifecycle mutex with reference-counted keyed session
+   locks. Bulk deletion acquires unique IDs in sorted order. Direct/ordinary
+   reservation, attach recovery reservation, terminal finalization, edit,
+   single delete, and bulk delete use the same per-session lock.
+6. Added immutable approval fields for dirty worktree, local-only commit count,
+   remote-ref-known, and fixed bounded/redacted warnings. The warnings explain
+   that local dirty/local-only work is absent from the Cursor cloud VM and that
+   an unknown remote ref prevents verification. Reuse identity is unchanged.
+7. Cursor reset is now derived from both initial absence and the selected live
+   log kind. A newly selected recovery log, including another recovery winner,
+   resets to zero; concurrent ordinary/direct logs and existing reconnect logs
+   preserve the browser cursor.
+8. Cancellation's in-memory reservation is session-wide rather than run-ID
+   specific.
+9. Added exported `store.ErrCursorRevisionConflict`; server conflict handling
+   uses `errors.Is` and preserves the existing safe user-facing behavior.
+
+Ambiguous create state and cancel-ambiguous state are accepted by both single
+and bulk local deletion. New turns/cancel retries explain that deletion is the
+operator reconciliation escape. Deletion only removes local data and never
+calls `CreateAgent`, `CreateRun`, or `CancelRun`.
+
+### Files
+
+New:
+
+- `internal/server/cursor_lifecycle.go`
+- `internal/server/cursor_lifecycle_test.go`
+- `internal/server/handlers_cursor_fix_test.go`
+
+Modified:
+
+- `internal/server/cursor_events.go`
+- `internal/server/handlers_chat.go`
+- `internal/server/handlers_cursor.go`
+- `internal/server/handlers_cursor_test.go`
+- `internal/server/livechat.go`
+- `internal/server/server.go`
+- `internal/store/cursor_sessions.go`
+- `internal/store/cursor_sessions_test.go`
+- `internal/store/sql.go`
+- `.superpowers/sdd/2026-08-12-adaptive-reasoning-cursor-mode/task-12-report.md`
+
+Explicitly excluded from staging:
+
+- `web/tsconfig.tsbuildinfo`
+- pre-existing untracked controller plan/design documents
+
+### Focused TDD evidence
+
+RED was established before each production change.
+
+Lifecycle/cancel/projection matrix:
+
+```text
+$ go test ./internal/server -run 'TestCursor(ChatStopDuringCreate|ChatAmbiguousStates|OrdinaryChatSecond|Cancel|ApprovalCarries)' -count=1 -v
+TestCursorChatAmbiguousStatesCanBeDeletedLocally:
+  body={"error":"a turn is already active for this session"}, want local-delete escape
+TestCursorCancelDefinitiveFailuresRestoreStatusAndAllowRetry:
+  HTTP 400 returned 502; other 4xx left ANTARES_CANCEL_OUTCOME_AMBIGUOUS
+TestCursorCancelNotFoundReconcilesNoActiveRun:
+  status=404, want 200
+TestCursorCancelInFlightRecoveryBecomesAmbiguousWithoutResubmission:
+  durable status remained ANTARES_CANCEL_IN_FLIGHT
+TestCursorCancelReservationCoversWholeSession:
+  different run bypassed the reservation
+TestCursorApprovalCarriesRepositoryPreflightWarnings:
+  dirty=false local-only=0 remote-known=false warnings=[]
+TestCursorChatStopDuringCreatePersistsIDsAndDefersWatching:
+  state became ambiguous with context canceled instead of persisting IDs
+FAIL
+```
+
+Ordinary supersede:
+
+```text
+$ go test ./internal/server -run TestOrdinaryChatSecondTurnSupersedesLiveRun -count=1 -v
+second ordinary turn lost supersede compatibility: cursor session is active
+FAIL
+```
+
+Attach, terminal race, and unrelated-session isolation:
+
+```text
+$ go test ./internal/server -run 'TestCursorAttach|TestCursorTerminalRecovery|TestCursorLifecycleSlowSession' -count=1 -v
+unprotected Cursor recovery attach status=200, want 428
+unprotected direct live attach status=200, want 428
+delete racing terminal recovery status=200, want 409
+slow session lifecycle blocked an unrelated session
+FAIL
+```
+
+New lock, cursor-reset, and store-sentinel surfaces:
+
+```text
+$ go test ./internal/server -run TestSessionLocker -count=1
+undefined: sessionLocker
+FAIL
+
+$ go test ./internal/server -run TestCursorAttachCursorResetTargetsFreshRecoveryLogOnly -count=1
+undefined: cursorAttachShouldReset
+FAIL
+
+$ go test ./internal/store -run 'TestCursorSessionPutFailuresDoNotMutateCaller/revision_conflict' -count=1
+undefined: ErrCursorRevisionConflict
+FAIL
+```
+
+Additional crash-marker and remote-ref cases:
+
+```text
+TestCursorCancelInFlightMarkerAfterRestartIsLocallyDeletable:
+  delete status=409, want 200
+
+TestCursorApprovalWarnsWhenRemoteRefCannotBeVerified:
+  remote-ref-known=false warnings=[]
+
+TestCursorCancelUncertainFailuresRemainAmbiguousAndDeletable/api_transport:
+  status restored to RUNNING instead of cancel-ambiguous
+```
+
+Final focused GREEN:
+
+```text
+$ go test ./internal/server -run 'Test(CursorChatStopDuringCreatePersistsIDsAndDefersWatching|CursorChatAmbiguousStatesCanBeDeletedLocally|OrdinaryChatSecondTurnSupersedesLiveRun|CursorCancel|CursorAttach|CursorTerminalRecovery|CursorLifecycleSlowSession|SessionLocker|CursorApproval)' -count=1 && \
+  go test ./internal/store -run 'TestCursorSessionPutFailuresDoNotMutateCaller/revision_conflict' -count=1
+ok  	github.com/enowdev/antares/internal/server	0.550s
+ok  	github.com/enowdev/antares/internal/store	0.018s
+```
+
+### Full verification
+
+Fresh hermetic full repository suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u AZURE_OPENAI_ENDPOINT \
+  -u AZURE_OPENAI_KEY -u AZURE_OPENAI_DEPLOYMENT \
+  -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN go test ./... -count=1
+...
+ok  	github.com/enowdev/antares/internal/server	3.532s
+ok  	github.com/enowdev/antares/internal/store	1.285s
+...
+```
+
+All repository packages passed.
+
+Fresh affected-package race suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u AZURE_OPENAI_ENDPOINT \
+  -u AZURE_OPENAI_KEY -u AZURE_OPENAI_DEPLOYMENT \
+  -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN \
+  go test -race ./internal/server ./internal/store ./internal/cursorrun \
+    ./internal/approval ./internal/agent -count=1
+ok  	github.com/enowdev/antares/internal/server	16.533s
+ok  	github.com/enowdev/antares/internal/store	5.405s
+ok  	github.com/enowdev/antares/internal/cursorrun	3.367s
+ok  	github.com/enowdev/antares/internal/approval	1.049s
+ok  	github.com/enowdev/antares/internal/agent	2.624s
+```
+
+### Crash-window and exactly-once self-review
+
+1. Stop before the POST boundary cancels approval or rolls the durable
+   in-flight marker back to idle without a remote mutation.
+2. Once create enters its non-idempotent phase, its context is independent of
+   local Stop. Returned IDs are CAS-persisted before detachment can skip or
+   cancel a watcher.
+3. A process crash or true transport uncertainty before IDs remains
+   non-retryable. Local delete is the explicit escape and performs no remote
+   operation.
+4. The cancel marker is durable before `CancelRun`. A locally reserved request
+   is distinguished from a marker recovered after restart; only the latter is
+   converted to ambiguous. No ambiguous request is automatically submitted.
+5. Definitive cancel rejection restores the exact status captured immediately
+   before the marker. If that restore itself cannot commit, the marker remains
+   conservative and becomes ambiguous rather than permitting a duplicate.
+6. Per-session locking orders recovery reservation, terminal commit, history
+   mutation, and deletion. A terminal recovery live log blocks deletion/edit
+   until finalization; unrelated sessions do not share a lock.
+7. Bulk deletion acquires sorted unique session IDs before checking any state,
+   retaining all-or-nothing precondition checks without deadlock.
+8. Approval warnings are generated from booleans/counts, not raw Git output,
+   then redacted and capped at four entries of 240 runes. Prompt/repository reuse
+   identity is unchanged.
+9. Recovery auth is checked before `GetRun` or `StreamRun`. Ordinary live/done
+   attach does not enter the protected path.
+
+### Concerns
+
+- The intentionally deferred full-accumulator O(n²) persistence concern remains
+  outside Fix Round 1.
+- A true create/cancel transport ambiguity cannot establish remote truth. It is
+  deliberately never retried; operators may delete only the local session and
+  reconcile any remote Cursor work separately.
+- No live API calls or credentials were used. No remaining functional or
+  race-detector failures are known.

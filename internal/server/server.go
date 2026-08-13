@@ -92,9 +92,9 @@ type Server struct {
 	cursorCancelMu sync.Mutex
 	cursorCancels  map[string]string
 
-	// cursorLifecycleMu makes local turn reservation, history mutation, and
-	// session deletion one decision. Durable CAS still arbitrates revisions.
-	cursorLifecycleMu sync.Mutex
+	// cursorLifecycles serializes lifecycle decisions per session. Bulk
+	// operations acquire sorted session keys; unrelated sessions stay independent.
+	cursorLifecycles sessionLocker
 }
 
 // Options configures a Server.

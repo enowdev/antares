@@ -309,8 +309,9 @@ func TestCursorSessionPutFailuresDoNotMutateCaller(t *testing.T) {
 		}
 		stale.ModelParams = `[ { "id": "reasoning", "value": "max" } ]`
 		before := stale
-		if err := s.PutCursorSessionState(ctx, &stale); err == nil {
-			t.Fatal("stale state was accepted")
+		err = s.PutCursorSessionState(ctx, &stale)
+		if !errors.Is(err, ErrCursorRevisionConflict) {
+			t.Fatalf("stale state error=%v, want ErrCursorRevisionConflict", err)
 		}
 		if !reflect.DeepEqual(stale, before) {
 			t.Fatalf("conflict failure mutated caller:\n got: %+v\nwant: %+v", stale, before)

@@ -46,6 +46,7 @@ type fakeCursorRunner struct {
 	createAgentBlock chan struct{}
 	createAgentErr   error
 	createRunErr     error
+	cancelErr        error
 
 	streamStarted chan struct{}
 	streamOnce    sync.Once
@@ -56,6 +57,10 @@ type fakeCursorRunner struct {
 	invokeReset   bool
 	terminal      cursor.Run
 	getRun        cursor.Run
+	getRunCalls   int
+	getRunBlock   chan struct{}
+	getRunStarted chan struct{}
+	getRunOnce    sync.Once
 	cancelHook    func()
 }
 
@@ -167,10 +172,19 @@ func (f *fakeCursorRunner) GetRun(
 	runID string,
 ) (*cursor.Run, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
+	f.getRunCalls++
 	run := f.getRun
 	run.AgentID = agentID
 	run.ID = runID
+	block := f.getRunBlock
+	started := f.getRunStarted
+	if block != nil {
+		f.getRunOnce.Do(func() { close(started) })
+	}
+	f.mu.Unlock()
+	if block != nil {
+		<-block
+	}
 	return cloneRun(run), nil
 }
 
@@ -182,11 +196,12 @@ func (f *fakeCursorRunner) CancelRun(
 	f.mu.Lock()
 	f.cancelCalls = append(f.cancelCalls, [2]string{agentID, runID})
 	hook := f.cancelHook
+	cancelErr := f.cancelErr
 	f.mu.Unlock()
 	if hook != nil {
 		hook()
 	}
-	return nil
+	return cancelErr
 }
 
 func (f *fakeCursorRunner) StreamRun(
@@ -279,6 +294,30 @@ func (f *fakeCursorRunner) CancelCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.cancelCalls)
+}
+
+func (f *fakeCursorRunner) GetRunCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.getRunCalls
+}
+
+func (f *fakeCursorRunner) holdGetRun() {
+	f.mu.Lock()
+	f.getRunBlock = make(chan struct{})
+	f.getRunStarted = make(chan struct{})
+	f.getRunOnce = sync.Once{}
+	f.mu.Unlock()
+}
+
+func (f *fakeCursorRunner) releaseGetRun() {
+	f.mu.Lock()
+	block := f.getRunBlock
+	f.getRunBlock = nil
+	f.mu.Unlock()
+	if block != nil {
+		close(block)
+	}
 }
 
 func (f *fakeCursorRunner) StreamCalls() []cursorStreamCall {
@@ -1326,7 +1365,9 @@ func seedRecoverableCursorSession(
 	fixture *cursorDirectFixture,
 ) string {
 	t.Helper()
-	sessionID := "ses-recovery"
+	sessionID := newID("ses-recovery")
+	userMessageID := newID("msg-recovery-user")
+	assistantMessageID := newID("msg-recovery-assistant")
 	if err := fixture.db.CreateSession(context.Background(), &store.Session{
 		ID: sessionID, Title: "recover", Platform: "web",
 		Model: fixture.cfg.Model.Default, Provider: fixture.cfg.Model.Provider,
@@ -1335,7 +1376,7 @@ func seedRecoverableCursorSession(
 		t.Fatal(err)
 	}
 	if err := fixture.db.AppendMessage(context.Background(), &store.Message{
-		ID: "msg-recovery-user", SessionID: sessionID,
+		ID: userMessageID, SessionID: sessionID,
 		Role: store.RoleUser, Content: "recover me",
 	}); err != nil {
 		t.Fatal(err)
@@ -1348,8 +1389,8 @@ func seedRecoverableCursorSession(
 		RemoteStatus: "RUNNING", LastEventID: "evt-old",
 		PartialText: "old text", PartialReasoning: "old reasoning",
 		OperationState:     store.CursorOperationRunInFlight,
-		UserMessageID:      "msg-recovery-user",
-		AssistantMessageID: "msg-recovery-assistant",
+		UserMessageID:      userMessageID,
+		AssistantMessageID: assistantMessageID,
 	}
 	if err := fixture.db.PutCursorSessionState(context.Background(), state); err != nil {
 		t.Fatal(err)
@@ -1401,7 +1442,7 @@ func postInterrupt(t *testing.T, fixture *cursorDirectFixture, sessionID string)
 	return response.StatusCode
 }
 
-func TestCursorChatInterruptedCreateBecomesAmbiguousAndIsNeverRetried(t *testing.T) {
+func TestCursorChatStopDuringCreatePersistsIDsAndDefersWatching(t *testing.T) {
 	fixture := newCursorDirectTestServer(t)
 	fixture.runner.createAgentBlock = make(chan struct{})
 	stream := postCursorChat(t, fixture, defaultCursorChatRequest())
@@ -1413,20 +1454,34 @@ func TestCursorChatInterruptedCreateBecomesAmbiguousAndIsNeverRetried(t *testing
 		return state.OperationState == store.CursorOperationCreateInFlight
 	})
 
-	postInterrupt(t, fixture, session.ID)
+	if status := postInterrupt(t, fixture, session.ID); status != http.StatusOK {
+		t.Fatalf("interrupt status=%d", status)
+	}
+	close(fixture.runner.createAgentBlock)
 	stream.NextType(t, agent.EventDone)
 	state := waitCursorState(t, fixture.db, session.ID, func(state *store.CursorSessionState) bool {
-		return state.OperationState == store.CursorOperationAmbiguous
+		return state.OperationState == store.CursorOperationRunInFlight &&
+			state.AgentID != "" && state.RunID != ""
 	})
-	if state.AgentID != "" || state.RunID != "" {
-		t.Fatalf("ambiguous state unexpectedly has IDs: %+v", state)
+	if state.OperationState == store.CursorOperationAmbiguous {
+		t.Fatalf("local stop made a successful create ambiguous: %+v", state)
+	}
+	if calls := fixture.runner.StreamCalls(); len(calls) != 0 {
+		t.Fatalf("detached create opened a watcher: %+v", calls)
 	}
 
+	fixture.runner.holdStream()
 	attach := getCursorAttach(t, fixture, session.ID)
+	select {
+	case <-fixture.runner.streamStarted:
+	case <-time.After(time.Second):
+		t.Fatal("persisted IDs were not recoverable after local stop")
+	}
+	fixture.runner.releaseStream()
 	attach.NextType(t, agent.EventDone)
 	attach.Close()
-	if fixture.runner.CreateAgentCalls() != 1 || len(fixture.runner.StreamCalls()) != 0 {
-		t.Fatalf("ambiguous recovery retried create/stream: creates=%d streams=%d",
+	if fixture.runner.CreateAgentCalls() != 1 || len(fixture.runner.StreamCalls()) != 1 {
+		t.Fatalf("recovery recreated instead of watching persisted IDs: creates=%d streams=%d",
 			fixture.runner.CreateAgentCalls(), len(fixture.runner.StreamCalls()))
 	}
 }

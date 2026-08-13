@@ -252,8 +252,8 @@ func (s *Server) reserveOrdinaryChat(
 	sessionID string,
 	live *liveRun,
 ) error {
-	s.cursorLifecycleMu.Lock()
-	defer s.cursorLifecycleMu.Unlock()
+	unlock := s.cursorLifecycles.Lock(sessionID)
+	defer unlock()
 	active, err := s.cursorSessionHasUnfinishedState(ctx, sessionID)
 	if err != nil {
 		return err
@@ -264,9 +264,10 @@ func (s *Server) reserveOrdinaryChat(
 	if err := s.invalidateCursorTarget(ctx, sessionID, false); err != nil {
 		return err
 	}
-	if !s.hub.putIfAbsent(sessionID, live) {
-		return errCursorSessionBusy
-	}
+	// Ordinary turns historically supersede the attach log for an older
+	// ordinary turn. The lifecycle lock still prevents crossing an unfinished
+	// Cursor reservation while preserving that replacement behavior.
+	s.hub.put(sessionID, live)
 	return nil
 }
 
@@ -278,22 +279,46 @@ func (s *Server) handleChatAttach(w http.ResponseWriter, r *http.Request) {
 	session := r.URL.Query().Get("session_id")
 	cursor, _ := strconv.Atoi(r.URL.Query().Get("cursor"))
 
+	unlock := s.cursorLifecycles.Lock(session)
+	lr := s.hub.get(session)
+	needsCursorRecovery := false
+	if lr == nil && s.db != nil && s.cursorRunner != nil {
+		state, err := s.db.GetCursorSessionState(r.Context(), session)
+		switch {
+		case err == nil:
+			needsCursorRecovery = cursorStateNeedsRecovery(state)
+		case errors.Is(err, store.ErrNotFound):
+		default:
+			unlock()
+			writeError(w, http.StatusInternalServerError, s.cursorSafeError(err))
+			return
+		}
+	}
+	unlock()
+
+	initiallyMissing := lr == nil
+	if (lr != nil && lr.isCursor()) || needsCursorRecovery {
+		if s.requireDashboardPassword(w, r) {
+			return
+		}
+	}
+	if lr == nil && needsCursorRecovery {
+		lr = s.cursorRecoveryRun(session)
+	}
+	if cursorAttachShouldReset(initiallyMissing, lr) {
+		// The browser cursor indexes the lost process's in-memory log. Only a
+		// newly selected recovery log starts over and replays durable partials.
+		cursor = 0
+	}
+
 	sse, err := newSSE(w)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-
-	lr := s.hub.get(session)
 	if lr == nil {
-		lr = s.cursorRecoveryRun(session)
-		if lr == nil {
-			_ = sse.send(agent.Event{Type: agent.EventDone})
-			return
-		}
-		// The browser cursor indexes the lost process's in-memory log. A fresh
-		// recovery log starts at zero and first replays durable partials.
-		cursor = 0
+		_ = sse.send(agent.Event{Type: agent.EventDone})
+		return
 	}
 
 	ctx := r.Context()
@@ -320,6 +345,11 @@ func (s *Server) handleChatAttach(w http.ResponseWriter, r *http.Request) {
 			Cursor int `json:"cursor"`
 		}{Event: e, Cursor: nextCursor})
 	})
+}
+
+func cursorAttachShouldReset(initiallyMissing bool, live *liveRun) bool {
+	return initiallyMissing && live != nil &&
+		live.runKind() == liveRunCursorRecovery
 }
 
 // decodeImages accepts data URLs and bare base64 payloads.
@@ -446,8 +476,8 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("message_id is required"))
 		return
 	}
-	s.cursorLifecycleMu.Lock()
-	defer s.cursorLifecycleMu.Unlock()
+	unlock := s.cursorLifecycles.Lock(sessionID)
+	defer unlock()
 	active, err := s.cursorSessionHasUnfinishedState(r.Context(), sessionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -512,8 +542,8 @@ func (s *Server) handleBackgroundActivity(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	s.cursorLifecycleMu.Lock()
-	defer s.cursorLifecycleMu.Unlock()
+	unlock := s.cursorLifecycles.Lock(sessionID)
+	defer unlock()
 	active, err := s.cursorSessionHasActiveRemoteState(r.Context(), sessionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -588,8 +618,8 @@ func (s *Server) handleDeleteAllSessions(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, map[string]any{"deleted": 0})
 		return
 	}
-	s.cursorLifecycleMu.Lock()
-	defer s.cursorLifecycleMu.Unlock()
+	unlock := s.cursorLifecycles.LockMany(ids)
+	defer unlock()
 	// Check every selected session before DeleteSessions mutates the first one,
 	// so a later active entry cannot produce a partial bulk deletion.
 	for _, id := range ids {

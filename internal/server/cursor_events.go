@@ -26,6 +26,7 @@ const (
 	cursorCancelInFlight  = "ANTARES_CANCEL_IN_FLIGHT"
 	cursorCancelRequested = "ANTARES_CANCEL_REQUESTED"
 	cursorCancelAmbiguous = "ANTARES_CANCEL_OUTCOME_AMBIGUOUS"
+	cursorCancelNoActive  = "ANTARES_CANCEL_NO_ACTIVE_RUN"
 )
 
 func cursorCancelState(status string) bool {
@@ -35,6 +36,36 @@ func cursorCancelState(status string) bool {
 	default:
 		return false
 	}
+}
+
+func (s *Server) reconcileCursorCancelCrashMarker(
+	ctx context.Context,
+	state *store.CursorSessionState,
+) (*store.CursorSessionState, error) {
+	if state == nil || state.OperationState != store.CursorOperationRunInFlight ||
+		state.RemoteStatus != cursorCancelInFlight {
+		return state, nil
+	}
+	s.cursorCancelMu.Lock()
+	_, locallyInFlight := s.cursorCancels[state.SessionID]
+	s.cursorCancelMu.Unlock()
+	if locallyInFlight {
+		return state, nil
+	}
+	next, err := s.mutateCursorState(ctx, state.SessionID,
+		func(current *store.CursorSessionState) error {
+			if current.OperationState != store.CursorOperationRunInFlight ||
+				current.AgentID != state.AgentID || current.RunID != state.RunID ||
+				current.RemoteStatus != cursorCancelInFlight {
+				return errCursorStateChanged
+			}
+			current.RemoteStatus = cursorCancelAmbiguous
+			return nil
+		})
+	if errors.Is(err, errCursorStateChanged) {
+		return s.db.GetCursorSessionState(ctx, state.SessionID)
+	}
+	return next, err
 }
 
 // mutateCursorState is the coordinator's only durable update primitive. Every
@@ -291,6 +322,8 @@ func (s *Server) finalizeCursorRun(
 	run *cursor.Run,
 	live *liveRun,
 ) error {
+	unlock := s.cursorLifecycles.Lock(sessionID)
+	defer unlock()
 	if run == nil || strings.TrimSpace(run.ID) == "" ||
 		strings.TrimSpace(run.AgentID) == "" {
 		return errors.New("Cursor terminal snapshot is missing IDs")
@@ -459,6 +492,8 @@ func (s *Server) cursorRecoveryRun(sessionID string) *liveRun {
 	if sessionID == "" || s.db == nil || s.cursorRunner == nil {
 		return nil
 	}
+	unlock := s.cursorLifecycles.Lock(sessionID)
+	defer unlock()
 	if live := s.hub.get(sessionID); live != nil {
 		return live
 	}
@@ -468,8 +503,8 @@ func (s *Server) cursorRecoveryRun(sessionID string) *liveRun {
 	}
 
 	ctx, stop := context.WithCancel(context.Background())
-	live := newLiveRun()
-	live.setStop(stop)
+	live := newCursorLiveRun(liveRunCursorRecovery)
+	live.beginCursorWatch(stop)
 	if !s.hub.putIfAbsent(sessionID, live) {
 		stop()
 		return s.hub.get(sessionID)
@@ -545,6 +580,21 @@ func (s *Server) recoverCursorSession(
 	if err != nil {
 		return err
 	}
+	if state.OperationState == store.CursorOperationRunInFlight &&
+		state.RemoteStatus == cursorCancelInFlight {
+		state, err = s.reconcileCursorCancelCrashMarker(
+			context.Background(), state,
+		)
+		if err != nil {
+			return err
+		}
+		if live != nil {
+			live.publish(agent.Event{
+				Type:    agent.EventNotice,
+				Message: "Cursor cancellation outcome is ambiguous after restart; it will not be retried. Delete this local session to discard it.",
+			})
+		}
+	}
 	switch state.OperationState {
 	case store.CursorOperationAwaitingApproval:
 		_, err := s.mutateCursorState(context.Background(), sessionID,
@@ -563,7 +613,9 @@ func (s *Server) recoverCursorSession(
 		return errors.New("Cursor approval was interrupted by a server restart; no remote request was sent")
 
 	case store.CursorOperationAmbiguous:
-		return errors.New("Cursor create outcome is ambiguous and will not be retried automatically")
+		return errors.New(
+			"Cursor create outcome is ambiguous and will not be retried automatically; delete this local session to discard it without retrying or cancelling remote work",
+		)
 
 	case store.CursorOperationCreateInFlight, store.CursorOperationRunInFlight:
 		if state.AgentID == "" || state.RunID == "" {
@@ -580,7 +632,9 @@ func (s *Server) recoverCursorSession(
 			if updateErr != nil {
 				return updateErr
 			}
-			return errors.New("Cursor create outcome is ambiguous and will not be retried automatically")
+			return errors.New(
+				"Cursor create outcome is ambiguous and will not be retried automatically; delete this local session to discard it without retrying or cancelling remote work",
+			)
 		}
 		if state.OperationState == store.CursorOperationCreateInFlight {
 			state, err = s.mutateCursorState(context.Background(), sessionID,
@@ -686,9 +740,20 @@ func (s *Server) handleCursorCancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, s.cursorSafeError(err))
 		return
 	}
+	state, err = s.reconcileCursorCancelCrashMarker(r.Context(), state)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, s.cursorSafeError(err))
+		return
+	}
 	if state.OperationState != store.CursorOperationRunInFlight ||
 		state.AgentID == "" || state.RunID == "" {
 		writeError(w, http.StatusConflict, errors.New("there is no active Cursor run to cancel"))
+		return
+	}
+	if state.RemoteStatus == cursorCancelAmbiguous {
+		writeError(w, http.StatusConflict, errors.New(
+			"Cursor cancellation outcome is ambiguous and will not be retried; delete this local session to discard it without another remote request",
+		))
 		return
 	}
 	if cursorCancelState(state.RemoteStatus) {
@@ -741,6 +806,7 @@ func (s *Server) handleCursorCancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("Cursor run changed before cancellation"))
 		return
 	}
+	priorStatus := state.RemoteStatus
 	_, err = s.mutateCursorState(context.Background(), state.SessionID,
 		func(current *store.CursorSessionState) error {
 			if current.OperationState != store.CursorOperationRunInFlight ||
@@ -750,6 +816,7 @@ func (s *Server) handleCursorCancel(w http.ResponseWriter, r *http.Request) {
 			}
 			// This durable marker closes the crash window before the
 			// non-idempotent cancellation POST.
+			priorStatus = current.RemoteStatus
 			current.RemoteStatus = cursorCancelInFlight
 			return nil
 		})
@@ -760,13 +827,51 @@ func (s *Server) handleCursorCancel(w http.ResponseWriter, r *http.Request) {
 	if err := s.cursorRunner.CancelRun(
 		context.Background(), state.AgentID, state.RunID,
 	); err != nil {
-		_, _ = s.mutateCursorState(context.Background(), state.SessionID,
+		if cursorCancelNotFound(err) {
+			_, updateErr := s.mutateCursorState(context.Background(), state.SessionID,
+				func(current *store.CursorSessionState) error {
+					if current.AgentID != state.AgentID || current.RunID != state.RunID ||
+						current.RemoteStatus != cursorCancelInFlight {
+						return errCursorStateChanged
+					}
+					current.RemoteStatus = cursorCancelNoActive
+					current.OperationState = store.CursorOperationIdle
+					current.ReuseValid = false
+					return nil
+				})
+			if updateErr != nil && !errors.Is(updateErr, errCursorStateChanged) {
+				writeError(w, http.StatusInternalServerError, s.cursorSafeError(updateErr))
+				return
+			}
+			if live != nil {
+				live.publish(agent.Event{
+					Type: agent.EventToolProgress, Name: "cursor",
+					Message: "Cursor run is no longer active",
+				})
+			}
+			writeJSON(w, http.StatusOK, map[string]bool{
+				"cancel_requested": false,
+				"no_active_run":    true,
+			})
+			return
+		}
+		nextStatus := priorStatus
+		if cursorCancelCouldBeAmbiguous(err) {
+			nextStatus = cursorCancelAmbiguous
+		}
+		_, updateErr := s.mutateCursorState(context.Background(), state.SessionID,
 			func(current *store.CursorSessionState) error {
-				if current.AgentID == state.AgentID && current.RunID == state.RunID {
-					current.RemoteStatus = cursorCancelAmbiguous
+				if current.AgentID != state.AgentID || current.RunID != state.RunID ||
+					current.RemoteStatus != cursorCancelInFlight {
+					return errCursorStateChanged
 				}
+				current.RemoteStatus = nextStatus
 				return nil
 			})
+		if updateErr != nil && !errors.Is(updateErr, errCursorStateChanged) {
+			writeError(w, http.StatusInternalServerError, s.cursorSafeError(updateErr))
+			return
+		}
 		s.writeCursorUpstreamError(w, err, http.StatusBadGateway)
 		return
 	}
@@ -786,13 +891,34 @@ func (s *Server) handleCursorCancel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"cancel_requested": true})
 }
 
+func cursorCancelNotFound(err error) bool {
+	var apiError *cursor.APIError
+	return errors.As(err, &apiError) && apiError.Status == http.StatusNotFound
+}
+
+func cursorCancelCouldBeAmbiguous(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var apiError *cursor.APIError
+	if errors.As(err, &apiError) {
+		return apiError.Status == 0 ||
+			apiError.Status == http.StatusRequestTimeout ||
+			apiError.Status >= http.StatusInternalServerError
+	}
+	return true
+}
+
 func (s *Server) reserveCursorCancel(sessionID, runID string) bool {
 	s.cursorCancelMu.Lock()
 	defer s.cursorCancelMu.Unlock()
 	if s.cursorCancels == nil {
 		s.cursorCancels = make(map[string]string)
 	}
-	if existing, ok := s.cursorCancels[sessionID]; ok && existing == runID {
+	if _, ok := s.cursorCancels[sessionID]; ok {
 		return false
 	}
 	s.cursorCancels[sessionID] = runID
@@ -818,9 +944,23 @@ func (s *Server) cursorSessionHasActiveRemoteState(
 	if err != nil {
 		return false, err
 	}
-	if state.OperationState == store.CursorOperationRunInFlight &&
-		state.RemoteStatus == cursorCancelRequested {
+	state, err = s.reconcileCursorCancelCrashMarker(ctx, state)
+	if err != nil {
+		return false, err
+	}
+	if state.OperationState == store.CursorOperationAmbiguous {
 		return false, nil
+	}
+	if state.OperationState == store.CursorOperationRunInFlight {
+		switch state.RemoteStatus {
+		case cursorCancelRequested, cursorCancelAmbiguous:
+			return false, nil
+		}
+	}
+	if state.OperationState == store.CursorOperationTerminal {
+		if live := s.hub.get(sessionID); live != nil && live.isCursor() {
+			return true, nil
+		}
 	}
 	return cursorOperationActive(state.OperationState), nil
 }

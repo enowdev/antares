@@ -32,6 +32,8 @@ const (
 	maxCursorRemoteStatusRunes     = 16 << 10
 	maxCursorRepositoryRunes       = 16 << 10
 	maxCursorGitStateRunes         = 256 << 10
+	maxCursorApprovalWarningRunes  = 240
+	maxCursorApprovalWarnings      = 4
 )
 
 type cursorChatRequest struct {
@@ -58,6 +60,10 @@ type cursorTurnPlan struct {
 	repositoryIdentity string
 	repositorySource   string
 	startingRef        string
+	worktreeDirty      bool
+	localOnlyCommits   int
+	remoteRefKnown     bool
+	repositoryWarnings []string
 	autoCreatePR       bool
 	reuse              bool
 	agentID            string
@@ -67,10 +73,14 @@ type cursorTurnPlan struct {
 }
 
 type cursorRepositoryPlan struct {
-	url      string
-	identity string
-	ref      string
-	source   string
+	url              string
+	identity         string
+	ref              string
+	source           string
+	dirty            bool
+	localOnlyCommits int
+	remoteRefKnown   bool
+	warnings         []string
 }
 
 type cursorApprovalModel struct {
@@ -85,6 +95,10 @@ type cursorDirectApprovalProjection struct {
 	RepositoryURL string              `json:"repository_url"`
 	Repository    string              `json:"repository_source"`
 	StartingRef   string              `json:"starting_ref"`
+	WorktreeDirty bool                `json:"worktree_dirty"`
+	LocalOnly     int                 `json:"local_only_commits"`
+	RemoteKnown   bool                `json:"remote_ref_known"`
+	Warnings      []string            `json:"warnings"`
 	Mode          string              `json:"mode"`
 	AutoCreatePR  bool                `json:"auto_create_pr"`
 	PromptPreview string              `json:"prompt_preview"`
@@ -126,13 +140,13 @@ func (s *Server) handleCursorChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runCtx, stopWatcher := context.WithCancel(context.Background())
-	live := newLiveRun()
-	live.setStop(stopWatcher)
-	s.cursorLifecycleMu.Lock()
+	approvalCtx, stopApproval := context.WithCancel(context.Background())
+	live := newCursorLiveRun(liveRunCursorDirect)
+	live.beginCursorApproval(stopApproval)
+	unlockLifecycle := s.cursorLifecycles.Lock(plan.sessionID)
 	if !s.hub.putIfAbsent(plan.sessionID, live) {
-		s.cursorLifecycleMu.Unlock()
-		stopWatcher()
+		unlockLifecycle()
+		stopApproval()
 		writeError(w, http.StatusConflict, errors.New("a turn is already active for this session"))
 		return
 	}
@@ -140,8 +154,8 @@ func (s *Server) handleCursorChat(w http.ResponseWriter, r *http.Request) {
 	if err := s.persistCursorAwaiting(
 		r.Context(), session, newSession, previous, plan,
 	); err != nil {
-		s.cursorLifecycleMu.Unlock()
-		stopWatcher()
+		unlockLifecycle()
+		stopApproval()
 		live.finish()
 		s.hub.remove(plan.sessionID, live)
 		if errors.Is(err, errCursorSessionBusy) {
@@ -151,11 +165,11 @@ func (s *Server) handleCursorChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, s.cursorSafeError(err))
 		return
 	}
-	s.cursorLifecycleMu.Unlock()
+	unlockLifecycle()
 
 	sse, err := newSSE(w)
 	if err != nil {
-		stopWatcher()
+		stopApproval()
 		live.finish()
 		s.hub.remove(plan.sessionID, live)
 		_ = s.abandonCursorApproval(context.Background(), plan, "local stream unavailable")
@@ -178,10 +192,10 @@ func (s *Server) handleCursorChat(w http.ResponseWriter, r *http.Request) {
 			}
 			live.publish(agent.Event{Type: agent.EventDone})
 			live.finish()
-			stopWatcher()
+			stopApproval()
 			s.hub.remove(plan.sessionID, live)
 		}()
-		s.coordinateCursorTurn(runCtx, plan, live)
+		s.coordinateCursorTurn(approvalCtx, plan, live)
 	}()
 
 	ctx := r.Context()
@@ -334,8 +348,22 @@ func (s *Server) prepareCursorTurn(
 	} else if err != nil {
 		return plan, nil, err
 	}
-	if previous != nil && cursorOperationUnfinished(previous.OperationState) {
-		return plan, previous, errCursorSessionBusy
+	if previous != nil {
+		previous, err = s.reconcileCursorCancelCrashMarker(ctx, previous)
+		if err != nil {
+			return plan, nil, err
+		}
+	}
+	if previous != nil {
+		switch {
+		case previous.OperationState == store.CursorOperationAmbiguous:
+			return plan, previous, errCursorAmbiguousCreate
+		case previous.OperationState == store.CursorOperationRunInFlight &&
+			previous.RemoteStatus == cursorCancelAmbiguous:
+			return plan, previous, errCursorAmbiguousCancel
+		case cursorOperationUnfinished(previous.OperationState):
+			return plan, previous, errCursorSessionBusy
+		}
 	}
 
 	reuse := previous != nil &&
@@ -360,6 +388,10 @@ func (s *Server) prepareCursorTurn(
 		repositoryIdentity: repository.identity,
 		repositorySource:   repository.source,
 		startingRef:        repository.ref,
+		worktreeDirty:      repository.dirty,
+		localOnlyCommits:   repository.localOnlyCommits,
+		remoteRefKnown:     repository.remoteRefKnown,
+		repositoryWarnings: append([]string(nil), repository.warnings...),
 		autoCreatePR:       request.AutoCreatePR,
 		reuse:              reuse,
 		userMessageID:      newID("msg"),
@@ -469,6 +501,21 @@ func (s *Server) resolveCursorRepository(
 	result.url = info.URL
 	result.identity = info.URL
 	result.ref = info.StartingRef
+	result.dirty = info.Dirty
+	result.localOnlyCommits = max(0, info.LocalOnlyCommits)
+	result.remoteRefKnown = info.RemoteRefKnown
+	if !info.RemoteRefKnown {
+		result.warnings = append(result.warnings,
+			"The remote-tracking ref is unavailable, so Antares cannot verify which local commits are present in the Cursor cloud VM.")
+	}
+	if info.Dirty {
+		result.warnings = append(result.warnings,
+			"Local uncommitted changes are absent from the Cursor cloud VM.")
+	}
+	if info.LocalOnlyCommits > 0 {
+		result.warnings = append(result.warnings,
+			"Local-only commits not present on the remote ref are absent from the Cursor cloud VM.")
+	}
 	if startingRef != nil {
 		result.ref = requestedRef
 	}
@@ -512,7 +559,11 @@ func validateCursorStartingRef(ref string) error {
 	return nil
 }
 
-var errCursorSessionBusy = errors.New("cursor session is active")
+var (
+	errCursorSessionBusy     = errors.New("cursor session is active")
+	errCursorAmbiguousCreate = errors.New("cursor create outcome is ambiguous")
+	errCursorAmbiguousCancel = errors.New("cursor cancellation outcome is ambiguous")
+)
 
 func cursorOperationActive(operation string) bool {
 	switch operation {
@@ -565,7 +616,7 @@ func (s *Server) persistCursorAwaiting(
 			if newSession {
 				_ = s.db.DeleteSession(context.Background(), session.ID)
 			}
-			if strings.Contains(err.Error(), "revision conflict") {
+			if errors.Is(err, store.ErrCursorRevisionConflict) {
 				return errCursorSessionBusy
 			}
 			return err
@@ -689,8 +740,20 @@ func (s *Server) coordinateCursorTurn(
 		live.publish(agent.Event{Type: agent.EventError, Err: s.cursorSafeError(err).Error()})
 		return
 	}
+	if !live.beginCursorCreate() {
+		stopErr := errors.New("local Stop won before the Cursor create request")
+		_ = s.recordCursorCreateFailure(
+			context.Background(), plan, operation, stopErr, false,
+		)
+		live.publish(agent.Event{
+			Type: agent.EventNotice, Message: "stopped before starting Cursor",
+		})
+		return
+	}
 
-	agentID, run, createErr := s.createCursorRun(ctx, plan)
+	// Once the non-idempotent POST boundary is crossed, local Stop may only
+	// record detachment. The runner's own timeout still bounds transport hangs.
+	agentID, run, createErr := s.createCursorRun(context.Background(), plan)
 	if createErr != nil {
 		ambiguous := cursorCreateCouldBeAmbiguous(createErr)
 		_ = s.recordCursorCreateFailure(
@@ -737,7 +800,16 @@ func (s *Server) coordinateCursorTurn(
 		})
 		return
 	}
-	if err := s.watchCursorRun(ctx, state, live); err != nil {
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	if !live.beginCursorWatch(stopWatch) {
+		live.publish(agent.Event{
+			Type:    agent.EventNotice,
+			Message: "stopped watching Cursor after its run IDs were saved; attach to recover",
+		})
+		return
+	}
+	defer stopWatch()
+	if err := s.watchCursorRun(watchCtx, state, live); err != nil {
 		if errors.Is(err, context.Canceled) {
 			live.publish(agent.Event{
 				Type:    agent.EventNotice,
@@ -760,6 +832,13 @@ func (s *Server) cursorTurnApprovalArguments(plan cursorTurnPlan) (string, error
 		kind = "follow_up"
 		operation = "follow_up"
 	}
+	warningCount := min(len(plan.repositoryWarnings), maxCursorApprovalWarnings)
+	warnings := make([]string, 0, warningCount)
+	for _, warning := range plan.repositoryWarnings[:warningCount] {
+		warnings = append(warnings, truncateCursorRunes(
+			s.redactCursorString(warning), maxCursorApprovalWarningRunes,
+		))
+	}
 	display := cursorDirectApprovalProjection{
 		Operation: operation,
 		Kind:      kind,
@@ -769,6 +848,10 @@ func (s *Server) cursorTurnApprovalArguments(plan cursorTurnPlan) (string, error
 		RepositoryURL: plan.repositoryURL,
 		Repository:    plan.repositorySource,
 		StartingRef:   plan.startingRef,
+		WorktreeDirty: plan.worktreeDirty,
+		LocalOnly:     max(0, plan.localOnlyCommits),
+		RemoteKnown:   plan.remoteRefKnown,
+		Warnings:      warnings,
 		Mode:          plan.mode,
 		AutoCreatePR:  plan.autoCreatePR,
 		PromptPreview: s.cursorPromptPreview(plan.message),
@@ -883,7 +966,17 @@ func (s *Server) abandonCursorApproval(
 
 func (s *Server) writeCursorPreparationError(w http.ResponseWriter, err error) {
 	status := http.StatusBadRequest
-	if errors.Is(err, errCursorSessionBusy) {
+	if errors.Is(err, errCursorAmbiguousCreate) {
+		status = http.StatusConflict
+		err = errors.New(
+			"Cursor create outcome is ambiguous and will not be retried; delete this local session to discard it without retrying or cancelling remote work",
+		)
+	} else if errors.Is(err, errCursorAmbiguousCancel) {
+		status = http.StatusConflict
+		err = errors.New(
+			"Cursor cancellation outcome is ambiguous and will not be retried; delete this local session to discard it without another remote request",
+		)
+	} else if errors.Is(err, errCursorSessionBusy) {
 		status = http.StatusConflict
 		err = errors.New("a turn is already active for this session")
 	} else if errors.Is(err, cursorrun.ErrNotConfigured) {
@@ -915,10 +1008,14 @@ func (s *Server) writeCursorUpstreamError(
 	var apiError *cursor.APIError
 	if errors.As(err, &apiError) {
 		switch apiError.Status {
-		case http.StatusUnauthorized, http.StatusForbidden,
+		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden,
 			http.StatusNotFound, http.StatusConflict,
-			http.StatusTooManyRequests:
+			http.StatusRequestTimeout, http.StatusTooManyRequests:
 			status = apiError.Status
+		default:
+			if apiError.Status >= http.StatusInternalServerError {
+				status = apiError.Status
+			}
 		}
 		if apiError.RetryAfter > 0 {
 			w.Header().Set("Retry-After", fmt.Sprintf(

@@ -20,16 +20,40 @@ import (
 // still has the persisted history for anything older, so it loses nothing.
 const maxLiveEvents = 4000
 
+type liveRunKind uint8
+
+const (
+	liveRunOrdinary liveRunKind = iota
+	liveRunCursorDirect
+	liveRunCursorRecovery
+)
+
+type cursorLivePhase uint8
+
+const (
+	cursorPhaseNone cursorLivePhase = iota
+	cursorPhaseApproval
+	cursorPhaseCreate
+	cursorPhaseWatch
+)
+
 type liveRun struct {
-	mu      sync.Mutex
-	events  []agent.Event
-	base    int // absolute index of events[0] (count of events already trimmed)
-	done    bool
-	stop    context.CancelFunc
-	updated chan struct{} // closed on every change; replaced under the lock
+	mu       sync.Mutex
+	events   []agent.Event
+	base     int // absolute index of events[0] (count of events already trimmed)
+	done     bool
+	kind     liveRunKind
+	phase    cursorLivePhase
+	detached bool
+	stop     context.CancelFunc
+	updated  chan struct{} // closed on every change; replaced under the lock
 }
 
 func newLiveRun() *liveRun { return &liveRun{updated: make(chan struct{})} }
+
+func newCursorLiveRun(kind liveRunKind) *liveRun {
+	return &liveRun{kind: kind, updated: make(chan struct{})}
+}
 
 func (lr *liveRun) signal() {
 	close(lr.updated)
@@ -55,16 +79,14 @@ func (lr *liveRun) finish() {
 	lr.mu.Lock()
 	if !lr.done {
 		lr.done = true
+		lr.phase = cursorPhaseNone
 		lr.stop = nil
 		lr.signal()
 	}
 	lr.mu.Unlock()
 }
 
-// setStop attaches a local watcher cancellation hook. Ordinary chat runs do
-// not set one; direct Cursor runs use it so /api/chat/interrupt can stop local
-// observation without cancelling the remote run.
-func (lr *liveRun) setStop(stop context.CancelFunc) {
+func (lr *liveRun) beginCursorApproval(stop context.CancelFunc) {
 	lr.mu.Lock()
 	if lr.done {
 		lr.mu.Unlock()
@@ -73,20 +95,68 @@ func (lr *liveRun) setStop(stop context.CancelFunc) {
 		}
 		return
 	}
+	lr.phase = cursorPhaseApproval
 	lr.stop = stop
 	lr.mu.Unlock()
 }
 
-// stopWatching invokes the direct run's local cancellation hook at most once.
+// beginCursorCreate switches from cancellable approval to a non-cancellable
+// mutation. False means local Stop won before the POST boundary.
+func (lr *liveRun) beginCursorCreate() bool {
+	lr.mu.Lock()
+	defer lr.mu.Unlock()
+	if lr.done || lr.detached {
+		return false
+	}
+	lr.phase = cursorPhaseCreate
+	lr.stop = nil
+	return true
+}
+
+// beginCursorWatch installs the watcher cancellation only after returned IDs
+// are durable. A Stop during create records detachment and makes this return
+// false without ever cancelling the non-idempotent create request.
+func (lr *liveRun) beginCursorWatch(stop context.CancelFunc) bool {
+	lr.mu.Lock()
+	if lr.done || lr.detached {
+		lr.mu.Unlock()
+		if stop != nil {
+			stop()
+		}
+		return false
+	}
+	lr.phase = cursorPhaseWatch
+	lr.stop = stop
+	lr.mu.Unlock()
+	return true
+}
+
+func (lr *liveRun) runKind() liveRunKind {
+	lr.mu.Lock()
+	defer lr.mu.Unlock()
+	return lr.kind
+}
+
+func (lr *liveRun) isCursor() bool {
+	kind := lr.runKind()
+	return kind == liveRunCursorDirect || kind == liveRunCursorRecovery
+}
+
+// stopWatching cancels approval before a POST, records detachment while a
+// create POST is in flight, and cancels only an established local watcher.
 func (lr *liveRun) stopWatching() bool {
 	lr.mu.Lock()
+	if lr.done || (lr.kind != liveRunCursorDirect && lr.kind != liveRunCursorRecovery) {
+		lr.mu.Unlock()
+		return false
+	}
+	lr.detached = true
 	stop := lr.stop
 	lr.stop = nil
 	lr.mu.Unlock()
-	if stop == nil {
-		return false
+	if stop != nil {
+		stop()
 	}
-	stop()
 	return true
 }
 

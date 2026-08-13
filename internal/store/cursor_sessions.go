@@ -175,7 +175,7 @@ func (s *sqlStore) PutCursorSessionState(ctx context.Context, state *CursorSessi
 		args...,
 	).Scan(&revision, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return errors.New("cursor session state revision conflict")
+		return ErrCursorRevisionConflict
 	}
 	if err != nil {
 		return err

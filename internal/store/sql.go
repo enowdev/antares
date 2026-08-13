@@ -23,6 +23,10 @@ import (
 // ErrNotFound is returned when a lookup by id yields nothing.
 var ErrNotFound = errors.New("not found")
 
+// ErrCursorRevisionConflict is returned when a full Cursor snapshot no longer
+// owns the revision it attempted to replace.
+var ErrCursorRevisionConflict = errors.New("cursor session state revision conflict")
+
 type sqlStore struct {
 	db      *sql.DB
 	dialect string // sqlite|postgres
