@@ -15,8 +15,8 @@ import (
 var projectEnvFiles = []string{".env", ".env.local", ".env.development", ".env.dev", ".env.example"}
 
 // resolveProjectDir validates the ?dir= query as an absolute path that exists
-// and is a directory. It is the shared guard for the project env/plan handlers,
-// which read and write inside a chosen project folder.
+// and is a directory. It is the shared guard for project handlers that inspect
+// or read and write inside a caller-selected project folder.
 func resolveProjectDir(w http.ResponseWriter, r *http.Request) (string, bool) {
 	dir := strings.TrimSpace(r.URL.Query().Get("dir"))
 	if dir == "" {

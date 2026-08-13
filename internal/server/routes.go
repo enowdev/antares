@@ -135,6 +135,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/project/env", s.handleProjectEnv)
 	m.HandleFunc("POST /api/project/env", s.handleSaveProjectEnv)
 	m.HandleFunc("GET /api/project/plan", s.handleProjectPlan)
+	m.HandleFunc("GET /api/project/cursor-repository", s.handleCursorRepository)
 	// Project sidebar: git status, runnable scripts, file tree.
 	m.HandleFunc("POST /api/project/index-rag", s.handleIndexProject)
 	m.HandleFunc("GET /api/project/git", s.handleProjectGit)
