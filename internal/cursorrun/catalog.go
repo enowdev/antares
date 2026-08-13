@@ -3,6 +3,7 @@ package cursorrun
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -10,6 +11,18 @@ import (
 	"time"
 
 	"github.com/enowdev/antares/internal/cursor"
+)
+
+// Catalogue collection limits cap every nesting level before allocation. They
+// comfortably exceed the current upstream catalogue while preventing a valid
+// but adversarial response from being retained without bound.
+const (
+	maxCatalogModels          = 256
+	maxCatalogAliases         = 64
+	maxCatalogParameters      = 64
+	maxCatalogParameterValues = 128
+	maxCatalogVariants        = 256
+	maxCatalogVariantParams   = 64
 )
 
 type catalogCacheKey struct {
@@ -33,10 +46,23 @@ type catalogFetch struct {
 	err     error
 }
 
+var errCatalogFetchPanicked = errors.New("cursor: catalogue fetch failed")
+
 func (s *service) Catalog(ctx context.Context, force bool) (*cursor.ModelCatalog, error) {
+	catalog, _, err := s.catalog(ctx, force)
+	return catalog, err
+}
+
+// catalog reports whether the returned value was served from the TTL cache.
+// Validation uses that provenance to refresh a potentially stale selection
+// once without issuing an immediate duplicate request after a cold live fetch.
+func (s *service) catalog(
+	ctx context.Context,
+	force bool,
+) (*cursor.ModelCatalog, bool, error) {
 	client, options, secret, err := s.clientWithOptions()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	cacheKey := catalogCacheKey{
 		baseURL:    normalizeBaseURL(options.BaseURL),
@@ -50,7 +76,7 @@ func (s *service) Catalog(ctx context.Context, force bool) (*cursor.ModelCatalog
 		if cached, ok := s.catalogs[cacheKey]; ok && now.Before(cached.expiresAt) {
 			catalog := cloneCatalog(cached.catalog)
 			s.catalogMu.Unlock()
-			return catalog, nil
+			return catalog, true, nil
 		}
 	}
 
@@ -60,9 +86,9 @@ func (s *service) Catalog(ctx context.Context, force bool) (*cursor.ModelCatalog
 		s.catalogMu.Unlock()
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, false, ctx.Err()
 		case <-done:
-			return cloneCatalog(pending.catalog), pending.err
+			return cloneCatalog(pending.catalog), false, pending.err
 		}
 	}
 
@@ -70,27 +96,66 @@ func (s *service) Catalog(ctx context.Context, force bool) (*cursor.ModelCatalog
 	s.catalogFetches[fetchKey] = pending
 	s.catalogMu.Unlock()
 
-	catalog, fetchErr := client.Models(ctx)
+	catalog, err := s.fetchCatalog(
+		ctx, client, secret, cacheKey, fetchKey, generation, pending,
+	)
+	return catalog, false, err
+}
+
+func (s *service) fetchCatalog(
+	ctx context.Context,
+	client *cursor.Client,
+	secret string,
+	cacheKey catalogCacheKey,
+	fetchKey catalogFetchKey,
+	generation uint64,
+	pending *catalogFetch,
+) (catalog *cursor.ModelCatalog, fetchErr error) {
+	var expiresAt time.Time
+	defer func() {
+		if panicValue := recover(); panicValue != nil {
+			s.completeCatalogFetch(
+				cacheKey, fetchKey, generation, pending, nil, errCatalogFetchPanicked, time.Time{},
+			)
+			panic(panicValue)
+		}
+		s.completeCatalogFetch(
+			cacheKey, fetchKey, generation, pending, catalog, fetchErr, expiresAt,
+		)
+		catalog = cloneCatalog(catalog)
+	}()
+
+	catalog, fetchErr = client.Models(ctx)
 	if fetchErr != nil {
 		fetchErr = sanitizeError(fetchErr, secret)
 	} else {
 		catalog = sanitizeCatalog(catalog, secret)
+		expiresAt = s.now().Add(s.catalogTTL)
 	}
+	return catalog, fetchErr
+}
 
+func (s *service) completeCatalogFetch(
+	cacheKey catalogCacheKey,
+	fetchKey catalogFetchKey,
+	generation uint64,
+	pending *catalogFetch,
+	catalog *cursor.ModelCatalog,
+	fetchErr error,
+	expiresAt time.Time,
+) {
 	s.catalogMu.Lock()
 	pending.catalog = catalog
 	pending.err = fetchErr
 	if fetchErr == nil && s.catalogGeneration == generation {
 		s.catalogs[cacheKey] = catalogCacheEntry{
 			catalog:   catalog,
-			expiresAt: s.now().Add(s.catalogTTL),
+			expiresAt: expiresAt,
 		}
 	}
 	delete(s.catalogFetches, fetchKey)
 	close(pending.done)
 	s.catalogMu.Unlock()
-
-	return cloneCatalog(catalog), fetchErr
 }
 
 func (s *service) InvalidateCatalog() {
@@ -123,7 +188,7 @@ func (s *service) ValidateModel(
 		Params: append([]cursor.ModelParameterSelection(nil), selection.Params...),
 	}
 
-	catalog, err := s.Catalog(ctx, false)
+	catalog, fromCache, err := s.catalog(ctx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -131,8 +196,11 @@ func (s *service) ValidateModel(
 	if validationErr == nil {
 		return validated, nil
 	}
+	if !fromCache {
+		return nil, unavailableSelectionError(validationErr)
+	}
 
-	refreshed, err := s.Catalog(ctx, true)
+	refreshed, _, err := s.catalog(ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +208,11 @@ func (s *service) ValidateModel(
 	if validationErr == nil {
 		return validated, nil
 	}
-	return nil, fmt.Errorf(
+	return nil, unavailableSelectionError(validationErr)
+}
+
+func unavailableSelectionError(validationErr error) error {
+	return fmt.Errorf(
 		"cursor model selection is no longer available; refresh and reselect: %w",
 		validationErr,
 	)
@@ -244,43 +316,49 @@ func sanitizeCatalog(
 	if catalog == nil {
 		return nil
 	}
-	safe := &cursor.ModelCatalog{Items: make([]cursor.Model, len(catalog.Items))}
-	for i, model := range catalog.Items {
+	modelCount := min(len(catalog.Items), maxCatalogModels)
+	safe := &cursor.ModelCatalog{Items: make([]cursor.Model, modelCount)}
+	for i, model := range catalog.Items[:modelCount] {
+		aliasCount := min(len(model.Aliases), maxCatalogAliases)
+		parameterCount := min(len(model.Parameters), maxCatalogParameters)
+		variantCount := min(len(model.Variants), maxCatalogVariants)
 		safe.Items[i] = cursor.Model{
-			ID:          redact(model.ID, secret),
-			DisplayName: redact(model.DisplayName, secret),
-			Description: redact(model.Description, secret),
-			Aliases:     make([]string, len(model.Aliases)),
-			Parameters:  make([]cursor.ModelParameter, len(model.Parameters)),
-			Variants:    make([]cursor.ModelVariant, len(model.Variants)),
+			ID:          sanitizeString(model.ID, secret, maxIdentifierRunes),
+			DisplayName: sanitizeString(model.DisplayName, secret, maxMetadataRunes),
+			Description: sanitizeString(model.Description, secret, maxMetadataRunes),
+			Aliases:     make([]string, aliasCount),
+			Parameters:  make([]cursor.ModelParameter, parameterCount),
+			Variants:    make([]cursor.ModelVariant, variantCount),
 		}
-		for j, alias := range model.Aliases {
-			safe.Items[i].Aliases[j] = redact(alias, secret)
+		for j, alias := range model.Aliases[:aliasCount] {
+			safe.Items[i].Aliases[j] = sanitizeString(alias, secret, maxMetadataRunes)
 		}
-		for j, parameter := range model.Parameters {
+		for j, parameter := range model.Parameters[:parameterCount] {
+			valueCount := min(len(parameter.Values), maxCatalogParameterValues)
 			safe.Items[i].Parameters[j] = cursor.ModelParameter{
-				ID:          redact(parameter.ID, secret),
-				DisplayName: redact(parameter.DisplayName, secret),
-				Values:      make([]cursor.ModelParameterValue, len(parameter.Values)),
+				ID:          sanitizeString(parameter.ID, secret, maxIdentifierRunes),
+				DisplayName: sanitizeString(parameter.DisplayName, secret, maxMetadataRunes),
+				Values:      make([]cursor.ModelParameterValue, valueCount),
 			}
-			for k, value := range parameter.Values {
+			for k, value := range parameter.Values[:valueCount] {
 				safe.Items[i].Parameters[j].Values[k] = cursor.ModelParameterValue{
-					Value:       redact(value.Value, secret),
-					DisplayName: redact(value.DisplayName, secret),
+					Value:       sanitizeString(value.Value, secret, maxIdentifierRunes),
+					DisplayName: sanitizeString(value.DisplayName, secret, maxMetadataRunes),
 				}
 			}
 		}
-		for j, variant := range model.Variants {
+		for j, variant := range model.Variants[:variantCount] {
+			paramCount := min(len(variant.Params), maxCatalogVariantParams)
 			safe.Items[i].Variants[j] = cursor.ModelVariant{
-				Params:      make([]cursor.ModelParameterSelection, len(variant.Params)),
-				DisplayName: redact(variant.DisplayName, secret),
-				Description: redact(variant.Description, secret),
+				Params:      make([]cursor.ModelParameterSelection, paramCount),
+				DisplayName: sanitizeString(variant.DisplayName, secret, maxMetadataRunes),
+				Description: sanitizeString(variant.Description, secret, maxMetadataRunes),
 				IsDefault:   variant.IsDefault,
 			}
-			for k, parameter := range variant.Params {
+			for k, parameter := range variant.Params[:paramCount] {
 				safe.Items[i].Variants[j].Params[k] = cursor.ModelParameterSelection{
-					ID:    redact(parameter.ID, secret),
-					Value: redact(parameter.Value, secret),
+					ID:    sanitizeString(parameter.ID, secret, maxIdentifierRunes),
+					Value: sanitizeString(parameter.Value, secret, maxIdentifierRunes),
 				}
 			}
 		}

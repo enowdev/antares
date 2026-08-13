@@ -14,6 +14,20 @@ import (
 	"github.com/enowdev/antares/internal/cursor"
 )
 
+// Upstream payload limits are measured in Unicode runes so truncation never
+// splits UTF-8. They are intentionally generous for normal Cursor responses
+// while making every cached or returned value finite.
+const (
+	maxIdentifierRunes   = 1024
+	maxMetadataRunes     = 16 * 1024
+	maxContentRunes      = 1 << 20
+	maxStreamRawRunes    = 1 << 20
+	maxGenericErrorRunes = 4096
+	maxProgressRunes     = 2000
+	maxAgentRepositories = 64
+	maxGitBranches       = 256
+)
+
 type SelectionPolicy uint8
 
 const (
@@ -189,24 +203,30 @@ func (s *service) StreamRun(
 }
 
 func (s *service) Progress(event cursor.StreamEvent) Progress {
-	message := "Cursor " + event.Type
+	secret := ""
+	if s.resolveClient != nil {
+		options, _ := s.resolveClient()
+		secret = strings.TrimSpace(options.APIKey)
+	}
+	message := "Cursor " + sanitizeString(event.Type, secret, maxProgressRunes)
 	if event.ToolName != "" {
-		message = "Cursor tool " + event.ToolName + " " + event.Status
+		message = "Cursor tool " +
+			sanitizeString(event.ToolName, secret, maxProgressRunes) + " " +
+			sanitizeString(event.Status, secret, maxProgressRunes)
 	}
 	return Progress{
 		Message: boundProgress(message),
-		Chunk:   boundProgress(event.Text),
+		Chunk:   boundProgress(redact(event.Text, secret)),
 	}
 }
 
 func boundProgress(value string) string {
-	const maxRunes = 2000
 	value = strings.ToValidUTF8(value, "\uFFFD")
-	if utf8.RuneCountInString(value) <= maxRunes {
+	if utf8.RuneCountInString(value) <= maxProgressRunes {
 		return value
 	}
 	runes := []rune(value)
-	return string(runes[:maxRunes]) + "…"
+	return string(runes[:maxProgressRunes]) + "…"
 }
 
 func sanitizeCreateAgentResponse(
@@ -227,18 +247,19 @@ func sanitizeAgent(agent *cursor.Agent, secret string) *cursor.Agent {
 		return nil
 	}
 	safe := *agent
-	safe.ID = redact(agent.ID, secret)
-	safe.Name = redact(agent.Name, secret)
-	safe.Status = redact(agent.Status, secret)
-	safe.URL = redact(agent.URL, secret)
-	safe.LatestRunID = redact(agent.LatestRunID, secret)
+	safe.ID = sanitizeString(agent.ID, secret, maxIdentifierRunes)
+	safe.Name = sanitizeString(agent.Name, secret, maxMetadataRunes)
+	safe.Status = sanitizeString(agent.Status, secret, maxMetadataRunes)
+	safe.URL = sanitizeString(agent.URL, secret, maxMetadataRunes)
+	safe.LatestRunID = sanitizeString(agent.LatestRunID, secret, maxIdentifierRunes)
 	safe.Git = sanitizeGit(agent.Git, secret)
-	safe.Repos = make([]cursor.Repository, len(agent.Repos))
-	for i, repo := range agent.Repos {
+	repositoryCount := min(len(agent.Repos), maxAgentRepositories)
+	safe.Repos = make([]cursor.Repository, repositoryCount)
+	for i, repo := range agent.Repos[:repositoryCount] {
 		safe.Repos[i] = cursor.Repository{
-			URL:         redact(repo.URL, secret),
-			StartingRef: redact(repo.StartingRef, secret),
-			PRURL:       redact(repo.PRURL, secret),
+			URL:         sanitizeString(repo.URL, secret, maxMetadataRunes),
+			StartingRef: sanitizeString(repo.StartingRef, secret, maxMetadataRunes),
+			PRURL:       sanitizeString(repo.PRURL, secret, maxMetadataRunes),
 		}
 	}
 	return &safe
@@ -249,12 +270,12 @@ func sanitizeRun(run *cursor.Run, secret string) *cursor.Run {
 		return nil
 	}
 	safe := *run
-	safe.ID = redact(run.ID, secret)
-	safe.AgentID = redact(run.AgentID, secret)
-	safe.Status = redact(run.Status, secret)
-	safe.CreatedAt = redact(run.CreatedAt, secret)
-	safe.UpdatedAt = redact(run.UpdatedAt, secret)
-	safe.Result = redact(run.Result, secret)
+	safe.ID = sanitizeString(run.ID, secret, maxIdentifierRunes)
+	safe.AgentID = sanitizeString(run.AgentID, secret, maxIdentifierRunes)
+	safe.Status = sanitizeString(run.Status, secret, maxMetadataRunes)
+	safe.CreatedAt = sanitizeString(run.CreatedAt, secret, maxMetadataRunes)
+	safe.UpdatedAt = sanitizeString(run.UpdatedAt, secret, maxMetadataRunes)
+	safe.Result = sanitizeString(run.Result, secret, maxContentRunes)
 	safe.Git = sanitizeGit(run.Git, secret)
 	return &safe
 }
@@ -263,34 +284,38 @@ func sanitizeGit(git *cursor.GitState, secret string) *cursor.GitState {
 	if git == nil {
 		return nil
 	}
-	safe := &cursor.GitState{Branches: make([]cursor.GitBranch, len(git.Branches))}
-	for i, branch := range git.Branches {
+	branchCount := min(len(git.Branches), maxGitBranches)
+	safe := &cursor.GitState{Branches: make([]cursor.GitBranch, branchCount)}
+	for i, branch := range git.Branches[:branchCount] {
 		safe.Branches[i] = cursor.GitBranch{
-			RepoURL: redact(branch.RepoURL, secret),
-			Branch:  redact(branch.Branch, secret),
-			PRURL:   redact(branch.PRURL, secret),
+			RepoURL: sanitizeString(branch.RepoURL, secret, maxMetadataRunes),
+			Branch:  sanitizeString(branch.Branch, secret, maxMetadataRunes),
+			PRURL:   sanitizeString(branch.PRURL, secret, maxMetadataRunes),
 		}
 	}
 	return safe
 }
 
 func sanitizeStreamEvent(event cursor.StreamEvent, secret string) cursor.StreamEvent {
-	event.ID = redact(event.ID, secret)
-	event.Type = redact(event.Type, secret)
-	event.Status = redact(event.Status, secret)
-	event.Text = redact(event.Text, secret)
-	event.RunID = redact(event.RunID, secret)
-	event.Raw = redactRaw(event.Raw, secret)
-	event.ToolName = redact(event.ToolName, secret)
-	event.CallID = redact(event.CallID, secret)
-	event.ToolArgs = redactRaw(event.ToolArgs, secret)
-	event.ToolResult = redactRaw(event.ToolResult, secret)
+	event.ID = sanitizeString(event.ID, secret, maxIdentifierRunes)
+	event.Type = sanitizeString(event.Type, secret, maxMetadataRunes)
+	event.Status = sanitizeString(event.Status, secret, maxMetadataRunes)
+	event.Text = sanitizeString(event.Text, secret, maxContentRunes)
+	event.RunID = sanitizeString(event.RunID, secret, maxIdentifierRunes)
+	event.Raw, _ = sanitizeRaw(event.Raw, secret)
+	event.ToolName = sanitizeString(event.ToolName, secret, maxMetadataRunes)
+	event.CallID = sanitizeString(event.CallID, secret, maxIdentifierRunes)
+	var argsTruncated, resultTruncated bool
+	event.ToolArgs, argsTruncated = sanitizeRaw(event.ToolArgs, secret)
+	event.ToolResult, resultTruncated = sanitizeRaw(event.ToolResult, secret)
+	event.ArgsTruncated = event.ArgsTruncated || argsTruncated
+	event.ResultTruncated = event.ResultTruncated || resultTruncated
 	return event
 }
 
-func redactRaw(value json.RawMessage, secret string) json.RawMessage {
+func sanitizeRaw(value json.RawMessage, secret string) (json.RawMessage, bool) {
 	if value == nil {
-		return nil
+		return nil, false
 	}
 	safe := redact(string(value), secret)
 	if secret != "" {
@@ -300,28 +325,46 @@ func redactRaw(value json.RawMessage, secret string) json.RawMessage {
 			safe = strings.ReplaceAll(safe, escaped, "[REDACTED]")
 		}
 	}
-	return json.RawMessage(safe)
+	if utf8.RuneCountInString(safe) > maxStreamRawRunes {
+		return json.RawMessage(`{"truncated":true}`), true
+	}
+	return json.RawMessage(safe), false
 }
 
 func sanitizeError(err error, secret string) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
-	}
 	var apiErr *cursor.APIError
 	if errors.As(err, &apiErr) {
 		safe := *apiErr
-		safe.Code = truncate(redact(apiErr.Code, secret), 120)
-		safe.Message = truncate(redact(apiErr.Message, secret), 240)
+		safe.Code = sanitizeString(apiErr.Code, secret, 120)
+		safe.Message = sanitizeString(apiErr.Message, secret, 240)
 		return &safe
 	}
-	safe := redact(err.Error(), secret)
+	safe := sanitizeString(err.Error(), secret, maxGenericErrorRunes)
 	if safe == err.Error() {
 		return err
 	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return &sanitizedWrappedError{message: safe, cause: context.Canceled}
+	case errors.Is(err, context.DeadlineExceeded):
+		return &sanitizedWrappedError{message: safe, cause: context.DeadlineExceeded}
+	}
 	return errors.New(safe)
+}
+
+type sanitizedWrappedError struct {
+	message string
+	cause   error
+}
+
+func (e *sanitizedWrappedError) Error() string { return e.message }
+func (e *sanitizedWrappedError) Unwrap() error { return e.cause }
+
+func sanitizeString(value, secret string, maxRunes int) string {
+	return truncate(redact(value, secret), maxRunes)
 }
 
 func redact(value, secret string) string {

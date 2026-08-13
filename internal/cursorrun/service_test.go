@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -274,6 +275,32 @@ func TestValidateModelRefreshesStaleCatalogExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestValidateModelColdInvalidSelectionDoesNotRefetch(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		writeCatalog(t, w, cursor.ModelCatalog{Items: []cursor.Model{{
+			ID: "composer-2",
+			Variants: []cursor.ModelVariant{{Params: []cursor.ModelParameterSelection{
+				{ID: "effort", Value: "low"},
+			}}},
+		}}})
+	}))
+	t.Cleanup(srv.Close)
+	runner := testRunnerForServer(srv)
+
+	_, err := runner.ValidateModel(context.Background(), &cursor.ModelSelection{
+		ID:     "composer-2",
+		Params: []cursor.ModelParameterSelection{{ID: "effort", Value: "not-upstream"}},
+	}, RequireExactVariant)
+	if err == nil || !strings.Contains(err.Error(), "refresh and reselect") {
+		t.Fatalf("err=%v, want actionable reselect error", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("cold invalid selection fetched catalogue %d times, want 1", got)
+	}
+}
+
 func TestCatalogCoalescesConcurrentRefresh(t *testing.T) {
 	var calls atomic.Int32
 	started := make(chan struct{})
@@ -306,6 +333,86 @@ func TestCatalogCoalescesConcurrentRefresh(t *testing.T) {
 	}
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("concurrent refresh requests = %d, want 1", got)
+	}
+}
+
+func TestCatalogPanicReleasesWaitersAndAllowsRetry(t *testing.T) {
+	secret := "panic-secret"
+	panicValue := "transport panic " + secret
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	httpClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+			panic(panicValue)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"items":[]}`)),
+			Request:    req,
+		}, nil
+	})}
+	runner := New(Options{
+		ResolveClient: func() (cursor.Options, error) {
+			return cursor.Options{
+				BaseURL: "https://cursor.invalid", APIKey: secret, HTTPClient: httpClient,
+			}, nil
+		},
+	})
+
+	leaderPanic := make(chan any, 1)
+	go func() {
+		var recovered any
+		func() {
+			defer func() { recovered = recover() }()
+			_, _ = runner.Catalog(context.Background(), false)
+		}()
+		leaderPanic <- recovered
+	}()
+	<-started
+
+	waiterCtx, cancelWaiter := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancelWaiter()
+	waiterErr := make(chan error, 1)
+	go func() {
+		_, err := runner.Catalog(waiterCtx, false)
+		waiterErr <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+
+	if recovered := <-leaderPanic; recovered != panicValue {
+		t.Fatalf("leader panic = %#v, want %#v", recovered, panicValue)
+	}
+	select {
+	case err := <-waiterErr:
+		if err == nil {
+			t.Fatal("waiter unexpectedly succeeded after leader panic")
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("waiter remained wedged until its deadline: %v", err)
+		}
+		if strings.Contains(err.Error(), secret) || len([]rune(err.Error())) > 512 {
+			t.Fatalf("waiter failure was not bounded and sanitized: %q", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("waiter was not released after leader panic")
+	}
+
+	retryCtx, cancelRetry := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancelRetry()
+	catalog, err := runner.Catalog(retryCtx, false)
+	if err != nil {
+		t.Fatalf("retry after panic: %v", err)
+	}
+	if catalog == nil || catalog.Items == nil {
+		t.Fatalf("retry catalogue was not normalized: %+v", catalog)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("transport calls = %d, want panicking call plus retry", got)
 	}
 }
 
@@ -364,6 +471,105 @@ func TestCatalogReturnsIndependentSanitizedCopies(t *testing.T) {
 	if second.Items[0].Aliases == nil || second.Items[0].Parameters == nil ||
 		second.Items[0].Variants == nil {
 		t.Fatalf("catalogue arrays were not normalized: %+v", second.Items[0])
+	}
+}
+
+func TestCatalogBoundsNestedCollectionsAndUnicodeStrings(t *testing.T) {
+	const (
+		wantMaxIDRunes         = 1024
+		wantMaxMetadataRunes   = 16 * 1024
+		wantMaxModels          = 256
+		wantMaxAliases         = 64
+		wantMaxParameters      = 64
+		wantMaxParameterValues = 128
+		wantMaxVariants        = 256
+		wantMaxVariantParams   = 64
+	)
+	secret := "catalog-bound-secret"
+	longID := secret + strings.Repeat("界", wantMaxIDRunes+10)
+	longMetadata := secret + strings.Repeat("語", wantMaxMetadataRunes+10)
+
+	aliases := make([]string, wantMaxAliases+1)
+	aliases[0] = longMetadata
+	parameters := make([]cursor.ModelParameter, wantMaxParameters+1)
+	parameters[0] = cursor.ModelParameter{
+		ID:          longID,
+		DisplayName: longMetadata,
+		Values:      make([]cursor.ModelParameterValue, wantMaxParameterValues+1),
+	}
+	parameters[0].Values[0] = cursor.ModelParameterValue{
+		Value: longID, DisplayName: longMetadata,
+	}
+	variants := make([]cursor.ModelVariant, wantMaxVariants+1)
+	variants[0] = cursor.ModelVariant{
+		DisplayName: longMetadata,
+		Description: longMetadata,
+		Params:      make([]cursor.ModelParameterSelection, wantMaxVariantParams+1),
+	}
+	variants[0].Params[0] = cursor.ModelParameterSelection{ID: longID, Value: longID}
+	models := make([]cursor.Model, wantMaxModels+1)
+	models[0] = cursor.Model{
+		ID:          longID,
+		DisplayName: longMetadata,
+		Description: longMetadata,
+		Aliases:     aliases,
+		Parameters:  parameters,
+		Variants:    variants,
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeCatalog(t, w, cursor.ModelCatalog{Items: models})
+	}))
+	t.Cleanup(srv.Close)
+	runner := New(Options{
+		ResolveClient: func() (cursor.Options, error) {
+			return cursor.Options{BaseURL: srv.URL, APIKey: secret, HTTPClient: srv.Client()}, nil
+		},
+	})
+
+	catalog, err := runner.Catalog(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Items) != wantMaxModels {
+		t.Fatalf("models=%d, want cap %d", len(catalog.Items), wantMaxModels)
+	}
+	model := catalog.Items[0]
+	if len(model.Aliases) != wantMaxAliases ||
+		len(model.Parameters) != wantMaxParameters ||
+		len(model.Parameters[0].Values) != wantMaxParameterValues ||
+		len(model.Variants) != wantMaxVariants ||
+		len(model.Variants[0].Params) != wantMaxVariantParams {
+		t.Fatalf("nested caps not applied: aliases=%d params=%d values=%d variants=%d variant_params=%d",
+			len(model.Aliases), len(model.Parameters), len(model.Parameters[0].Values),
+			len(model.Variants), len(model.Variants[0].Params))
+	}
+	if len([]rune(model.ID)) > wantMaxIDRunes ||
+		len([]rune(model.DisplayName)) > wantMaxMetadataRunes ||
+		len([]rune(model.Description)) > wantMaxMetadataRunes ||
+		len([]rune(model.Aliases[0])) > wantMaxMetadataRunes ||
+		len([]rune(model.Parameters[0].ID)) > wantMaxIDRunes ||
+		len([]rune(model.Parameters[0].DisplayName)) > wantMaxMetadataRunes ||
+		len([]rune(model.Parameters[0].Values[0].Value)) > wantMaxIDRunes ||
+		len([]rune(model.Parameters[0].Values[0].DisplayName)) > wantMaxMetadataRunes ||
+		len([]rune(model.Variants[0].DisplayName)) > wantMaxMetadataRunes ||
+		len([]rune(model.Variants[0].Description)) > wantMaxMetadataRunes ||
+		len([]rune(model.Variants[0].Params[0].ID)) > wantMaxIDRunes ||
+		len([]rune(model.Variants[0].Params[0].Value)) > wantMaxIDRunes {
+		t.Fatal("one or more catalogue strings exceeded its Unicode rune limit")
+	}
+	raw, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), secret) {
+		t.Fatalf("bounded catalogue leaked credential: %s", raw)
+	}
+	if catalog.Items == nil || model.Aliases == nil || model.Parameters == nil ||
+		model.Parameters[0].Values == nil || model.Variants == nil ||
+		model.Variants[0].Params == nil || catalog.Items[1].Aliases == nil ||
+		catalog.Items[1].Parameters == nil || catalog.Items[1].Variants == nil {
+		t.Fatal("bounded catalogue contains a nil collection")
 	}
 }
 
@@ -479,6 +685,139 @@ func TestLifecycleSanitizesErrorsAndGitText(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), secret) || strings.Contains(apiErr.Code, secret) {
 		t.Fatalf("error leaked credential: %#v", apiErr)
+	}
+}
+
+func TestLifecycleBoundsResultsRepositoriesAndGit(t *testing.T) {
+	const (
+		wantMaxIDRunes       = 1024
+		wantMaxMetadataRunes = 16 * 1024
+		wantMaxContentRunes  = 1 << 20
+		wantMaxRepositories  = 64
+		wantMaxGitBranches   = 256
+	)
+	secret := "lifecycle-bound-secret"
+	longID := secret + strings.Repeat("界", wantMaxIDRunes+10)
+	longMetadata := secret + strings.Repeat("語", wantMaxMetadataRunes+10)
+	longContent := secret + strings.Repeat("文", wantMaxContentRunes+10)
+	repositories := make([]cursor.Repository, wantMaxRepositories+1)
+	repositories[0] = cursor.Repository{
+		URL: longMetadata, StartingRef: longMetadata, PRURL: longMetadata,
+	}
+	branches := make([]cursor.GitBranch, wantMaxGitBranches+1)
+	branches[0] = cursor.GitBranch{
+		RepoURL: longMetadata, Branch: longMetadata, PRURL: longMetadata,
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/agents/bc-bounds":
+			_ = json.NewEncoder(w).Encode(cursor.Agent{
+				ID:          longID,
+				Name:        longMetadata,
+				Status:      longMetadata,
+				URL:         longMetadata,
+				LatestRunID: longID,
+				Repos:       repositories,
+				Git:         &cursor.GitState{Branches: branches},
+			})
+		case "/v1/agents/bc-empty":
+			_ = json.NewEncoder(w).Encode(cursor.Agent{Git: &cursor.GitState{}})
+		case "/v1/agents/bc-bounds/runs/run-bounds":
+			_ = json.NewEncoder(w).Encode(cursor.Run{
+				ID:        longID,
+				AgentID:   longID,
+				Status:    longMetadata,
+				CreatedAt: longMetadata,
+				UpdatedAt: longMetadata,
+				Result:    longContent,
+				Git:       &cursor.GitState{Branches: branches},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	runner := New(Options{
+		ResolveClient: func() (cursor.Options, error) {
+			return cursor.Options{BaseURL: srv.URL, APIKey: secret, HTTPClient: srv.Client()}, nil
+		},
+	})
+
+	agent, err := runner.GetAgent(context.Background(), "bc-bounds")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agent.Repos) != wantMaxRepositories || len(agent.Git.Branches) != wantMaxGitBranches {
+		t.Fatalf("agent collection caps: repos=%d branches=%d", len(agent.Repos), len(agent.Git.Branches))
+	}
+	if len([]rune(agent.ID)) > wantMaxIDRunes ||
+		len([]rune(agent.Name)) > wantMaxMetadataRunes ||
+		len([]rune(agent.Status)) > wantMaxMetadataRunes ||
+		len([]rune(agent.URL)) > wantMaxMetadataRunes ||
+		len([]rune(agent.LatestRunID)) > wantMaxIDRunes ||
+		len([]rune(agent.Repos[0].URL)) > wantMaxMetadataRunes ||
+		len([]rune(agent.Repos[0].StartingRef)) > wantMaxMetadataRunes ||
+		len([]rune(agent.Repos[0].PRURL)) > wantMaxMetadataRunes ||
+		len([]rune(agent.Git.Branches[0].RepoURL)) > wantMaxMetadataRunes ||
+		len([]rune(agent.Git.Branches[0].Branch)) > wantMaxMetadataRunes ||
+		len([]rune(agent.Git.Branches[0].PRURL)) > wantMaxMetadataRunes {
+		t.Fatal("one or more agent strings exceeded its Unicode rune limit")
+	}
+
+	run, err := runner.GetRun(context.Background(), "bc-bounds", "run-bounds")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Git.Branches) != wantMaxGitBranches ||
+		len([]rune(run.ID)) > wantMaxIDRunes ||
+		len([]rune(run.AgentID)) > wantMaxIDRunes ||
+		len([]rune(run.Status)) > wantMaxMetadataRunes ||
+		len([]rune(run.CreatedAt)) > wantMaxMetadataRunes ||
+		len([]rune(run.UpdatedAt)) > wantMaxMetadataRunes ||
+		len([]rune(run.Result)) > wantMaxContentRunes {
+		t.Fatal("run bounds were not applied")
+	}
+	raw, err := json.Marshal(struct {
+		Agent *cursor.Agent
+		Run   *cursor.Run
+	}{Agent: agent, Run: run})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), secret) {
+		t.Fatalf("bounded lifecycle result leaked credential")
+	}
+
+	empty, err := runner.GetAgent(context.Background(), "bc-empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Repos == nil || empty.Git == nil || empty.Git.Branches == nil {
+		t.Fatalf("empty lifecycle slices were not normalized: %+v", empty)
+	}
+}
+
+func TestGenericErrorsAreUnicodeBoundedAndRedacted(t *testing.T) {
+	const wantMaxGenericErrorRunes = 4096
+	secret := "generic-error-secret"
+	runner := New(Options{
+		ResolveClient: func() (cursor.Options, error) {
+			return cursor.Options{APIKey: secret}, errors.New(
+				secret + strings.Repeat("界", wantMaxGenericErrorRunes+10),
+			)
+		},
+	})
+
+	_, err := runner.GetAgent(context.Background(), "bc-1")
+	if err == nil {
+		t.Fatal("expected resolver error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("generic error leaked credential: %q", err)
+	}
+	if got := len([]rune(err.Error())); got > wantMaxGenericErrorRunes {
+		t.Fatalf("generic error runes=%d, want <= %d", got, wantMaxGenericErrorRunes)
 	}
 }
 
@@ -658,6 +997,85 @@ func TestStreamSanitizationRedactsJSONEscapedCredential(t *testing.T) {
 	}
 }
 
+func TestStreamSanitizationBoundsUnicodeFieldsAndRawJSON(t *testing.T) {
+	const (
+		wantMaxIDRunes       = 1024
+		wantMaxMetadataRunes = 16 * 1024
+		wantMaxContentRunes  = 1 << 20
+		wantMaxRawRunes      = 1 << 20
+	)
+	secret := "stream-bound-secret"
+	longID := secret + strings.Repeat("界", wantMaxIDRunes+10)
+	longMetadata := secret + strings.Repeat("語", wantMaxMetadataRunes+10)
+	longContent := secret + strings.Repeat("文", wantMaxContentRunes+10)
+	longRaw, err := json.Marshal(map[string]string{
+		"value": secret + strings.Repeat("生", wantMaxRawRunes+10),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	event := sanitizeStreamEvent(cursor.StreamEvent{
+		ID:         longID,
+		Type:       longMetadata,
+		Status:     longMetadata,
+		Text:       longContent,
+		RunID:      longID,
+		Raw:        longRaw,
+		ToolName:   longMetadata,
+		CallID:     longID,
+		ToolArgs:   append(json.RawMessage(nil), longRaw...),
+		ToolResult: append(json.RawMessage(nil), longRaw...),
+	}, secret)
+
+	if len([]rune(event.ID)) > wantMaxIDRunes ||
+		len([]rune(event.Type)) > wantMaxMetadataRunes ||
+		len([]rune(event.Status)) > wantMaxMetadataRunes ||
+		len([]rune(event.Text)) > wantMaxContentRunes ||
+		len([]rune(event.RunID)) > wantMaxIDRunes ||
+		len([]rune(event.ToolName)) > wantMaxMetadataRunes ||
+		len([]rune(event.CallID)) > wantMaxIDRunes ||
+		len([]rune(string(event.Raw))) > wantMaxRawRunes ||
+		len([]rune(string(event.ToolArgs))) > wantMaxRawRunes ||
+		len([]rune(string(event.ToolResult))) > wantMaxRawRunes {
+		t.Fatal("one or more stream fields exceeded its Unicode rune limit")
+	}
+	if !event.ArgsTruncated || !event.ResultTruncated {
+		t.Fatalf("service truncation flags were not set: %+v", event)
+	}
+	for name, value := range map[string]json.RawMessage{
+		"raw": event.Raw, "args": event.ToolArgs, "result": event.ToolResult,
+	} {
+		if !json.Valid(value) {
+			t.Fatalf("%s is not valid JSON after bounding: %q", name, value)
+		}
+		if strings.Contains(string(value), secret) {
+			t.Fatalf("%s leaked credential", name)
+		}
+	}
+}
+
+func TestProgressDirectlyRedactsAndBoundsUnicode(t *testing.T) {
+	secret := "progress-bound-secret"
+	runner := New(Options{
+		ResolveClient: func() (cursor.Options, error) {
+			return cursor.Options{APIKey: secret}, nil
+		},
+	})
+	progress := runner.Progress(cursor.StreamEvent{
+		ToolName: secret + strings.Repeat("界", 2100),
+		Status:   secret + strings.Repeat("語", 2100),
+		Text:     secret + strings.Repeat("文", 2100),
+	})
+	if strings.Contains(progress.Message, secret) || strings.Contains(progress.Chunk, secret) {
+		t.Fatalf("progress leaked credential: %+v", progress)
+	}
+	if len([]rune(progress.Message)) > 2001 || len([]rune(progress.Chunk)) > 2001 {
+		t.Fatalf("progress was not Unicode bounded: message=%d chunk=%d",
+			len([]rune(progress.Message)), len([]rune(progress.Chunk)))
+	}
+}
+
 func newTestRunner(t *testing.T, catalog cursor.ModelCatalog) Runner {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -688,4 +1106,10 @@ func writeCatalog(t *testing.T, w http.ResponseWriter, catalog cursor.ModelCatal
 	if err := json.NewEncoder(w).Encode(catalog); err != nil {
 		t.Errorf("encode catalog: %v", err)
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
