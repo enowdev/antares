@@ -13,11 +13,16 @@ import (
 	"time"
 
 	"github.com/enowdev/antares/internal/approval"
-	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/cursor"
+	"github.com/enowdev/antares/internal/cursorrun"
 )
 
 type cursorAgentTool struct{}
+
+const (
+	maxCursorApprovalBytes       = 4096
+	maxCursorApprovalModelParams = 64
+)
 
 func (cursorAgentTool) Name() string { return "cursor_agent" }
 
@@ -28,11 +33,23 @@ func (cursorAgentTool) Description() string {
 
 func (cursorAgentTool) Schema() map[string]any {
 	return schema(map[string]any{
-		"action":                propEnum("Operation to perform.", "start", "follow_up", "cancel"),
-		"prompt":                prop("string", "Task for start/follow_up."),
-		"agent_id":              prop("string", "Cursor bc- agent id for follow_up/cancel."),
-		"run_id":                prop("string", "Cursor run- id for cancel."),
-		"model":                 prop("string", "Optional model id returned by Cursor."),
+		"action":   propEnum("Operation to perform.", "start", "follow_up", "cancel"),
+		"prompt":   prop("string", "Task for start/follow_up."),
+		"agent_id": prop("string", "Cursor bc- agent id for follow_up/cancel."),
+		"run_id":   prop("string", "Cursor run- id for cancel."),
+		"model":    prop("string", "Optional model id returned by Cursor."),
+		"model_params": map[string]any{
+			"type":        "array",
+			"description": "Optional exact model variant parameters returned by Cursor.",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":    prop("string", "Cursor model parameter id."),
+					"value": prop("string", "Exact Cursor model parameter value."),
+				},
+				"required": []string{"id", "value"},
+			},
+		},
 		"repository_url":        prop("string", "Optional HTTPS GitHub repository URL."),
 		"starting_ref":          prop("string", "Optional branch or commit SHA."),
 		"pull_request_url":      prop("string", "Optional GitHub pull request URL."),
@@ -56,6 +73,9 @@ func (cursorAgentTool) ApprovalOperation(raw json.RawMessage, sessionID string) 
 	if err := validateCursorAgentArgs(args); err != nil {
 		return approval.Operation{}, err
 	}
+	if len(args.ModelParams) > maxCursorApprovalModelParams {
+		return approval.Operation{}, errors.New("Cursor approval projection exceeds the safe display limit")
+	}
 
 	projection := cursorAgentApprovalProjection{
 		Action:         boundCursorApprovalField(args.Action),
@@ -66,6 +86,16 @@ func (cursorAgentTool) ApprovalOperation(raw json.RawMessage, sessionID string) 
 		StartingRef:    boundCursorApprovalField(args.StartingRef),
 		PullRequestURL: boundCursorApprovalField(args.PullRequestURL),
 		Mode:           boundCursorApprovalField(args.Mode),
+	}
+	if args.modelParamsSet {
+		params := make([]cursor.ModelParameterSelection, 0, len(args.ModelParams))
+		for _, parameter := range args.ModelParams {
+			params = append(params, cursor.ModelParameterSelection{
+				ID:    boundCursorApprovalField(parameter.ID),
+				Value: boundCursorApprovalField(parameter.Value),
+			})
+		}
+		projection.ModelParams = &params
 	}
 	switch args.Action {
 	case "start":
@@ -93,6 +123,9 @@ func (cursorAgentTool) ApprovalOperation(raw json.RawMessage, sessionID string) 
 	if err != nil {
 		return approval.Operation{}, fmt.Errorf("build approval projection: %w", err)
 	}
+	if len(display) > maxCursorApprovalBytes {
+		return approval.Operation{}, errors.New("Cursor approval projection exceeds the safe display limit")
+	}
 	return approval.Operation{
 		SessionID: sessionID,
 		Tool:      "cursor_agent",
@@ -103,17 +136,18 @@ func (cursorAgentTool) ApprovalOperation(raw json.RawMessage, sessionID string) 
 }
 
 type cursorAgentApprovalProjection struct {
-	Action              string `json:"action"`
-	AgentID             string `json:"agent_id,omitempty"`
-	RunID               string `json:"run_id,omitempty"`
-	Model               string `json:"model,omitempty"`
-	RepositoryURL       string `json:"repository_url,omitempty"`
-	StartingRef         string `json:"starting_ref,omitempty"`
-	PullRequestURL      string `json:"pull_request_url,omitempty"`
-	Mode                string `json:"mode,omitempty"`
-	AutoCreatePR        *bool  `json:"auto_create_pr,omitempty"`
-	SkipReviewerRequest *bool  `json:"skip_reviewer_request,omitempty"`
-	Wait                *bool  `json:"wait,omitempty"`
+	Action              string                            `json:"action"`
+	AgentID             string                            `json:"agent_id,omitempty"`
+	RunID               string                            `json:"run_id,omitempty"`
+	Model               string                            `json:"model,omitempty"`
+	ModelParams         *[]cursor.ModelParameterSelection `json:"model_params,omitempty"`
+	RepositoryURL       string                            `json:"repository_url,omitempty"`
+	StartingRef         string                            `json:"starting_ref,omitempty"`
+	PullRequestURL      string                            `json:"pull_request_url,omitempty"`
+	Mode                string                            `json:"mode,omitempty"`
+	AutoCreatePR        *bool                             `json:"auto_create_pr,omitempty"`
+	SkipReviewerRequest *bool                             `json:"skip_reviewer_request,omitempty"`
+	Wait                *bool                             `json:"wait,omitempty"`
 }
 
 func cursorApprovalMessage(action string) string {
@@ -145,18 +179,44 @@ func boundCursorApprovalField(value string) string {
 var cursorKeyLikeToken = regexp.MustCompile(`(?i)crsr_[a-z0-9_-]+`)
 
 type cursorAgentArgs struct {
-	Action              string `json:"action"`
-	Prompt              string `json:"prompt"`
-	AgentID             string `json:"agent_id"`
-	RunID               string `json:"run_id"`
-	Model               string `json:"model"`
-	RepositoryURL       string `json:"repository_url"`
-	StartingRef         string `json:"starting_ref"`
-	PullRequestURL      string `json:"pull_request_url"`
-	Mode                string `json:"mode"`
-	AutoCreatePR        bool   `json:"auto_create_pr"`
-	SkipReviewerRequest *bool  `json:"skip_reviewer_request"`
-	Wait                *bool  `json:"wait"`
+	Action              string                           `json:"action"`
+	Prompt              string                           `json:"prompt"`
+	AgentID             string                           `json:"agent_id"`
+	RunID               string                           `json:"run_id"`
+	Model               string                           `json:"model"`
+	ModelParams         []cursor.ModelParameterSelection `json:"model_params"`
+	RepositoryURL       string                           `json:"repository_url"`
+	StartingRef         string                           `json:"starting_ref"`
+	PullRequestURL      string                           `json:"pull_request_url"`
+	Mode                string                           `json:"mode"`
+	AutoCreatePR        bool                             `json:"auto_create_pr"`
+	SkipReviewerRequest *bool                            `json:"skip_reviewer_request"`
+	Wait                *bool                            `json:"wait"`
+	modelParamsSet      bool
+}
+
+func (a *cursorAgentArgs) UnmarshalJSON(data []byte) error {
+	type wireArgs cursorAgentArgs
+	var decoded wireArgs
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for key := range fields {
+		if key != "model_params" && strings.EqualFold(key, "model_params") {
+			return errors.New("model_params must use its canonical field name")
+		}
+	}
+	rawParams, modelParamsSet := fields["model_params"]
+	if modelParamsSet && strings.TrimSpace(string(rawParams)) == "null" {
+		return errors.New("model_params must be an array")
+	}
+	*a = cursorAgentArgs(decoded)
+	a.modelParamsSet = modelParamsSet
+	return nil
 }
 
 func (a *cursorAgentArgs) trim() {
@@ -181,23 +241,23 @@ func (cursorAgentTool) Execute(ctx context.Context, in Input) Result {
 		return Errorf("%v", err)
 	}
 
-	client, provider, err := cursorClientFromInput(in)
+	runner, err := cursorRunnerFromInput(in)
 	if err != nil {
-		return safeCursorResultError(err, args.AgentID, args.RunID, provider.APIKey)
+		return safeCursorResultError(err, args.AgentID, args.RunID, in)
 	}
 
 	switch args.Action {
 	case "start":
-		return startCursorAgent(ctx, in, client, provider, args)
+		return startCursorAgent(ctx, in, runner, args)
 	case "follow_up":
-		return followUpCursorAgent(ctx, in, client, provider, args)
+		return followUpCursorAgent(ctx, in, runner, args)
 	case "cancel":
-		err := client.CancelRun(ctx, args.AgentID, args.RunID)
+		err := runner.CancelRun(ctx, args.AgentID, args.RunID)
 		if err != nil {
-			return cursorOperationError(err, "run", args.AgentID, args.RunID, provider.APIKey)
+			return cursorOperationError(err, "run", args.AgentID, args.RunID, in)
 		}
-		agentID := redactCursorString(args.AgentID, provider.APIKey)
-		runID := redactCursorString(args.RunID, provider.APIKey)
+		agentID := redactCursorString(args.AgentID, cursorSecretFromInput(in))
+		runID := redactCursorString(args.RunID, cursorSecretFromInput(in))
 		return Result{
 			Content: fmt.Sprintf("Cursor cancellation requested.\nagent_id: %s\nrun_id: %s", agentID, runID),
 			Meta: map[string]any{
@@ -214,8 +274,7 @@ func (cursorAgentTool) Execute(ctx context.Context, in Input) Result {
 func startCursorAgent(
 	ctx context.Context,
 	in Input,
-	client *cursor.Client,
-	provider config.Provider,
+	runner cursorrun.Runner,
 	args cursorAgentArgs,
 ) Result {
 	wait := true
@@ -237,10 +296,23 @@ func startCursorAgent(
 	}
 	var model *cursor.ModelSelection
 	if args.Model != "" {
-		model = &cursor.ModelSelection{ID: args.Model}
+		model = &cursor.ModelSelection{
+			ID:     args.Model,
+			Params: append([]cursor.ModelParameterSelection(nil), args.ModelParams...),
+		}
+		if args.modelParamsSet && model.Params == nil {
+			model.Params = []cursor.ModelParameterSelection{}
+		}
+		policy := cursorrun.PreserveUpstreamDefault
+		if args.modelParamsSet {
+			policy = cursorrun.RequireExactVariant
+		}
+		if _, err := runner.ValidateModel(ctx, model, policy); err != nil {
+			return cursorOperationError(err, "agent", "", "", in)
+		}
 	}
 
-	created, err := client.CreateAgent(ctx, cursor.CreateAgentRequest{
+	created, err := runner.CreateAgent(ctx, cursor.CreateAgentRequest{
 		Prompt:              cursor.Prompt{Text: args.Prompt},
 		Model:               model,
 		Repos:               repos,
@@ -249,44 +321,43 @@ func startCursorAgent(
 		Mode:                args.Mode,
 	})
 	if err != nil {
-		return cursorOperationError(err, "agent", "", "", provider.APIKey)
+		return cursorOperationError(err, "agent", "", "", in)
 	}
 	if created == nil {
 		return cursorResultError(errors.New("Cursor returned an empty create response"), "", "")
 	}
 	if !wait {
-		return cursorRunResult(created.Agent, created.Run, provider.APIKey, true)
+		return cursorRunResult(created.Agent, created.Run, true)
 	}
 
-	waitCtx, cancel := cursorWaitContext(ctx, provider)
+	waitCtx, cancel := cursorWaitContext(ctx, in)
 	defer cancel()
-	return waitCursorRun(waitCtx, in, client, created.Agent, created.Run)
+	return waitCursorRun(waitCtx, in, runner, created.Agent, created.Run)
 }
 
 func followUpCursorAgent(
 	ctx context.Context,
 	in Input,
-	client *cursor.Client,
-	provider config.Provider,
+	runner cursorrun.Runner,
 	args cursorAgentArgs,
 ) Result {
-	agent, err := client.GetAgent(ctx, args.AgentID)
+	agent, err := runner.GetAgent(ctx, args.AgentID)
 	if err != nil {
-		return cursorOperationError(err, "agent", args.AgentID, "", provider.APIKey)
+		return cursorOperationError(err, "agent", args.AgentID, "", in)
 	}
-	run, err := client.CreateRun(ctx, args.AgentID, cursor.CreateRunRequest{
+	run, err := runner.CreateRun(ctx, args.AgentID, cursor.CreateRunRequest{
 		Prompt: cursor.Prompt{Text: args.Prompt},
 		Mode:   args.Mode,
 	})
 	if err != nil {
-		return cursorOperationError(err, "agent", args.AgentID, "", provider.APIKey)
+		return cursorOperationError(err, "agent", args.AgentID, "", in)
 	}
 	if agent == nil || run == nil {
 		return safeCursorResultError(
 			errors.New("Cursor returned an empty follow-up response"),
 			args.AgentID,
 			"",
-			provider.APIKey,
+			in,
 		)
 	}
 
@@ -295,12 +366,12 @@ func followUpCursorAgent(
 		wait = *args.Wait
 	}
 	if !wait {
-		return cursorRunResult(*agent, *run, provider.APIKey, true)
+		return cursorRunResult(*agent, *run, true)
 	}
 
-	waitCtx, cancel := cursorWaitContext(ctx, provider)
+	waitCtx, cancel := cursorWaitContext(ctx, in)
 	defer cancel()
-	return waitCursorRun(waitCtx, in, client, *agent, *run)
+	return waitCursorRun(waitCtx, in, runner, *agent, *run)
 }
 
 func validateCursorAgentArgs(args cursorAgentArgs) error {
@@ -336,6 +407,9 @@ func validateCursorAgentArgs(args cursorAgentArgs) error {
 		}
 		if args.AutoCreatePR && args.RepositoryURL == "" {
 			return errors.New("repository_url is required when auto_create_pr is true")
+		}
+		if args.modelParamsSet && args.Model == "" {
+			return errors.New("model is required when model_params is set")
 		}
 		return nil
 	case "follow_up":
@@ -390,6 +464,8 @@ func rejectCursorStartFields(args cursorAgentArgs, action string) error {
 	switch {
 	case args.Model != "":
 		return fmt.Errorf("model is not allowed for %s", action)
+	case args.modelParamsSet:
+		return fmt.Errorf("model_params is not allowed for %s", action)
 	case args.RepositoryURL != "":
 		return fmt.Errorf("repository_url is not allowed for %s", action)
 	case args.StartingRef != "":
@@ -419,20 +495,11 @@ func validateCursorID(value, prefix, field string) error {
 	return nil
 }
 
-func cursorClientFromInput(in Input) (*cursor.Client, config.Provider, error) {
-	if in.Deps == nil || in.Deps.Config == nil {
-		return nil, config.Provider{}, errors.New("Cursor is unavailable in this runtime")
+func cursorRunnerFromInput(in Input) (cursorrun.Runner, error) {
+	if in.Deps == nil || in.Deps.Cursor == nil {
+		return nil, errors.New("Cursor is unavailable in this runtime")
 	}
-	_, provider := in.Deps.Config.ResolveProvider("cursor")
-	provider.APIKey = strings.TrimSpace(provider.APIKey)
-	if !provider.Enabled || provider.APIKey == "" {
-		return nil, provider, errors.New("connect Cursor in Providers or set CURSOR_API_KEY")
-	}
-	client, err := cursor.New(cursor.Options{
-		BaseURL: provider.BaseURL,
-		APIKey:  provider.APIKey,
-	})
-	return client, provider, err
+	return in.Deps.Cursor, nil
 }
 
 func validateCursorRepository(raw string) error {
@@ -472,8 +539,12 @@ func parseCursorGitHubURL(raw string) (*url.URL, error) {
 	return parsed, nil
 }
 
-func cursorWaitContext(ctx context.Context, provider config.Provider) (context.Context, context.CancelFunc) {
-	timeout := time.Duration(provider.TimeoutSecs) * time.Second
+func cursorWaitContext(ctx context.Context, in Input) (context.Context, context.CancelFunc) {
+	var timeout time.Duration
+	if in.Deps != nil && in.Deps.Config != nil {
+		_, provider := in.Deps.Config.ResolveProvider("cursor")
+		timeout = time.Duration(provider.TimeoutSecs) * time.Second
+	}
 	if timeout <= 0 {
 		timeout = 15 * time.Minute
 	}
@@ -483,7 +554,7 @@ func cursorWaitContext(ctx context.Context, provider config.Provider) (context.C
 func waitCursorRun(
 	ctx context.Context,
 	in Input,
-	client *cursor.Client,
+	runner cursorrun.Runner,
 	agent cursor.Agent,
 	run cursor.Run,
 ) Result {
@@ -492,16 +563,15 @@ func waitCursorRun(
 		agentID = run.AgentID
 	}
 	runID := run.ID
-	terminal, err := client.StreamRun(ctx, agentID, runID, func(event cursor.StreamEvent) error {
-		emitCursorEvent(in, event)
+	terminal, err := runner.StreamRun(ctx, agentID, runID, "", nil, func(event cursor.StreamEvent) error {
+		emitCursorEvent(in, runner, event)
 		return nil
 	})
-	secret := cursorSecretFromInput(in)
 	if err != nil {
-		return cursorOperationError(err, "run", agentID, runID, secret)
+		return cursorOperationError(err, "run", agentID, runID, in)
 	}
 	if terminal == nil {
-		return safeCursorResultError(errors.New("Cursor stream returned no run"), agentID, runID, secret)
+		return safeCursorResultError(errors.New("Cursor stream returned no run"), agentID, runID, in)
 	}
 	if terminal.ID == "" {
 		terminal.ID = runID
@@ -509,65 +579,47 @@ func waitCursorRun(
 	if terminal.AgentID == "" {
 		terminal.AgentID = agentID
 	}
-	return cursorRunResult(agent, *terminal, secret, false)
+	return cursorRunResult(agent, *terminal, false)
 }
 
-func emitCursorEvent(in Input, event cursor.StreamEvent) {
-	secret := cursorSecretFromInput(in)
-	message := "Cursor " + redactCursorString(event.Type, secret)
-	chunk := redactCursorString(event.Text, secret)
-	if event.ToolName != "" {
-		message = "Cursor tool " +
-			redactCursorString(event.ToolName, secret) + " " +
-			redactCursorString(event.Status, secret)
-	}
-	message = boundCursorProgress(message)
-	chunk = boundCursorProgress(chunk)
+func emitCursorEvent(in Input, runner cursorrun.Runner, event cursor.StreamEvent) {
+	progress := runner.Progress(event)
 	if in.Emit != nil {
-		in.Emit(Progress{Tool: "cursor_agent", Message: message, Chunk: chunk})
+		in.Emit(Progress{
+			Tool: "cursor_agent", Message: progress.Message, Chunk: progress.Chunk,
+		})
 	}
-}
-
-func boundCursorProgress(value string) string {
-	const maxRunes = 2000
-	value = strings.ToValidUTF8(value, "\uFFFD")
-	runes := []rune(value)
-	if len(runes) > maxRunes {
-		return string(runes[:maxRunes]) + "…"
-	}
-	return value
 }
 
 func cursorAgentStatusResult(
 	ctx context.Context,
 	in Input,
-	client *cursor.Client,
-	provider config.Provider,
+	runner cursorrun.Runner,
 	agent cursor.Agent,
 	runID string,
 	wait bool,
 ) Result {
 	if wait {
-		waitCtx, cancel := cursorWaitContext(ctx, provider)
+		waitCtx, cancel := cursorWaitContext(ctx, in)
 		defer cancel()
-		return waitCursorRun(waitCtx, in, client, agent, cursor.Run{ID: runID, AgentID: agent.ID})
+		return waitCursorRun(waitCtx, in, runner, agent, cursor.Run{ID: runID, AgentID: agent.ID})
 	}
-	run, err := client.GetRun(ctx, agent.ID, runID)
+	run, err := runner.GetRun(ctx, agent.ID, runID)
 	if err != nil {
-		return cursorOperationError(err, "run", agent.ID, runID, provider.APIKey)
+		return cursorOperationError(err, "run", agent.ID, runID, in)
 	}
 	if run == nil {
 		return safeCursorResultError(
 			errors.New("Cursor returned an empty run response"),
 			agent.ID,
 			runID,
-			provider.APIKey,
+			in,
 		)
 	}
-	return cursorRunResult(agent, *run, provider.APIKey, true)
+	return cursorRunResult(agent, *run, true)
 }
 
-func cursorRunResult(agent cursor.Agent, run cursor.Run, secret string, discouragePolling bool) Result {
+func cursorRunResult(agent cursor.Agent, run cursor.Run, discouragePolling bool) Result {
 	agentID := agent.ID
 	if agentID == "" {
 		agentID = run.AgentID
@@ -581,12 +633,9 @@ func cursorRunResult(agent cursor.Agent, run cursor.Run, secret string, discoura
 		git = agent.Git
 	}
 
-	agentID = redactCursorString(agentID, secret)
-	runID := redactCursorString(run.ID, secret)
-	status = redactCursorString(status, secret)
-	cursorURL := redactCursorString(agent.URL, secret)
-	resultText := redactCursorString(run.Result, secret)
-	safeGit := sanitizeCursorGit(git, secret)
+	runID := run.ID
+	cursorURL := agent.URL
+	resultText := run.Result
 
 	meta := map[string]any{
 		"agent_id":    agentID,
@@ -596,8 +645,8 @@ func cursorRunResult(agent cursor.Agent, run cursor.Run, secret string, discoura
 		"duration_ms": run.DurationMS,
 		"result":      resultText,
 	}
-	if safeGit != nil {
-		meta["git"] = safeGit
+	if git != nil {
+		meta["git"] = git
 	}
 
 	var content strings.Builder
@@ -610,9 +659,9 @@ func cursorRunResult(agent cursor.Agent, run cursor.Run, secret string, discoura
 	if resultText != "" {
 		fmt.Fprintf(&content, "\n\nResult:\n%s", resultText)
 	}
-	if safeGit != nil && len(safeGit.Branches) > 0 {
+	if git != nil && len(git.Branches) > 0 {
 		content.WriteString("\n\nGit:")
-		for _, branch := range safeGit.Branches {
+		for _, branch := range git.Branches {
 			fmt.Fprintf(&content, "\n- %s", branch.RepoURL)
 			if branch.Branch != "" {
 				fmt.Fprintf(&content, " — %s", branch.Branch)
@@ -628,21 +677,6 @@ func cursorRunResult(agent cursor.Agent, run cursor.Run, secret string, discoura
 	return Result{Content: content.String(), Meta: meta}
 }
 
-func sanitizeCursorGit(git *cursor.GitState, secret string) *cursor.GitState {
-	if git == nil {
-		return nil
-	}
-	safe := &cursor.GitState{Branches: make([]cursor.GitBranch, len(git.Branches))}
-	for i, branch := range git.Branches {
-		safe.Branches[i] = cursor.GitBranch{
-			RepoURL: redactCursorString(branch.RepoURL, secret),
-			Branch:  redactCursorString(branch.Branch, secret),
-			PRURL:   redactCursorString(branch.PRURL, secret),
-		}
-	}
-	return safe
-}
-
 func cursorSecretFromInput(in Input) string {
 	if in.Deps == nil || in.Deps.Config == nil {
 		return ""
@@ -656,23 +690,6 @@ func redactCursorString(value, secret string) string {
 		return value
 	}
 	return strings.ReplaceAll(value, secret, "[REDACTED]")
-}
-
-func sanitizeCursorError(err error, secret string) error {
-	if err == nil || secret == "" {
-		return err
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return err
-	}
-	var apiErr *cursor.APIError
-	if errors.As(err, &apiErr) {
-		safe := *apiErr
-		safe.Code = redactCursorString(safe.Code, secret)
-		safe.Message = redactCursorString(safe.Message, secret)
-		return &safe
-	}
-	return errors.New(redactCursorString(err.Error(), secret))
 }
 
 func cursorResultError(err error, agentID, runID string) Result {
@@ -698,9 +715,10 @@ func cursorResultError(err error, agentID, runID string) Result {
 	}
 }
 
-func safeCursorResultError(err error, agentID, runID, secret string) Result {
+func safeCursorResultError(err error, agentID, runID string, in Input) Result {
+	secret := cursorSecretFromInput(in)
 	return cursorResultError(
-		sanitizeCursorError(err, secret),
+		err,
 		redactCursorString(agentID, secret),
 		redactCursorString(runID, secret),
 	)
@@ -725,8 +743,8 @@ func cursorNotFoundLabel(err error, missingKind string) string {
 	return "Cursor run not found"
 }
 
-func cursorOperationError(err error, missingKind, agentID, runID, secret string) Result {
-	err = sanitizeCursorError(err, secret)
+func cursorOperationError(err error, missingKind, agentID, runID string, in Input) Result {
+	secret := cursorSecretFromInput(in)
 	agentID = redactCursorString(agentID, secret)
 	runID = redactCursorString(runID, secret)
 	meta := map[string]any{"agent_id": agentID, "run_id": runID}
@@ -778,20 +796,20 @@ func (cursorAgentStatusTool) Execute(ctx context.Context, in Input) Result {
 		}
 	}
 
-	client, provider, err := cursorClientFromInput(in)
+	runner, err := cursorRunnerFromInput(in)
 	if err != nil {
-		return safeCursorResultError(err, args.AgentID, args.RunID, provider.APIKey)
+		return safeCursorResultError(err, args.AgentID, args.RunID, in)
 	}
-	agent, err := client.GetAgent(ctx, args.AgentID)
+	agent, err := runner.GetAgent(ctx, args.AgentID)
 	if err != nil {
-		return cursorOperationError(err, "agent", args.AgentID, args.RunID, provider.APIKey)
+		return cursorOperationError(err, "agent", args.AgentID, args.RunID, in)
 	}
 	if agent == nil {
 		return safeCursorResultError(
 			errors.New("Cursor returned an empty agent response"),
 			args.AgentID,
 			args.RunID,
-			provider.APIKey,
+			in,
 		)
 	}
 
@@ -803,16 +821,16 @@ func (cursorAgentStatusTool) Execute(ctx context.Context, in Input) Result {
 				errors.New("Cursor agent has no latest run"),
 				args.AgentID,
 				"",
-				provider.APIKey,
+				in,
 			)
 		}
 		if err := validateCursorID(runID, "run-", "run_id"); err != nil {
-			return safeCursorResultError(err, args.AgentID, runID, provider.APIKey)
+			return safeCursorResultError(err, args.AgentID, runID, in)
 		}
 	}
 	wait := false
 	if args.Wait != nil {
 		wait = *args.Wait
 	}
-	return cursorAgentStatusResult(ctx, in, client, provider, *agent, runID, wait)
+	return cursorAgentStatusResult(ctx, in, runner, *agent, runID, wait)
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/enowdev/antares/internal/board"
 	"github.com/enowdev/antares/internal/config"
+	"github.com/enowdev/antares/internal/cursorrun"
 	"github.com/enowdev/antares/internal/engagement"
 	"github.com/enowdev/antares/internal/findings"
 	"github.com/enowdev/antares/internal/store"
@@ -147,6 +148,9 @@ type Deps struct {
 	// SocialBrowser is the persistent stealth Chromium for social media. Nil
 	// when the social feature is not configured.
 	SocialBrowser SocialBrowserManager
+	// Cursor owns the shared Cursor catalogue and remote-run lifecycle. It may
+	// be nil in runtimes that do not wire the Cursor integration.
+	Cursor cursorrun.Runner
 }
 
 // SocialBrowserManager is the minimal interface the social_browser tool needs

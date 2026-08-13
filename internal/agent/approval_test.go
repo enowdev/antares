@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/enowdev/antares/internal/config"
+	"github.com/enowdev/antares/internal/cursor"
+	"github.com/enowdev/antares/internal/cursorrun"
 	"github.com/enowdev/antares/internal/llm"
 	"github.com/enowdev/antares/internal/plugin"
 	"github.com/enowdev/antares/internal/store"
@@ -53,7 +55,16 @@ func cursorApprovalTestAgent(mode, baseURL string) *Agent {
 	provider.APIKey = "test-only-key"
 	provider.BaseURL = baseURL
 	cfg.Providers["cursor"] = provider
-	return New(cfg, nil, tools.Default(), nil, nil)
+	a := New(cfg, nil, tools.Default(), nil, nil)
+	a.SetCursorRunner(cursorrun.New(cursorrun.Options{
+		ResolveClient: func() (cursor.Options, error) {
+			return cursor.Options{
+				BaseURL: baseURL,
+				APIKey:  "test-only-key",
+			}, nil
+		},
+	}))
+	return a
 }
 
 func cursorApprovalTestPlugin(t *testing.T, reply string) *plugin.Manager {
@@ -344,14 +355,7 @@ func TestCursorOperationsWaitForApprovalBeforeUpstreamRequests(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			cfg := config.Default()
-			cfg.Tools.ApprovalMode = "auto"
-			provider := cfg.Providers["cursor"]
-			provider.Enabled = true
-			provider.APIKey = "test-only-key"
-			provider.BaseURL = srv.URL
-			cfg.Providers["cursor"] = provider
-			a := New(cfg, nil, tools.Default(), nil, nil)
+			a := cursorApprovalTestAgent("auto", srv.URL)
 			cursorTool, ok := tools.Default().Get("cursor_agent")
 			if !ok {
 				t.Fatal("cursor_agent is not registered")
@@ -630,23 +634,57 @@ func TestCursorOperationPluginDenyPrecedesApproval(t *testing.T) {
 
 func TestCursorOperationPluginRewriteIsApprovedAndExecuted(t *testing.T) {
 	var upstreamCalls atomic.Int32
+	createdBody := make(chan map[string]any, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls.Add(1)
-		if r.Method != http.MethodPost ||
-			r.URL.Path != "/v1/agents/bc-rewritten/runs/run-rewritten/cancel" {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{map[string]any{
+					"id": "gpt-5.6-sol",
+					"variants": []any{map[string]any{
+						"params": []any{
+							map[string]any{"id": "reasoning", "value": "max"},
+							map[string]any{"id": "context", "value": "1m"},
+						},
+					}},
+				}},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/agents":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode rewritten create body: %v", err)
+			}
+			createdBody <- body
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"agent": map[string]any{
+					"id": "bc-rewritten", "status": "ACTIVE",
+					"url": "https://cursor.com/agents/bc-rewritten", "latestRunId": "run-rewritten",
+				},
+				"run": map[string]any{
+					"id": "run-rewritten", "agentId": "bc-rewritten", "status": "CREATING",
+				},
+			})
+		default:
 			t.Errorf("rewritten request = %s %s", r.Method, r.URL.Path)
 			http.NotFound(w, r)
-			return
 		}
-		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
 
 	a := cursorApprovalTestAgent("auto", upstream.URL)
-	a.plugins = cursorApprovalTestPlugin(
-		t,
-		`{"arguments":"{\"action\":\"cancel\",\"agent_id\":\"bc-rewritten\",\"run_id\":\"run-rewritten\"}"}`,
-	)
+	rewrittenArgs, _ := json.Marshal(map[string]any{
+		"action": "start",
+		"prompt": "rewritten private prompt",
+		"model":  "gpt-5.6-sol",
+		"model_params": []any{
+			map[string]any{"id": "context", "value": "1m"},
+			map[string]any{"id": "reasoning", "value": "max"},
+		},
+		"wait": false,
+	})
+	pluginReply, _ := json.Marshal(map[string]string{"arguments": string(rewrittenArgs)})
+	a.plugins = cursorApprovalTestPlugin(t, string(pluginReply))
 	cursorTool, ok := tools.Default().Get("cursor_agent")
 	if !ok {
 		t.Fatal("cursor_agent is not registered")
@@ -684,13 +722,13 @@ func TestCursorOperationPluginRewriteIsApprovedAndExecuted(t *testing.T) {
 		t.Fatal("rewritten operation did not request approval")
 	}
 	pending := a.PendingApprovals()
-	eventShowsRewrite := strings.Contains(event.Arguments, `"action":"cancel"`) &&
-		strings.Contains(event.Arguments, "bc-rewritten") &&
-		strings.Contains(event.Arguments, "run-rewritten")
+	eventShowsRewrite := strings.Contains(event.Arguments, `"action":"start"`) &&
+		strings.Contains(event.Arguments, `"model":"gpt-5.6-sol"`) &&
+		strings.Contains(event.Arguments, `"id":"context"`) &&
+		strings.Contains(event.Arguments, `"value":"1m"`) &&
+		!strings.Contains(event.Arguments, "rewritten private prompt")
 	pendingShowsRewrite := len(pending) == 1 &&
-		strings.Contains(pending[0].Arguments, `"action":"cancel"`) &&
-		strings.Contains(pending[0].Arguments, "bc-rewritten") &&
-		strings.Contains(pending[0].Arguments, "run-rewritten")
+		pending[0].Arguments == event.Arguments
 	if got := upstreamCalls.Load(); got != 0 {
 		t.Fatalf("rewritten operation made %d upstream request(s) before approval", got)
 	}
@@ -704,8 +742,25 @@ func TestCursorOperationPluginRewriteIsApprovedAndExecuted(t *testing.T) {
 	if !eventShowsRewrite || !pendingShowsRewrite {
 		t.Fatalf("approval did not retain plugin rewrite: event=%s pending=%+v", event.Arguments, pending)
 	}
-	if got := upstreamCalls.Load(); got != 1 {
-		t.Fatalf("rewritten operation made %d upstream request(s), want 1", got)
+	if got := upstreamCalls.Load(); got != 2 {
+		t.Fatalf("rewritten operation made %d upstream request(s), want catalog plus create", got)
+	}
+	var body map[string]any
+	select {
+	case body = <-createdBody:
+	case <-time.After(time.Second):
+		t.Fatal("rewritten operation made no create request")
+	}
+	if body["prompt"].(map[string]any)["text"] != "rewritten private prompt" {
+		t.Fatalf("rewritten prompt did not execute: %#v", body)
+	}
+	params := body["model"].(map[string]any)["params"].([]any)
+	if len(params) != 2 ||
+		params[0].(map[string]any)["id"] != "context" ||
+		params[0].(map[string]any)["value"] != "1m" ||
+		params[1].(map[string]any)["id"] != "reasoning" ||
+		params[1].(map[string]any)["value"] != "max" {
+		t.Fatalf("rewritten model params did not execute exactly: %#v", params)
 	}
 }
 
@@ -795,12 +850,26 @@ func TestCursorOperationToolCallUsesApprovalProjection(t *testing.T) {
 
 func TestCursorApprovalSurfacesRedactKeyLikeTokensButExecutionRetainsThem(t *testing.T) {
 	const (
-		modelToken  = "prefix-crsr_model_secret_123456789.tail-model"
-		refToken    = "feature/crsr_ref_secret_123456789/tail-ref"
-		promptToken = "crsr_prompt_secret_123456789"
+		modelToken      = "prefix-crsr_model_secret_123456789.tail-model"
+		modelParamToken = "max-crsr_param_secret_123456789.tail-param"
+		refToken        = "feature/crsr_ref_secret_123456789/tail-ref"
+		promptToken     = "crsr_prompt_secret_123456789"
 	)
 	bodyCh := make(chan map[string]any, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{map[string]any{
+					"id": modelToken,
+					"variants": []any{map[string]any{
+						"params": []any{map[string]any{
+							"id": "reasoning", "value": modelParamToken,
+						}},
+					}},
+				}},
+			})
+			return
+		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("decode create body: %v", err)
@@ -827,6 +896,7 @@ func TestCursorApprovalSurfacesRedactKeyLikeTokensButExecutionRetainsThem(t *tes
 		"action":         "start",
 		"prompt":         "use " + promptToken,
 		"model":          modelToken,
+		"model_params":   []any{map[string]any{"id": "reasoning", "value": modelParamToken}},
 		"repository_url": "https://github.com/acme/repo",
 		"starting_ref":   refToken,
 		"wait":           false,
@@ -872,9 +942,9 @@ func TestCursorApprovalSurfacesRedactKeyLikeTokensButExecutionRetainsThem(t *tes
 	outward := toolCall.Arguments + approvalEvent.Arguments + approvalEvent.Content + string(pendingJSON)
 	leaked := ""
 	for _, token := range []string{
-		"prefix-", "tail-model", "feature/", "tail-ref",
+		"prefix-", "tail-model", "max-", "tail-param", "feature/", "tail-ref",
 		"crsr_model_secret_123456789", "crsr_ref_secret_123456789",
-		promptToken, "crsr_unknown_secret_123456789",
+		"crsr_param_secret_123456789", promptToken, "crsr_unknown_secret_123456789",
 	} {
 		if strings.Contains(outward, token) {
 			leaked = token
@@ -885,7 +955,10 @@ func TestCursorApprovalSurfacesRedactKeyLikeTokensButExecutionRetainsThem(t *tes
 	if err := json.Unmarshal([]byte(toolCall.Arguments), &projection); err != nil {
 		t.Fatalf("decode tool-call projection: %v", err)
 	}
+	projectedParams := projection["model_params"].([]any)
 	redacted := projection["model"] == "[REDACTED]" &&
+		len(projectedParams) == 1 &&
+		projectedParams[0].(map[string]any)["value"] == "[REDACTED]" &&
 		projection["starting_ref"] == "[REDACTED]" &&
 		approvalEvent.Arguments == toolCall.Arguments &&
 		len(pending) == 1 && pending[0].Arguments == toolCall.Arguments
@@ -905,7 +978,11 @@ func TestCursorApprovalSurfacesRedactKeyLikeTokensButExecutionRetainsThem(t *tes
 	}
 	model := executed["model"].(map[string]any)
 	repo := executed["repos"].([]any)[0].(map[string]any)
-	if model["id"] != modelToken || repo["startingRef"] != refToken {
+	params := model["params"].([]any)
+	if model["id"] != modelToken ||
+		len(params) != 1 ||
+		params[0].(map[string]any)["value"] != modelParamToken ||
+		repo["startingRef"] != refToken {
 		t.Fatalf("execution did not retain original values: model=%#v repo=%#v", model, repo)
 	}
 	if leaked != "" {

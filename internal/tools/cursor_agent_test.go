@@ -14,6 +14,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/enowdev/antares/internal/config"
+	"github.com/enowdev/antares/internal/cursor"
+	"github.com/enowdev/antares/internal/cursorrun"
 )
 
 const cursorToolTestKey = "synthetic-key"
@@ -27,10 +29,30 @@ func cursorToolTestConfig(baseURL string) *config.Config {
 	return cfg
 }
 
+func cursorToolTestRunner(cfg *config.Config) cursorrun.Runner {
+	return cursorrun.New(cursorrun.Options{
+		ResolveClient: func() (cursor.Options, error) {
+			if cfg == nil {
+				return cursor.Options{}, fmt.Errorf("Cursor is unavailable in this runtime")
+			}
+			_, provider := cfg.ResolveProvider("cursor")
+			provider.APIKey = strings.TrimSpace(provider.APIKey)
+			options := cursor.Options{
+				BaseURL: provider.BaseURL,
+				APIKey:  provider.APIKey,
+			}
+			if !provider.Enabled || provider.APIKey == "" {
+				return options, fmt.Errorf("connect Cursor in Providers or set CURSOR_API_KEY")
+			}
+			return options, nil
+		},
+	})
+}
+
 func cursorToolTestInput(cfg *config.Config, args string, progress *[]Progress) Input {
 	return Input{
 		Args: []byte(args),
-		Deps: &Deps{Config: cfg},
+		Deps: &Deps{Config: cfg, Cursor: cursorToolTestRunner(cfg)},
 		Emit: func(p Progress) {
 			if progress != nil {
 				*progress = append(*progress, p)
@@ -67,6 +89,13 @@ func TestCursorToolSchemasAndApprovalClassification(t *testing.T) {
 	if got := agentProps["auto_create_pr"].(map[string]any)["default"]; got != false {
 		t.Fatalf("auto_create_pr default = %#v, want false", got)
 	}
+	modelParams, ok := agentProps["model_params"].(map[string]any)
+	if !ok {
+		t.Fatal("cursor_agent schema does not expose model_params")
+	}
+	if got := modelParams["type"]; got != "array" {
+		t.Fatalf("model_params type = %#v, want array", got)
+	}
 
 	statusSchema := cursorAgentStatusTool{}.Schema()
 	statusProps := statusSchema["properties"].(map[string]any)
@@ -82,9 +111,13 @@ func TestCursorToolSchemasAndApprovalClassification(t *testing.T) {
 func TestCursorAgentApprovalProjectionIsBoundedAndRedacted(t *testing.T) {
 	const secret = "must-not-appear-in-approval"
 	raw, err := json.Marshal(map[string]any{
-		"action":                "start",
-		"prompt":                "Fix the issue using " + secret,
-		"model":                 "composer-2",
+		"action": "start",
+		"prompt": "Fix the issue using " + secret,
+		"model":  "composer-2",
+		"model_params": []map[string]string{
+			{"id": "context", "value": "1m"},
+			{"id": "reasoning", "value": "max"},
+		},
 		"repository_url":        "https://github.com/acme/repo",
 		"starting_ref":          "main",
 		"pull_request_url":      "https://github.com/acme/repo/pull/7",
@@ -124,8 +157,12 @@ func TestCursorAgentApprovalProjectionIsBoundedAndRedacted(t *testing.T) {
 		t.Fatalf("approval projection is not JSON: %v", err)
 	}
 	want := map[string]any{
-		"action":                "start",
-		"model":                 "composer-2",
+		"action": "start",
+		"model":  "composer-2",
+		"model_params": []any{
+			map[string]any{"id": "context", "value": "1m"},
+			map[string]any{"id": "reasoning", "value": "max"},
+		},
 		"repository_url":        "https://github.com/acme/repo",
 		"starting_ref":          "main",
 		"pull_request_url":      "https://github.com/acme/repo/pull/7",
@@ -135,6 +172,14 @@ func TestCursorAgentApprovalProjectionIsBoundedAndRedacted(t *testing.T) {
 		"wait":                  false,
 	}
 	for key, value := range want {
+		if key == "model_params" {
+			got, _ := json.Marshal(projection[key])
+			expected, _ := json.Marshal(value)
+			if string(got) != string(expected) {
+				t.Errorf("projection[%q] = %s, want %s", key, got, expected)
+			}
+			continue
+		}
 		if got := projection[key]; got != value {
 			t.Errorf("projection[%q] = %#v, want %#v", key, got, value)
 		}
@@ -142,9 +187,12 @@ func TestCursorAgentApprovalProjectionIsBoundedAndRedacted(t *testing.T) {
 
 	longValue := strings.Repeat("界", 10_000)
 	longRaw, _ := json.Marshal(map[string]any{
-		"action":         "start",
-		"prompt":         secret,
-		"model":          longValue,
+		"action": "start",
+		"prompt": secret,
+		"model":  longValue,
+		"model_params": []map[string]string{{
+			"id": longValue, "value": "crsr_projection_secret_123.tail",
+		}},
 		"repository_url": "https://github.com/acme/repo",
 		"starting_ref":   longValue,
 	})
@@ -157,6 +205,373 @@ func TestCursorAgentApprovalProjectionIsBoundedAndRedacted(t *testing.T) {
 	}
 	if strings.Contains(longOp.Arguments, longValue) {
 		t.Fatal("long approval field was not bounded")
+	}
+	if strings.Contains(longOp.Arguments, "tail") {
+		t.Fatal("model parameter key-like value was not whole-field redacted")
+	}
+
+	manyParams := make([]map[string]string, maxCursorApprovalModelParams)
+	for i := range manyParams {
+		manyParams[i] = map[string]string{
+			"id":    fmt.Sprintf("parameter-%03d-%s", i, longValue),
+			"value": fmt.Sprintf("value-%03d-%s", i, longValue),
+		}
+	}
+	manyRaw, _ := json.Marshal(map[string]any{
+		"action":       "start",
+		"prompt":       secret,
+		"model":        "gpt-5.6-sol",
+		"model_params": manyParams,
+	})
+	if _, err := (cursorAgentTool{}).ApprovalOperation(manyRaw, "ses-many"); err == nil ||
+		!strings.Contains(err.Error(), "safe display limit") {
+		t.Fatalf("oversized byte projection error = %v", err)
+	}
+
+	tooManyParams := make([]map[string]string, maxCursorApprovalModelParams+1)
+	for i := range tooManyParams {
+		tooManyParams[i] = map[string]string{
+			"id":    fmt.Sprintf("parameter-%03d", i),
+			"value": fmt.Sprintf("value-%03d", i),
+		}
+	}
+	tooManyRaw, _ := json.Marshal(map[string]any{
+		"action":       "start",
+		"prompt":       secret,
+		"model":        "gpt-5.6-sol",
+		"model_params": tooManyParams,
+	})
+	if _, err := (cursorAgentTool{}).ApprovalOperation(tooManyRaw, "ses-too-many"); err == nil ||
+		!strings.Contains(err.Error(), "safe display limit") {
+		t.Fatalf("oversized parameter-count projection error = %v", err)
+	}
+
+	mediumParams := make([]map[string]string, 20)
+	for i := range mediumParams {
+		mediumParams[i] = map[string]string{
+			"id":    fmt.Sprintf("parameter-%02d", i),
+			"value": fmt.Sprintf("value-%02d", i),
+		}
+	}
+	mediumRaw, _ := json.Marshal(map[string]any{
+		"action":       "start",
+		"prompt":       secret,
+		"model":        "gpt-5.6-sol",
+		"model_params": mediumParams,
+	})
+	mediumOp, err := (cursorAgentTool{}).ApprovalOperation(mediumRaw, "ses-medium")
+	if err != nil {
+		t.Fatalf("medium-param ApprovalOperation: %v", err)
+	}
+	if len(mediumOp.Arguments) > 4096 {
+		t.Fatalf("medium-param approval projection has %d bytes, want at most 4096", len(mediumOp.Arguments))
+	}
+	var mediumProjection struct {
+		ModelParams []cursor.ModelParameterSelection `json:"model_params"`
+	}
+	if err := json.Unmarshal([]byte(mediumOp.Arguments), &mediumProjection); err != nil {
+		t.Fatal(err)
+	}
+	if len(mediumProjection.ModelParams) != len(mediumParams) {
+		t.Fatalf("approval retained %d model params, want all %d",
+			len(mediumProjection.ModelParams), len(mediumParams))
+	}
+	for i, parameter := range mediumProjection.ModelParams {
+		if parameter.ID != mediumParams[i]["id"] || parameter.Value != mediumParams[i]["value"] {
+			t.Fatalf("approval param %d = %+v, want %+v", i, parameter, mediumParams[i])
+		}
+	}
+}
+
+type cursorToolRunnerStub struct {
+	validateCalls      int
+	validated          *cursor.ModelSelection
+	validationPolicy   cursorrun.SelectionPolicy
+	validationErr      error
+	validationResult   *cursor.ModelSelection
+	createAgentCalls   int
+	createAgentRequest cursor.CreateAgentRequest
+}
+
+func (f *cursorToolRunnerStub) Catalog(context.Context, bool) (*cursor.ModelCatalog, error) {
+	return nil, fmt.Errorf("unexpected Catalog call")
+}
+
+func (f *cursorToolRunnerStub) InvalidateCatalog() {}
+
+func (f *cursorToolRunnerStub) ValidateModel(
+	_ context.Context,
+	selection *cursor.ModelSelection,
+	policy cursorrun.SelectionPolicy,
+) (*cursor.ModelSelection, error) {
+	f.validateCalls++
+	f.validationPolicy = policy
+	if selection != nil {
+		params := append([]cursor.ModelParameterSelection(nil), selection.Params...)
+		if selection.Params != nil && params == nil {
+			params = []cursor.ModelParameterSelection{}
+		}
+		f.validated = &cursor.ModelSelection{
+			ID:     selection.ID,
+			Params: params,
+		}
+	}
+	if f.validationErr != nil {
+		return nil, f.validationErr
+	}
+	if f.validationResult != nil {
+		return &cursor.ModelSelection{
+			ID:     f.validationResult.ID,
+			Params: append([]cursor.ModelParameterSelection(nil), f.validationResult.Params...),
+		}, nil
+	}
+	if selection == nil {
+		return nil, nil
+	}
+	params := append([]cursor.ModelParameterSelection(nil), selection.Params...)
+	if selection.Params != nil && params == nil {
+		params = []cursor.ModelParameterSelection{}
+	}
+	return &cursor.ModelSelection{
+		ID:     selection.ID,
+		Params: params,
+	}, nil
+}
+
+func (f *cursorToolRunnerStub) CreateAgent(
+	_ context.Context,
+	req cursor.CreateAgentRequest,
+) (*cursor.CreateAgentResponse, error) {
+	f.createAgentCalls++
+	f.createAgentRequest = req
+	return &cursor.CreateAgentResponse{
+		Agent: cursor.Agent{
+			ID: "bc-one", Status: "ACTIVE",
+			URL: "https://cursor.com/agents/bc-one", LatestRunID: "run-one",
+		},
+		Run: cursor.Run{ID: "run-one", AgentID: "bc-one", Status: "CREATING"},
+	}, nil
+}
+
+func (f *cursorToolRunnerStub) CreateRun(
+	context.Context,
+	string,
+	cursor.CreateRunRequest,
+) (*cursor.Run, error) {
+	return nil, fmt.Errorf("unexpected CreateRun call")
+}
+
+func (f *cursorToolRunnerStub) GetAgent(context.Context, string) (*cursor.Agent, error) {
+	return nil, fmt.Errorf("unexpected GetAgent call")
+}
+
+func (f *cursorToolRunnerStub) GetRun(context.Context, string, string) (*cursor.Run, error) {
+	return nil, fmt.Errorf("unexpected GetRun call")
+}
+
+func (f *cursorToolRunnerStub) CancelRun(context.Context, string, string) error {
+	return fmt.Errorf("unexpected CancelRun call")
+}
+
+func (f *cursorToolRunnerStub) StreamRun(
+	context.Context,
+	string,
+	string,
+	string,
+	func() error,
+	func(cursor.StreamEvent) error,
+) (*cursor.Run, error) {
+	return nil, fmt.Errorf("unexpected StreamRun call")
+}
+
+func (f *cursorToolRunnerStub) Progress(cursor.StreamEvent) cursorrun.Progress {
+	return cursorrun.Progress{}
+}
+
+func TestCursorAgentStartAcceptsExactModelParams(t *testing.T) {
+	runner := &cursorToolRunnerStub{
+		validationResult: &cursor.ModelSelection{
+			ID: "gpt-5.6-sol",
+			Params: []cursor.ModelParameterSelection{
+				{ID: "reasoning", Value: "max"},
+				{ID: "context", Value: "1m"},
+			},
+		},
+	}
+	args := `{
+		"action":"start",
+		"prompt":"fix it",
+		"model":"gpt-5.6-sol",
+		"model_params":[
+			{"id":"context","value":"1m"},
+			{"id":"reasoning","value":"max"}
+		],
+		"wait":false
+	}`
+
+	got := (cursorAgentTool{}).Execute(context.Background(), Input{
+		Args: []byte(args),
+		Deps: &Deps{Config: config.Default(), Cursor: runner},
+	})
+	if got.IsError {
+		t.Fatalf("start result = %+v", got)
+	}
+	if runner.validateCalls != 1 || runner.validationPolicy != cursorrun.RequireExactVariant {
+		t.Fatalf("validation calls/policy = %d/%v, want 1/RequireExactVariant",
+			runner.validateCalls, runner.validationPolicy)
+	}
+	want := []cursor.ModelParameterSelection{
+		{ID: "context", Value: "1m"},
+		{ID: "reasoning", Value: "max"},
+	}
+	if runner.createAgentCalls != 1 || runner.createAgentRequest.Model == nil {
+		t.Fatalf("CreateAgent calls/request = %d/%+v", runner.createAgentCalls, runner.createAgentRequest)
+	}
+	gotParams := runner.createAgentRequest.Model.Params
+	if len(gotParams) != len(want) {
+		t.Fatalf("executed params = %+v, want %+v", gotParams, want)
+	}
+	for i := range want {
+		if gotParams[i] != want[i] {
+			t.Fatalf("executed params = %+v, want exact order %+v", gotParams, want)
+		}
+	}
+}
+
+func TestCursorAgentModelWithoutParamsPreservesUpstreamDefault(t *testing.T) {
+	runner := &cursorToolRunnerStub{}
+	got := (cursorAgentTool{}).Execute(context.Background(), Input{
+		Args: []byte(`{"action":"start","prompt":"fix it","model":"gpt-5.6-sol","wait":false}`),
+		Deps: &Deps{Config: config.Default(), Cursor: runner},
+	})
+	if got.IsError {
+		t.Fatalf("start result = %+v", got)
+	}
+	if runner.validateCalls != 1 ||
+		runner.validationPolicy != cursorrun.PreserveUpstreamDefault ||
+		runner.validated == nil ||
+		runner.validated.ID != "gpt-5.6-sol" ||
+		runner.validated.Params != nil {
+		t.Fatalf("default validation = calls %d policy %v selection %+v",
+			runner.validateCalls, runner.validationPolicy, runner.validated)
+	}
+	if runner.createAgentRequest.Model == nil ||
+		runner.createAgentRequest.Model.ID != "gpt-5.6-sol" ||
+		runner.createAgentRequest.Model.Params != nil {
+		t.Fatalf("executed default model = %+v", runner.createAgentRequest.Model)
+	}
+	wire, err := json.Marshal(runner.createAgentRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(wire), `"params"`) {
+		t.Fatalf("omitted params changed the upstream default wire payload: %s", wire)
+	}
+}
+
+func TestCursorAgentSuppliedEmptyParamsRequireExactVariant(t *testing.T) {
+	runner := &cursorToolRunnerStub{}
+	got := (cursorAgentTool{}).Execute(context.Background(), Input{
+		Args: []byte(`{"action":"start","prompt":"fix it","model":"plain-model","model_params":[],"wait":false}`),
+		Deps: &Deps{Config: config.Default(), Cursor: runner},
+	})
+	if got.IsError {
+		t.Fatalf("start result = %+v", got)
+	}
+	if runner.validationPolicy != cursorrun.RequireExactVariant ||
+		runner.validated == nil || runner.validated.Params == nil {
+		t.Fatalf("empty supplied params lost presence: policy=%v selection=%+v",
+			runner.validationPolicy, runner.validated)
+	}
+	if runner.createAgentRequest.Model == nil ||
+		runner.createAgentRequest.Model.Params == nil ||
+		len(runner.createAgentRequest.Model.Params) != 0 {
+		t.Fatalf("executed empty params = %+v, want present empty slice", runner.createAgentRequest.Model)
+	}
+	wire, err := json.Marshal(runner.createAgentRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(wire), `"params":[]`) {
+		t.Fatalf("executed empty params were omitted from wire payload: %s", wire)
+	}
+}
+
+func TestCursorAgentRejectsNullModelParams(t *testing.T) {
+	raw := []byte(`{
+		"action":"start",
+		"prompt":"fix it",
+		"model":"plain-model",
+		"model_params":null,
+		"wait":false
+	}`)
+	runner := &cursorToolRunnerStub{}
+	got := (cursorAgentTool{}).Execute(context.Background(), Input{
+		Args: raw,
+		Deps: &Deps{Config: config.Default(), Cursor: runner},
+	})
+	if !got.IsError || !strings.Contains(got.Content, "model_params must be an array") {
+		t.Fatalf("null model_params result = %+v", got)
+	}
+	if runner.validateCalls != 0 || runner.createAgentCalls != 0 {
+		t.Fatalf("null model_params calls = validate %d create %d, want 0/0",
+			runner.validateCalls, runner.createAgentCalls)
+	}
+	if _, err := (cursorAgentTool{}).ApprovalOperation(raw, "ses-null"); err == nil ||
+		!strings.Contains(err.Error(), "model_params must be an array") {
+		t.Fatalf("null model_params approval error = %v", err)
+	}
+}
+
+func TestCursorAgentRejectsNonCanonicalModelParamsKey(t *testing.T) {
+	raw := []byte(`{
+		"action":"start",
+		"prompt":"fix it",
+		"model":"plain-model",
+		"MODEL_PARAMS":[{"id":"reasoning","value":"max"}],
+		"wait":false
+	}`)
+	runner := &cursorToolRunnerStub{}
+	got := (cursorAgentTool{}).Execute(context.Background(), Input{
+		Args: raw,
+		Deps: &Deps{Config: config.Default(), Cursor: runner},
+	})
+	if !got.IsError || !strings.Contains(got.Content, `model_params must use its canonical field name`) {
+		t.Fatalf("noncanonical model_params result = %+v", got)
+	}
+	if runner.validateCalls != 0 || runner.createAgentCalls != 0 {
+		t.Fatalf("noncanonical model_params calls = validate %d create %d, want 0/0",
+			runner.validateCalls, runner.createAgentCalls)
+	}
+	if _, err := (cursorAgentTool{}).ApprovalOperation(raw, "ses-case"); err == nil ||
+		!strings.Contains(err.Error(), `model_params must use its canonical field name`) {
+		t.Fatalf("noncanonical model_params approval error = %v", err)
+	}
+}
+
+func TestCursorAgentRejectsInvalidParamsBeforeRunnerMutation(t *testing.T) {
+	runner := &cursorToolRunnerStub{
+		validationErr: fmt.Errorf("cursor: parameters do not match a model variant"),
+	}
+	got := (cursorAgentTool{}).Execute(context.Background(), Input{
+		Args: []byte(`{
+			"action":"start",
+			"prompt":"fix it",
+			"model":"gpt-5.6-sol",
+			"model_params":[
+				{"id":"context","value":"1m"},
+				{"id":"reasoning","value":"synthetic"}
+			],
+			"wait":false
+		}`),
+		Deps: &Deps{Config: config.Default(), Cursor: runner},
+	})
+	if !got.IsError || !strings.Contains(got.Content, "do not match") {
+		t.Fatalf("invalid variant result = %+v", got)
+	}
+	if runner.validateCalls != 1 || runner.createAgentCalls != 0 {
+		t.Fatalf("invalid variant calls = validate %d create %d, want 1/0",
+			runner.validateCalls, runner.createAgentCalls)
 	}
 }
 
@@ -315,6 +730,7 @@ func TestCursorAgentValidatesActionSpecificArguments(t *testing.T) {
 		{"start rejects agent id", `{"action":"start","prompt":"x","agent_id":"bc-one"}`, "agent_id is not allowed for start"},
 		{"start rejects run id", `{"action":"start","prompt":"x","run_id":"run-one"}`, "run_id is not allowed for start"},
 		{"start rejects mode", `{"action":"start","prompt":"x","mode":"ask"}`, "mode must be"},
+		{"model params need model", `{"action":"start","prompt":"x","model_params":[{"id":"reasoning","value":"max"}]}`, "model is required when model_params is set"},
 		{"pull request needs repository", `{"action":"start","prompt":"x","pull_request_url":"https://github.com/acme/repo/pull/7"}`, "repository_url is required"},
 		{"auto PR needs repository", `{"action":"start","prompt":"x","auto_create_pr":true}`, "repository_url is required"},
 		{"pull request path", `{"action":"start","prompt":"x","repository_url":"https://github.com/acme/repo","pull_request_url":"https://github.com/acme/repo/issues/7"}`, "pull_request_url must be"},
@@ -323,6 +739,7 @@ func TestCursorAgentValidatesActionSpecificArguments(t *testing.T) {
 		{"follow-up missing prompt", `{"action":"follow_up","agent_id":"bc-one","wait":false}`, "prompt is required"},
 		{"follow-up rejects run id", `{"action":"follow_up","agent_id":"bc-one","run_id":"run-one","prompt":"x","wait":false}`, "run_id is not allowed for follow_up"},
 		{"follow-up rejects model", `{"action":"follow_up","agent_id":"bc-one","prompt":"x","model":"composer-2","wait":false}`, "model is not allowed for follow_up"},
+		{"follow-up rejects model params", `{"action":"follow_up","agent_id":"bc-one","prompt":"x","model_params":[],"wait":false}`, "model_params is not allowed for follow_up"},
 		{"follow-up rejects repository", `{"action":"follow_up","agent_id":"bc-one","prompt":"x","repository_url":"https://github.com/acme/repo","wait":false}`, "repository_url is not allowed for follow_up"},
 		{"follow-up rejects ref", `{"action":"follow_up","agent_id":"bc-one","prompt":"x","starting_ref":"main","wait":false}`, "starting_ref is not allowed for follow_up"},
 		{"follow-up rejects pull request", `{"action":"follow_up","agent_id":"bc-one","prompt":"x","pull_request_url":"https://github.com/acme/repo/pull/7","wait":false}`, "pull_request_url is not allowed for follow_up"},
@@ -336,6 +753,7 @@ func TestCursorAgentValidatesActionSpecificArguments(t *testing.T) {
 		{"cancel rejects prompt", `{"action":"cancel","agent_id":"bc-one","run_id":"run-one","prompt":"x"}`, "prompt is not allowed for cancel"},
 		{"cancel rejects mode", `{"action":"cancel","agent_id":"bc-one","run_id":"run-one","mode":"agent"}`, "mode is not allowed for cancel"},
 		{"cancel rejects wait", `{"action":"cancel","agent_id":"bc-one","run_id":"run-one","wait":false}`, "wait is not allowed for cancel"},
+		{"cancel rejects model params", `{"action":"cancel","agent_id":"bc-one","run_id":"run-one","model_params":[]}`, "model_params is not allowed for cancel"},
 		{"cancel rejects repository", `{"action":"cancel","agent_id":"bc-one","run_id":"run-one","repository_url":"https://github.com/acme/repo"}`, "repository_url is not allowed for cancel"},
 		{"cancel rejects reviewer option", `{"action":"cancel","agent_id":"bc-one","run_id":"run-one","skip_reviewer_request":true}`, "skip_reviewer_request is not allowed for cancel"},
 	}
@@ -375,10 +793,18 @@ func TestCursorAgentStartPostsExpectedPayloadAndReturnsImmediately(t *testing.T)
 	var calls atomic.Int32
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{map[string]any{"id": "composer-2"}},
+			})
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/agents" {
 			t.Errorf("method/path = %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
 		}
+		calls.Add(1)
 		if got := r.Header.Get("Authorization"); got != "Bearer "+cursorToolTestKey {
 			t.Errorf("Authorization = %q", got)
 		}

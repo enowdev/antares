@@ -109,6 +109,7 @@ func runWebSetup(ctx context.Context, rt *runtimeServices) error {
 		Config: rt.cfg, Agent: rt.agent, Store: rt.db,
 		Dist: server.EmbeddedDist(), Reload: rt.reload,
 		Skills: rt.skills, Cron: rt.cron, Gateway: rt.gateway, MCP: rt.mcp,
+		Cursor: rt.cursorRunner,
 	})
 
 	urls := setupURLs(port)

@@ -23,6 +23,7 @@ import (
 	"github.com/enowdev/antares/internal/board"
 	"github.com/enowdev/antares/internal/checkpoint"
 	"github.com/enowdev/antares/internal/config"
+	"github.com/enowdev/antares/internal/cursorrun"
 	"github.com/enowdev/antares/internal/engagement"
 	"github.com/enowdev/antares/internal/findings"
 	"github.com/enowdev/antares/internal/llm"
@@ -184,6 +185,8 @@ type Agent struct {
 	roleperf      *roleperf.Tracker
 	board         *board.Board
 	socialBrowser tools.SocialBrowserManager
+	cursorMu      sync.RWMutex
+	cursorRunner  cursorrun.Runner
 
 	bg *bgManager
 	// bgAct tracks background-tool usage per session (RAG index/retrieve, etc.).
@@ -239,10 +242,27 @@ func (a *Agent) SetConfig(cfg *config.Config) {
 		return
 	}
 	a.cfg.Store(cfg)
+	if runner := a.cursorRunService(); runner != nil {
+		runner.InvalidateCatalog()
+	}
 }
 
 // SetRAG swaps the retrieval provider after a config change.
 func (a *Agent) SetRAG(p tools.RAGProvider) { a.rag = p }
+
+// SetCursorRunner attaches the runtime-scoped Cursor catalogue and lifecycle
+// service used by every tool invocation.
+func (a *Agent) SetCursorRunner(runner cursorrun.Runner) {
+	a.cursorMu.Lock()
+	a.cursorRunner = runner
+	a.cursorMu.Unlock()
+}
+
+func (a *Agent) cursorRunService() cursorrun.Runner {
+	a.cursorMu.RLock()
+	defer a.cursorMu.RUnlock()
+	return a.cursorRunner
+}
 
 // SetSkills attaches the skill library.
 func (a *Agent) SetSkills(m *skills.Manager) { a.skills = m }
@@ -913,6 +933,7 @@ func (a *Agent) executeTools(
 				Config: a.config(), Store: a.db, RAG: a.rag, Shell: a.shell,
 				Sub: a.subAgentFor(req), Tasks: a.backgroundFor(req), Skills: a.skillLibrary(),
 				SocialBrowser: a.socialBrowser,
+				Cursor:        a.cursorRunService(),
 				Checkpoint: func(sessionID, path, tool string) {
 					a.saveCheckpoint(sessionID, path, tool, req.turnMarker)
 				},

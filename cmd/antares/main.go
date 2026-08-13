@@ -20,6 +20,8 @@ import (
 	"github.com/enowdev/antares/internal/commands"
 	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/cron"
+	"github.com/enowdev/antares/internal/cursor"
+	"github.com/enowdev/antares/internal/cursorrun"
 	"github.com/enowdev/antares/internal/gateway"
 	"github.com/enowdev/antares/internal/httpshim"
 	"github.com/enowdev/antares/internal/hub"
@@ -196,16 +198,50 @@ func cmdTUI() error {
 // runtimeServices bundles everything a running server needs, so a config reload
 // can rebuild the pieces that depend on configuration.
 type runtimeServices struct {
-	mu      sync.Mutex
-	cfg     *config.Config
-	db      store.Store
-	shell   *tools.ShellManager
-	agent   *agent.Agent
-	skills  *skills.Manager
-	cron    *cron.Runner
-	gateway *gateway.Manager
-	mcp     *mcp.Manager
-	social  *socialbrowser.Manager
+	mu           sync.Mutex
+	cfg          *config.Config
+	db           store.Store
+	shell        *tools.ShellManager
+	agent        *agent.Agent
+	skills       *skills.Manager
+	cron         *cron.Runner
+	gateway      *gateway.Manager
+	mcp          *mcp.Manager
+	social       *socialbrowser.Manager
+	cursorRunner cursorrun.Runner
+}
+
+func newRuntimeCursorRunner(ag *agent.Agent) cursorrun.Runner {
+	return cursorrun.New(cursorrun.Options{
+		ResolveClient: func() (cursor.Options, error) {
+			if ag == nil {
+				return cursor.Options{}, errors.New("Cursor is unavailable in this runtime")
+			}
+			cfg := ag.Config()
+			if cfg == nil {
+				return cursor.Options{}, errors.New("Cursor is unavailable in this runtime")
+			}
+			_, provider := cfg.ResolveProvider("cursor")
+			provider.APIKey = strings.TrimSpace(provider.APIKey)
+			options := cursor.Options{
+				BaseURL: provider.BaseURL,
+				APIKey:  provider.APIKey,
+			}
+			if !provider.Enabled || provider.APIKey == "" {
+				return options, errors.New("connect Cursor in Providers or set CURSOR_API_KEY")
+			}
+			return options, nil
+		},
+		Now:        time.Now,
+		CatalogTTL: 5 * time.Minute,
+	})
+}
+
+func (rt *runtimeServices) setCursorRunner(runner cursorrun.Runner) {
+	rt.cursorRunner = runner
+	if rt.agent != nil {
+		rt.agent.SetCursorRunner(runner)
+	}
 }
 
 func bootstrap(ctx context.Context) (*runtimeServices, error) {
@@ -294,6 +330,7 @@ func bootstrap(ctx context.Context) (*runtimeServices, error) {
 	ag.SetRoles(roleReg)
 
 	rt := &runtimeServices{cfg: cfg, db: db, shell: shell, agent: ag, skills: skillMgr}
+	rt.setCursorRunner(newRuntimeCursorRunner(ag))
 	rt.social = socialbrowser.New()
 	ag.SetSocialBrowser(rt.social)
 
@@ -610,6 +647,7 @@ func cmdServeForeground() error {
 		Gateway: rt.gateway,
 		MCP:     rt.mcp,
 		Social:  rt.social,
+		Cursor:  rt.cursorRunner,
 	})
 
 	if rt.cfg.Cron.Enabled {

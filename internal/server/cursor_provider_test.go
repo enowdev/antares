@@ -141,6 +141,18 @@ func requestCursorModels(s *Server) *httptest.ResponseRecorder {
 	return rec
 }
 
+func TestServerUsesInjectedSharedCursorRunner(t *testing.T) {
+	runner := cursorrun.New(cursorrun.Options{
+		ResolveClient: func() (cursor.Options, error) {
+			return cursor.Options{}, errors.New("runner identity test")
+		},
+	})
+	s := New(Options{Config: config.Default(), Cursor: runner})
+	if s.cursorRunner != runner {
+		t.Fatal("Server.New replaced the injected Cursor runner")
+	}
+}
+
 // TestConnectCursorPreservesActiveModel guards the primary model boundary:
 // connecting Cursor must never touch cfg.Model, even on success.
 func TestConnectCursorPreservesActiveModel(t *testing.T) {

@@ -1,12 +1,20 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/enowdev/antares/internal/agent"
 	"github.com/enowdev/antares/internal/config"
+	"github.com/enowdev/antares/internal/tools"
 )
 
 func TestProviderAddAndUseCursorPreserveActiveModel(t *testing.T) {
@@ -46,6 +54,94 @@ func TestProviderAddAndUseCursorPreserveActiveModel(t *testing.T) {
 	}
 	if afterUse.Model.Provider != beforeProvider || afterUse.Model.Default != beforeModel {
 		t.Fatalf("model changed to %s/%s", afterUse.Model.Provider, afterUse.Model.Default)
+	}
+}
+
+func TestRuntimeCursorRunnerUsesAtomicConfigAndInvalidatesOnReload(t *testing.T) {
+	var calls atomic.Int32
+	var version atomic.Int32
+	version.Store(1)
+	var authMu sync.Mutex
+	var authorizations []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/models" {
+			t.Errorf("request = %s %s, want GET /v1/models", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		calls.Add(1)
+		authMu.Lock()
+		authorizations = append(authorizations, r.Header.Get("Authorization"))
+		authMu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{map[string]any{
+				"id": "model-" + string(rune('0'+version.Load())),
+			}},
+		})
+	}))
+	defer upstream.Close()
+
+	cfg := config.Default()
+	provider := cfg.Providers["cursor"]
+	provider.Enabled = true
+	provider.APIKey = "runtime-key-one"
+	provider.BaseURL = upstream.URL
+	cfg.Providers["cursor"] = provider
+	ag := agent.New(cfg, nil, tools.NewRegistry(), nil, nil)
+	rt := &runtimeServices{cfg: cfg, agent: ag}
+	runner := newRuntimeCursorRunner(ag)
+	rt.setCursorRunner(runner)
+	if rt.cursorRunner != runner {
+		t.Fatal("runtimeServices did not retain the installed Cursor runner")
+	}
+
+	first, err := runner.Catalog(context.Background(), false)
+	if err != nil || len(first.Items) != 1 || first.Items[0].ID != "model-1" {
+		t.Fatalf("first catalogue = %+v, %v", first, err)
+	}
+	if _, err := runner.Catalog(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("cached catalogue requests = %d, want 1", got)
+	}
+
+	version.Store(2)
+	reloaded := *cfg
+	reloaded.Providers = make(map[string]config.Provider, len(cfg.Providers))
+	for id, configured := range cfg.Providers {
+		reloaded.Providers[id] = configured
+	}
+	ag.SetConfig(&reloaded)
+	second, err := runner.Catalog(context.Background(), false)
+	if err != nil || len(second.Items) != 1 || second.Items[0].ID != "model-2" {
+		t.Fatalf("reloaded catalogue = %+v, %v", second, err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("catalogue requests after same-key reload = %d, want 2", got)
+	}
+
+	changedKey := reloaded
+	changedKey.Providers = make(map[string]config.Provider, len(reloaded.Providers))
+	for id, configured := range reloaded.Providers {
+		changedKey.Providers[id] = configured
+	}
+	provider = changedKey.Providers["cursor"]
+	provider.APIKey = "runtime-key-two"
+	changedKey.Providers["cursor"] = provider
+	ag.SetConfig(&changedKey)
+	if _, err := runner.Catalog(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+
+	authMu.Lock()
+	gotAuthorizations := append([]string(nil), authorizations...)
+	authMu.Unlock()
+	if len(gotAuthorizations) != 3 ||
+		gotAuthorizations[0] != "Bearer runtime-key-one" ||
+		gotAuthorizations[1] != "Bearer runtime-key-one" ||
+		gotAuthorizations[2] != "Bearer runtime-key-two" {
+		t.Fatalf("resolved authorizations = %v", gotAuthorizations)
 	}
 }
 

@@ -88,6 +88,21 @@ type ModelSelection struct {
 	Params []ModelParameterSelection `json:"params,omitempty"`
 }
 
+func (m ModelSelection) MarshalJSON() ([]byte, error) {
+	if m.Params == nil {
+		return json.Marshal(struct {
+			ID string `json:"id"`
+		}{ID: m.ID})
+	}
+	return json.Marshal(struct {
+		ID     string                    `json:"id"`
+		Params []ModelParameterSelection `json:"params"`
+	}{
+		ID:     m.ID,
+		Params: m.Params,
+	})
+}
+
 type Repository struct {
 	URL         string `json:"url"`
 	StartingRef string `json:"startingRef,omitempty"`

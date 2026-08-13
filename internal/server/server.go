@@ -105,39 +105,45 @@ type Options struct {
 	Gateway *gateway.Manager
 	MCP     *mcp.Manager
 	Social  *socialbrowser.Manager
+	// Cursor is the runtime-scoped catalogue and remote-run service shared with
+	// the Agent. When nil, New constructs a compatibility fallback.
+	Cursor cursorrun.Runner
 }
 
 // New builds the HTTP server and registers every route.
 func New(o Options) *Server {
 	s := &Server{
-		cfg:      o.Config,
-		agent:    o.Agent,
-		db:       o.Store,
-		skills:   o.Skills,
-		cron:     o.Cron,
-		gateway:  o.Gateway,
-		mcp:      o.MCP,
-		social:   o.Social,
-		mux:      http.NewServeMux(),
-		hub:      newLiveHub(),
-		wake:     newWakeQueue(),
-		started:  time.Now(),
-		distFS:   o.Dist,
-		reloadFn: o.Reload,
+		cfg:          o.Config,
+		agent:        o.Agent,
+		db:           o.Store,
+		skills:       o.Skills,
+		cron:         o.Cron,
+		gateway:      o.Gateway,
+		mcp:          o.MCP,
+		social:       o.Social,
+		mux:          http.NewServeMux(),
+		hub:          newLiveHub(),
+		wake:         newWakeQueue(),
+		started:      time.Now(),
+		distFS:       o.Dist,
+		reloadFn:     o.Reload,
+		cursorRunner: o.Cursor,
 
 		dashSessions: map[string]time.Time{},
 	}
-	s.cursorRunner = cursorrun.New(cursorrun.Options{
-		ResolveClient: func() (cursor.Options, error) {
-			_, provider := s.config().ResolveProvider("cursor")
-			return cursor.Options{
-				BaseURL: provider.BaseURL,
-				APIKey:  strings.TrimSpace(provider.APIKey),
-			}, nil
-		},
-		Now:        time.Now,
-		CatalogTTL: 5 * time.Minute,
-	})
+	if s.cursorRunner == nil {
+		s.cursorRunner = cursorrun.New(cursorrun.Options{
+			ResolveClient: func() (cursor.Options, error) {
+				_, provider := s.config().ResolveProvider("cursor")
+				return cursor.Options{
+					BaseURL: provider.BaseURL,
+					APIKey:  strings.TrimSpace(provider.APIKey),
+				}, nil
+			},
+			Now:        time.Now,
+			CatalogTTL: 5 * time.Minute,
+		})
+	}
 	// Restore dashboard logins so a daemon restart does not break EventSource
 	// reattach (/api/chat/attach) for browsers that still hold a valid cookie.
 	s.loadDashSessions()
