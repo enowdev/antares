@@ -82,6 +82,9 @@ func prepareCursorSessionState(state *CursorSessionState) error {
 	if strings.TrimSpace(state.SessionID) == "" {
 		return errors.New("cursor session id is required")
 	}
+	if state.Revision < 0 {
+		return errors.New("cursor session revision cannot be negative")
+	}
 	if !validCursorOperationState(state.OperationState) {
 		return fmt.Errorf("invalid cursor operation state %q", state.OperationState)
 	}
@@ -127,15 +130,27 @@ func cursorSessionUpdateArgs(state *CursorSessionState) []any {
 	return cursorSessionArgs(state)[1:]
 }
 
-// PutCursorSessionState writes a complete snapshot. Revisions default to one;
-// callers use CompareAndSwapCursorSessionState for ownership transitions.
+// PutCursorSessionState creates a snapshot at revision one or replaces the
+// currently owned revision and advances it atomically. A zero-revision state is
+// insert-only; it can never overwrite an existing row.
 func (s *sqlStore) PutCursorSessionState(ctx context.Context, state *CursorSessionState) error {
-	if err := prepareCursorSessionState(state); err != nil {
+	if state == nil {
+		return errors.New("cursor session state is required")
+	}
+	next := *state
+	expectedRevision := next.Revision
+	if err := prepareCursorSessionState(&next); err != nil {
 		return err
 	}
-	_, err := s.exec(ctx, `INSERT INTO cursor_session_states (`+cursorSessionCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`+
-		onConflict("session_id", `target_active=EXCLUDED.target_active,
+	args := append(cursorSessionArgs(&next), expectedRevision)
+	var (
+		revision  int64
+		updatedAt int64
+	)
+	err := s.row(ctx, `INSERT INTO cursor_session_states (`+cursorSessionCols+`)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			target_active=EXCLUDED.target_active,
 			reuse_valid=EXCLUDED.reuse_valid,
 			model_id=EXCLUDED.model_id,
 			model_params=EXCLUDED.model_params,
@@ -153,10 +168,22 @@ func (s *sqlStore) PutCursorSessionState(ctx context.Context, state *CursorSessi
 			operation_state=EXCLUDED.operation_state,
 			user_message_id=EXCLUDED.user_message_id,
 			assistant_message_id=EXCLUDED.assistant_message_id,
-			revision=EXCLUDED.revision,
-			updated_at=EXCLUDED.updated_at`),
-		cursorSessionArgs(state)...)
-	return err
+			revision=cursor_session_states.revision+1,
+			updated_at=EXCLUDED.updated_at
+		WHERE cursor_session_states.revision=EXCLUDED.revision AND ? > 0
+		RETURNING revision,updated_at`,
+		args...,
+	).Scan(&revision, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("cursor session state revision conflict")
+	}
+	if err != nil {
+		return err
+	}
+	next.Revision = revision
+	next.UpdatedAt = fromMS(updatedAt)
+	*state = next
+	return nil
 }
 
 func scanCursorSessionState(scanner interface{ Scan(...any) error }) (*CursorSessionState, error) {

@@ -179,26 +179,61 @@ func (s *sqlStore) CountEmptySessions(ctx context.Context) (int64, error) {
 }
 
 func (s *sqlStore) DeleteEmptySessions(ctx context.Context) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM sessions WHERE message_count=0`)
+	return s.deleteSessionsAndChildren(ctx, `DELETE FROM sessions WHERE message_count=0 RETURNING id`)
+}
+
+func (s *sqlStore) deleteSessionsAndChildren(ctx context.Context, deleteQuery string, args ...any) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
-	return n, nil
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, s.rebind(deleteQuery), args...)
+	if err != nil {
+		return 0, err
+	}
+	var sessionIDs []string
+	for rows.Next() {
+		var sessionID string
+		if err := rows.Scan(&sessionID); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	for _, sessionID := range sessionIDs {
+		if _, err := tx.ExecContext(ctx, s.rebind(
+			`DELETE FROM cursor_session_states WHERE session_id=?`,
+		), sessionID); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, s.rebind(
+			`DELETE FROM messages WHERE session_id=?`,
+		), sessionID); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int64(len(sessionIDs)), nil
 }
 
 func (s *sqlStore) PruneSessions(ctx context.Context, olderThan time.Time) (int64, error) {
 	cutoff := ms(olderThan)
-	if _, err := s.exec(ctx,
-		`DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE updated_at < ? AND pinned = FALSE)`, cutoff); err != nil {
-		return 0, err
-	}
-	res, err := s.exec(ctx, `DELETE FROM sessions WHERE updated_at < ? AND pinned = FALSE`, cutoff)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return n, nil
+	return s.deleteSessionsAndChildren(ctx,
+		`DELETE FROM sessions WHERE updated_at < ? AND pinned = FALSE RETURNING id`,
+		cutoff,
+	)
 }
 
 // ---- messages ---------------------------------------------------------------

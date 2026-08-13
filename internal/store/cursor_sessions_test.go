@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCursorSessionMigrationCreatesCascadeAndOperationIndex(t *testing.T) {
@@ -52,6 +53,24 @@ func TestCursorSessionMigrationCreatesCascadeAndOperationIndex(t *testing.T) {
 	}
 	if _, err := s.GetCursorSessionState(ctx, "cursor-fk-cascade"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign-key cascade left cursor state behind: %v", err)
+	}
+}
+
+func TestCursorSessionDatabaseCheckRejectsInvalidOperationState(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t).(*sqlStore)
+	if err := s.CreateSession(ctx, &Session{ID: "cursor-invalid-sql-state"}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	_, err := s.exec(ctx, `INSERT INTO cursor_session_states
+		(session_id,operation_state,updated_at) VALUES (?,?,?)`,
+		"cursor-invalid-sql-state", "launching", ms(time.Now()))
+	if err == nil {
+		t.Fatal("database accepted an invalid cursor operation state")
+	}
+	if _, err := s.GetCursorSessionState(ctx, "cursor-invalid-sql-state"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("invalid SQL state was persisted: %v", err)
 	}
 }
 
@@ -114,6 +133,191 @@ func TestCursorSessionRoundTripCanonicalizesParamsAndCascades(t *testing.T) {
 	}
 }
 
+func TestCursorSessionPutAdvancesRevisionAndRejectsStaleSnapshot(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	current := putCursorTestState(t, s, "cursor-put-revision", CursorOperationRunInFlight)
+	stale := *current
+
+	current.AgentID = "bc-current"
+	current.RunID = "run-current"
+	current.PartialText = "first current snapshot"
+	if err := s.PutCursorSessionState(ctx, current); err != nil {
+		t.Fatalf("put current snapshot: %v", err)
+	}
+	if current.Revision != 2 {
+		t.Fatalf("first update revision = %d, want 2", current.Revision)
+	}
+	current.PartialText = "second current snapshot"
+	if err := s.PutCursorSessionState(ctx, current); err != nil {
+		t.Fatalf("put second current snapshot: %v", err)
+	}
+	if current.Revision != 3 {
+		t.Fatalf("second update revision = %d, want 3", current.Revision)
+	}
+
+	stale.ModelParams = `[ { "id": "reasoning", "value": "max" } ]`
+	staleBefore := stale
+	if err := s.PutCursorSessionState(ctx, &stale); err == nil {
+		t.Fatal("stale full snapshot overwrote newer cursor state")
+	}
+	if !reflect.DeepEqual(stale, staleBefore) {
+		t.Fatalf("conflicted put mutated caller:\n got: %+v\nwant: %+v", stale, staleBefore)
+	}
+	fresh := *current
+	fresh.Revision = 0
+	fresh.RunID = "run-zero-revision-bypass"
+	freshBefore := fresh
+	if err := s.PutCursorSessionState(ctx, &fresh); err == nil {
+		t.Fatal("zero-revision create overwrote an existing cursor state")
+	}
+	if !reflect.DeepEqual(fresh, freshBefore) {
+		t.Fatalf("insert conflict mutated caller:\n got: %+v\nwant: %+v", fresh, freshBefore)
+	}
+
+	persisted, err := s.GetCursorSessionState(ctx, current.SessionID)
+	if err != nil {
+		t.Fatalf("get current state: %v", err)
+	}
+	if persisted.Revision != 3 ||
+		persisted.AgentID != current.AgentID ||
+		persisted.RunID != current.RunID ||
+		persisted.PartialText != current.PartialText {
+		t.Fatalf("stale put changed current state: %+v", persisted)
+	}
+}
+
+func TestCursorSessionStalePutCannotRestoreCASOwnership(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("old finalizer and CAS stay rejected", func(t *testing.T) {
+		s := newTestStore(t)
+		initial := putCursorTestState(t, s, "cursor-stale-put-cas", CursorOperationTerminal)
+		stalePut := *initial
+
+		current := *initial
+		current.AgentID = "bc-new-owner"
+		current.RunID = "run-new-owner"
+		current.AssistantMessageID = "assistant-new-owner"
+		swapped, err := s.CompareAndSwapCursorSessionState(ctx, &current, initial.Revision)
+		if err != nil || !swapped {
+			t.Fatalf("advance current owner: swapped=%v err=%v", swapped, err)
+		}
+
+		if err := s.PutCursorSessionState(ctx, &stalePut); err == nil {
+			t.Error("stale put restored the old revision after CAS")
+		}
+		oldFinalizer := *initial
+		if err := s.CommitCursorAssistant(ctx, &oldFinalizer, &Message{Content: "stale result"}); err == nil {
+			t.Error("old finalizer won after stale put")
+		}
+		oldCAS := *initial
+		oldCAS.PartialText = "stale update"
+		swapped, err = s.CompareAndSwapCursorSessionState(ctx, &oldCAS, initial.Revision)
+		if err != nil {
+			t.Fatalf("old CAS: %v", err)
+		}
+		if swapped {
+			t.Error("old CAS won after stale put")
+		}
+
+		persisted, err := s.GetCursorSessionState(ctx, initial.SessionID)
+		if err != nil {
+			t.Fatalf("get current owner: %v", err)
+		}
+		if persisted.Revision != current.Revision ||
+			persisted.AgentID != current.AgentID ||
+			persisted.RunID != current.RunID {
+			t.Fatalf("old ownership was restored: %+v", persisted)
+		}
+		messages, err := s.ListMessages(ctx, initial.SessionID, 0, 0)
+		if err != nil {
+			t.Fatalf("list messages: %v", err)
+		}
+		if len(messages) != 0 {
+			t.Fatalf("old finalizer appended messages: %+v", messages)
+		}
+	})
+
+	t.Run("invalidation remains monotonic", func(t *testing.T) {
+		s := newTestStore(t)
+		initial := putCursorTestState(t, s, "cursor-stale-put-invalidate", CursorOperationRunInFlight)
+		stalePut := *initial
+		if err := s.InvalidateCursorReuse(ctx, initial.SessionID); err != nil {
+			t.Fatalf("invalidate reuse: %v", err)
+		}
+
+		if err := s.PutCursorSessionState(ctx, &stalePut); err == nil {
+			t.Fatal("stale put undid reuse invalidation")
+		}
+		persisted, err := s.GetCursorSessionState(ctx, initial.SessionID)
+		if err != nil {
+			t.Fatalf("get invalidated state: %v", err)
+		}
+		if persisted.Revision != initial.Revision+1 || persisted.ReuseValid {
+			t.Fatalf("invalidation was regressed: %+v", persisted)
+		}
+		if persisted.AgentID != initial.AgentID || persisted.RunID != initial.RunID {
+			t.Fatalf("invalidation changed remote IDs: %+v", persisted)
+		}
+	})
+}
+
+func TestCursorSessionPutFailuresDoNotMutateCaller(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("validation", func(t *testing.T) {
+		s := newTestStore(t)
+		state := CursorSessionState{
+			SessionID:      "cursor-put-validation",
+			ModelParams:    `[ { "id": "reasoning", "value": "max" } ]`,
+			OperationState: "launching",
+		}
+		before := state
+		if err := s.PutCursorSessionState(ctx, &state); err == nil {
+			t.Fatal("invalid state was accepted")
+		}
+		if !reflect.DeepEqual(state, before) {
+			t.Fatalf("validation failure mutated caller:\n got: %+v\nwant: %+v", state, before)
+		}
+	})
+
+	t.Run("database", func(t *testing.T) {
+		s := newTestStore(t)
+		state := CursorSessionState{
+			SessionID:      "missing-parent",
+			ModelParams:    `[ { "id": "reasoning", "value": "max" } ]`,
+			OperationState: CursorOperationIdle,
+		}
+		before := state
+		if err := s.PutCursorSessionState(ctx, &state); err == nil {
+			t.Fatal("state without a parent session was accepted")
+		}
+		if !reflect.DeepEqual(state, before) {
+			t.Fatalf("database failure mutated caller:\n got: %+v\nwant: %+v", state, before)
+		}
+	})
+
+	t.Run("revision conflict", func(t *testing.T) {
+		s := newTestStore(t)
+		current := putCursorTestState(t, s, "cursor-put-conflict-copy", CursorOperationRunInFlight)
+		stale := *current
+		current.PartialText = "new owner"
+		swapped, err := s.CompareAndSwapCursorSessionState(ctx, current, current.Revision)
+		if err != nil || !swapped {
+			t.Fatalf("advance owner: swapped=%v err=%v", swapped, err)
+		}
+		stale.ModelParams = `[ { "id": "reasoning", "value": "max" } ]`
+		before := stale
+		if err := s.PutCursorSessionState(ctx, &stale); err == nil {
+			t.Fatal("stale state was accepted")
+		}
+		if !reflect.DeepEqual(stale, before) {
+			t.Fatalf("conflict failure mutated caller:\n got: %+v\nwant: %+v", stale, before)
+		}
+	})
+}
+
 func TestCursorSessionDeleteFollowsManualSessionCascadeConvention(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, "memory", "", 1, 5000, false)
@@ -128,6 +332,138 @@ func TestCursorSessionDeleteFollowsManualSessionCascadeConvention(t *testing.T) 
 	}
 	if _, err := s.GetCursorSessionState(ctx, state.SessionID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("get cursor state after manual cascade = %v, want ErrNotFound", err)
+	}
+}
+
+func newCursorForeignKeyOffStore(t *testing.T) *sqlStore {
+	t.Helper()
+	raw, err := Open(context.Background(), "memory", "", 1, 5000, false)
+	if err != nil {
+		t.Fatalf("open foreign-key-off store: %v", err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	s := raw.(*sqlStore)
+	var enabled int
+	if err := s.row(context.Background(), `PRAGMA foreign_keys`).Scan(&enabled); err != nil {
+		t.Fatalf("read foreign_keys pragma: %v", err)
+	}
+	if enabled != 0 {
+		t.Fatalf("foreign_keys = %d, want disabled test store", enabled)
+	}
+	return s
+}
+
+func TestCursorSessionDeleteEmptySessionsRemovesStateWithoutForeignKeys(t *testing.T) {
+	ctx := context.Background()
+	s := newCursorForeignKeyOffStore(t)
+	removed := putCursorTestState(t, s, "cursor-empty-remove", CursorOperationRunInFlight)
+	kept := putCursorTestState(t, s, "cursor-empty-keep", CursorOperationRunInFlight)
+	if err := s.AppendMessage(ctx, &Message{
+		ID:        "keep-message",
+		SessionID: kept.SessionID,
+		Role:      RoleUser,
+		Content:   "keep",
+	}); err != nil {
+		t.Fatalf("append keep message: %v", err)
+	}
+
+	count, err := s.DeleteEmptySessions(ctx)
+	if err != nil {
+		t.Fatalf("delete empty sessions: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("deleted empty sessions = %d, want 1", count)
+	}
+	if _, err := s.GetCursorSessionState(ctx, removed.SessionID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("empty-session cursor state survived: %v", err)
+	}
+	if _, err := s.GetSession(ctx, removed.SessionID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("empty session survived: %v", err)
+	}
+	if _, err := s.GetCursorSessionState(ctx, kept.SessionID); err != nil {
+		t.Fatalf("non-empty cursor state was deleted: %v", err)
+	}
+}
+
+func TestCursorSessionBulkDeleteRollsBackOnChildFailure(t *testing.T) {
+	ctx := context.Background()
+	s := newCursorForeignKeyOffStore(t)
+	state := putCursorTestState(t, s, "cursor-bulk-rollback", CursorOperationRunInFlight)
+	if _, err := s.exec(ctx, `INSERT INTO messages (id,session_id,seq,role,created_at)
+		VALUES (?,?,?,?,?)`, "rollback-message", state.SessionID, 1, RoleUser, ms(time.Now())); err != nil {
+		t.Fatalf("insert rollback message: %v", err)
+	}
+	if _, err := s.exec(ctx, `CREATE TRIGGER fail_cursor_bulk_message_delete
+		BEFORE DELETE ON messages
+		WHEN OLD.session_id = 'cursor-bulk-rollback'
+		BEGIN
+			SELECT RAISE(ABORT, 'blocked child delete');
+		END`); err != nil {
+		t.Fatalf("create failing delete trigger: %v", err)
+	}
+
+	count, err := s.DeleteEmptySessions(ctx)
+	if err == nil {
+		t.Fatal("bulk deletion unexpectedly succeeded")
+	}
+	if count != 0 {
+		t.Fatalf("failed bulk deletion count = %d, want 0", count)
+	}
+	if _, err := s.GetSession(ctx, state.SessionID); err != nil {
+		t.Fatalf("session was not rolled back: %v", err)
+	}
+	if _, err := s.GetCursorSessionState(ctx, state.SessionID); err != nil {
+		t.Fatalf("cursor state was not rolled back: %v", err)
+	}
+	messages, err := s.ListMessages(ctx, state.SessionID, 0, 0)
+	if err != nil {
+		t.Fatalf("list rolled-back messages: %v", err)
+	}
+	if len(messages) != 1 || messages[0].ID != "rollback-message" {
+		t.Fatalf("messages were not rolled back: %+v", messages)
+	}
+}
+
+func TestCursorSessionPruneSessionsRemovesStateWithoutForeignKeys(t *testing.T) {
+	ctx := context.Background()
+	s := newCursorForeignKeyOffStore(t)
+	removed := putCursorTestState(t, s, "cursor-prune-remove", CursorOperationRunInFlight)
+	kept := putCursorTestState(t, s, "cursor-prune-keep", CursorOperationRunInFlight)
+	if err := s.AppendMessage(ctx, &Message{
+		ID:        "prune-message",
+		SessionID: removed.SessionID,
+		Role:      RoleUser,
+		Content:   "remove",
+	}); err != nil {
+		t.Fatalf("append pruned message: %v", err)
+	}
+	if _, err := s.exec(ctx, `UPDATE sessions SET updated_at=? WHERE id=?`,
+		ms(time.Now().Add(-2*time.Hour)), removed.SessionID); err != nil {
+		t.Fatalf("age pruned session: %v", err)
+	}
+
+	count, err := s.PruneSessions(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("prune sessions: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("pruned sessions = %d, want 1", count)
+	}
+	if _, err := s.GetCursorSessionState(ctx, removed.SessionID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("pruned cursor state survived: %v", err)
+	}
+	if _, err := s.GetSession(ctx, removed.SessionID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("pruned session survived: %v", err)
+	}
+	messages, err := s.ListMessages(ctx, removed.SessionID, 0, 0)
+	if err != nil {
+		t.Fatalf("list pruned messages: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("pruned messages survived: %+v", messages)
+	}
+	if _, err := s.GetCursorSessionState(ctx, kept.SessionID); err != nil {
+		t.Fatalf("fresh cursor state was deleted: %v", err)
 	}
 }
 
