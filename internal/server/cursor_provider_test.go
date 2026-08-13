@@ -153,6 +153,45 @@ func TestServerUsesInjectedSharedCursorRunner(t *testing.T) {
 	}
 }
 
+func TestServerFallbackCursorRunnerRejectsUnavailableConfigLocally(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_ = json.NewEncoder(w).Encode(cursor.ModelCatalog{})
+	}))
+	defer upstream.Close()
+
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+		apiKey  string
+	}{
+		{name: "disabled", enabled: false, apiKey: "must-not-be-sent"},
+		{name: "missing key", enabled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := calls.Load()
+			cfg := config.Default()
+			provider := cfg.Providers["cursor"]
+			provider.Enabled = tc.enabled
+			provider.APIKey = tc.apiKey
+			provider.APIKeyEnv = ""
+			provider.BaseURL = upstream.URL
+			cfg.Providers["cursor"] = provider
+
+			s := New(Options{Config: cfg})
+			_, err := s.cursorRunner.Catalog(context.Background(), false)
+			if err == nil ||
+				err.Error() != "connect Cursor in Providers or set CURSOR_API_KEY" {
+				t.Fatalf("fallback error = %v", err)
+			}
+			if got := calls.Load(); got != before {
+				t.Fatalf("fallback made %d upstream request(s), want none", got-before)
+			}
+		})
+	}
+}
+
 // TestConnectCursorPreservesActiveModel guards the primary model boundary:
 // connecting Cursor must never touch cfg.Model, even on success.
 func TestConnectCursorPreservesActiveModel(t *testing.T) {

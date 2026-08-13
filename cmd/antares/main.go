@@ -228,7 +228,7 @@ func newRuntimeCursorRunner(ag *agent.Agent) cursorrun.Runner {
 				APIKey:  provider.APIKey,
 			}
 			if !provider.Enabled || provider.APIKey == "" {
-				return options, errors.New("connect Cursor in Providers or set CURSOR_API_KEY")
+				return options, cursorrun.ErrNotConfigured
 			}
 			return options, nil
 		},

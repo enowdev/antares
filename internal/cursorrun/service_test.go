@@ -43,6 +43,57 @@ func TestValidateModelAcceptsHiddenVariantParams(t *testing.T) {
 	}
 }
 
+func TestValidateModelAcceptsUniqueAlias(t *testing.T) {
+	runner := newTestRunner(t, cursor.ModelCatalog{Items: []cursor.Model{{
+		ID:      "composer-2",
+		Aliases: []string{"composer"},
+	}}})
+
+	got, err := runner.ValidateModel(context.Background(),
+		&cursor.ModelSelection{ID: "composer"}, PreserveUpstreamDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "composer-2" || got.Params != nil {
+		t.Fatalf("alias selection = %+v, want canonical model authorization", got)
+	}
+}
+
+func TestValidateModelPrefersExactIDOverAlias(t *testing.T) {
+	runner := newTestRunner(t, cursor.ModelCatalog{Items: []cursor.Model{
+		{ID: "composer", Aliases: []string{"legacy-composer"}},
+		{ID: "composer-2", Aliases: []string{"composer"}},
+	}})
+
+	got, err := runner.ValidateModel(context.Background(),
+		&cursor.ModelSelection{ID: "composer"}, PreserveUpstreamDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "composer" {
+		t.Fatalf("exact ID resolved to %q, want composer", got.ID)
+	}
+}
+
+func TestValidateModelRejectsAmbiguousAliasDeterministically(t *testing.T) {
+	first := cursor.Model{ID: "model-a", Aliases: []string{"shared"}}
+	second := cursor.Model{ID: "model-b", Aliases: []string{"shared"}}
+	var errorsByOrder []string
+	for _, items := range [][]cursor.Model{{first, second}, {second, first}} {
+		runner := newTestRunner(t, cursor.ModelCatalog{Items: items})
+		_, err := runner.ValidateModel(context.Background(),
+			&cursor.ModelSelection{ID: "shared"}, PreserveUpstreamDefault)
+		if err == nil || !strings.Contains(err.Error(), "model alias is ambiguous") {
+			t.Fatalf("ambiguous alias error = %v", err)
+		}
+		errorsByOrder = append(errorsByOrder, err.Error())
+	}
+	if errorsByOrder[0] != errorsByOrder[1] {
+		t.Fatalf("ambiguous alias errors depend on catalogue order: %q != %q",
+			errorsByOrder[0], errorsByOrder[1])
+	}
+}
+
 func TestCatalogCachesForFiveMinutes(t *testing.T) {
 	var nowMu sync.Mutex
 	now := time.Unix(1_700_000_000, 0)

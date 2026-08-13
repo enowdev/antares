@@ -575,6 +575,87 @@ func TestCursorAgentRejectsInvalidParamsBeforeRunnerMutation(t *testing.T) {
 	}
 }
 
+func TestCursorAgentDirectExecutionEnforcesApprovalModelParamBounds(t *testing.T) {
+	longValue := strings.Repeat("界", 10_000)
+	oversizedParams := make([]map[string]string, maxCursorApprovalModelParams)
+	for i := range oversizedParams {
+		oversizedParams[i] = map[string]string{
+			"id":    fmt.Sprintf("parameter-%03d-%s", i, longValue),
+			"value": fmt.Sprintf("value-%03d-%s", i, longValue),
+		}
+	}
+	tooManyParams := make([]map[string]string, maxCursorApprovalModelParams+1)
+	for i := range tooManyParams {
+		tooManyParams[i] = map[string]string{
+			"id":    fmt.Sprintf("parameter-%03d", i),
+			"value": fmt.Sprintf("value-%03d", i),
+		}
+	}
+
+	for _, tc := range []struct {
+		name   string
+		params []map[string]string
+	}{
+		{name: "encoded size", params: oversizedParams},
+		{name: "parameter count", params: tooManyParams},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(map[string]any{
+				"action":       "start",
+				"prompt":       "fix it",
+				"model":        "gpt-5.6-sol",
+				"model_params": tc.params,
+				"wait":         false,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner := &cursorToolRunnerStub{}
+			got := (cursorAgentTool{}).Execute(context.Background(), Input{
+				Args: raw,
+				Deps: &Deps{Config: config.Default(), Cursor: runner},
+			})
+			_, approvalErr := (cursorAgentTool{}).ApprovalOperation(raw, "ses-bounds")
+			if !got.IsError || approvalErr == nil ||
+				got.Content != approvalErr.Error() ||
+				!strings.Contains(got.Content, "safe display limit") {
+				t.Fatalf("direct/approval bounds = result %+v approval %v", got, approvalErr)
+			}
+			if runner.validateCalls != 0 || runner.createAgentCalls != 0 {
+				t.Fatalf("bounded args calls = validate %d create %d, want 0/0",
+					runner.validateCalls, runner.createAgentCalls)
+			}
+		})
+	}
+}
+
+func TestCursorAgentModelValidationErrorIsBoundedAndNotAnAgent404(t *testing.T) {
+	runner := &cursorToolRunnerStub{
+		validationErr: &cursor.APIError{
+			Status:  http.StatusNotFound,
+			Code:    "model_not_found",
+			Message: strings.Repeat("界", 10_000),
+		},
+	}
+	got := (cursorAgentTool{}).Execute(context.Background(), Input{
+		Args: []byte(`{"action":"start","prompt":"fix it","model":"missing-alias","wait":false}`),
+		Deps: &Deps{Config: config.Default(), Cursor: runner},
+	})
+	if !got.IsError || !strings.HasPrefix(got.Content, "Cursor model selection failed: ") {
+		t.Fatalf("model validation result = %+v", got)
+	}
+	if strings.Contains(got.Content, "Cursor agent not found") {
+		t.Fatalf("model validation was misclassified as agent 404: %q", got.Content)
+	}
+	if utf8.RuneCountInString(got.Content) > 4096 {
+		t.Fatalf("model validation error has %d runes, want at most 4096",
+			utf8.RuneCountInString(got.Content))
+	}
+	if runner.createAgentCalls != 0 {
+		t.Fatalf("model validation failure made %d create calls", runner.createAgentCalls)
+	}
+}
+
 func TestCursorApprovalFieldNormalizesBeforeWholeFieldTokenRedaction(t *testing.T) {
 	value := "visible-prefix-" + string([]byte{0xff}) +
 		"-crsr_synthetic_key_123.tail-must-not-leak"
@@ -865,6 +946,69 @@ func TestCursorAgentStartPostsExpectedPayloadAndReturnsImmediately(t *testing.T)
 	}
 	if !strings.Contains(got.Content, "Do not busy-poll") {
 		t.Fatalf("immediate result lacks polling guidance: %q", got.Content)
+	}
+}
+
+func TestCursorAgentModelOnlyAliasValidatesAndExecutesOriginalAlias(t *testing.T) {
+	var catalogCalls, createCalls atomic.Int32
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			catalogCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(cursor.ModelCatalog{Items: []cursor.Model{{
+				ID:      "composer-2",
+				Aliases: []string{"composer"},
+			}}})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/agents":
+			createCalls.Add(1)
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode body: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"agent": map[string]any{
+					"id": "bc-alias", "status": "ACTIVE",
+					"url": "https://cursor.com/agents/bc-alias", "latestRunId": "run-alias",
+				},
+				"run": map[string]any{
+					"id": "run-alias", "agentId": "bc-alias", "status": "CREATING",
+				},
+			})
+		default:
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	raw := json.RawMessage(`{
+		"action":"start",
+		"prompt":"fix it",
+		"model":"composer",
+		"wait":false
+	}`)
+	op, err := (cursorAgentTool{}).ApprovalOperation(raw, "ses-alias")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(op.Arguments, `"model":"composer"`) {
+		t.Fatalf("approval changed model alias: %s", op.Arguments)
+	}
+	got := (cursorAgentTool{}).Execute(context.Background(),
+		cursorToolTestInput(cursorToolTestConfig(srv.URL), string(raw), nil))
+	if got.IsError {
+		t.Fatalf("alias start result = %+v", got)
+	}
+	if catalogCalls.Load() != 1 || createCalls.Load() != 1 {
+		t.Fatalf("calls = catalog %d create %d, want 1/1",
+			catalogCalls.Load(), createCalls.Load())
+	}
+	model := body["model"].(map[string]any)
+	if model["id"] != "composer" {
+		t.Fatalf("executed model = %#v, want approved alias", model)
+	}
+	if _, exists := model["params"]; exists {
+		t.Fatalf("model-only alias unexpectedly sent params: %#v", model)
 	}
 }
 

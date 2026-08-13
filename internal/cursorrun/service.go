@@ -30,6 +30,9 @@ const (
 
 type SelectionPolicy uint8
 
+// ErrNotConfigured reports that Cursor is disabled or has no resolved API key.
+var ErrNotConfigured = errors.New("connect Cursor in Providers or set CURSOR_API_KEY")
+
 const (
 	PreserveUpstreamDefault SelectionPolicy = iota
 	RequireExactVariant

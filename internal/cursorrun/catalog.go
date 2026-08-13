@@ -234,6 +234,20 @@ func matchSelection(
 		}
 	}
 	if model == nil {
+		for i := range catalog.Items {
+			for _, alias := range catalog.Items[i].Aliases {
+				if alias != selection.ID {
+					continue
+				}
+				if model != nil {
+					return nil, fmt.Errorf("cursor: model alias is ambiguous")
+				}
+				model = &catalog.Items[i]
+				break
+			}
+		}
+	}
+	if model == nil {
 		return nil, fmt.Errorf("cursor: model was not found")
 	}
 

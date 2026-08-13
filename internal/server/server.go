@@ -135,10 +135,15 @@ func New(o Options) *Server {
 		s.cursorRunner = cursorrun.New(cursorrun.Options{
 			ResolveClient: func() (cursor.Options, error) {
 				_, provider := s.config().ResolveProvider("cursor")
-				return cursor.Options{
+				provider.APIKey = strings.TrimSpace(provider.APIKey)
+				options := cursor.Options{
 					BaseURL: provider.BaseURL,
-					APIKey:  strings.TrimSpace(provider.APIKey),
-				}, nil
+					APIKey:  provider.APIKey,
+				}
+				if !provider.Enabled || provider.APIKey == "" {
+					return options, cursorrun.ErrNotConfigured
+				}
+				return options, nil
 			},
 			Now:        time.Now,
 			CatalogTTL: 5 * time.Minute,

@@ -22,6 +22,7 @@ type cursorAgentTool struct{}
 const (
 	maxCursorApprovalBytes       = 4096
 	maxCursorApprovalModelParams = 64
+	maxCursorModelErrorRunes     = 4096
 )
 
 func (cursorAgentTool) Name() string { return "cursor_agent" }
@@ -73,10 +74,38 @@ func (cursorAgentTool) ApprovalOperation(raw json.RawMessage, sessionID string) 
 	if err := validateCursorAgentArgs(args); err != nil {
 		return approval.Operation{}, err
 	}
-	if len(args.ModelParams) > maxCursorApprovalModelParams {
-		return approval.Operation{}, errors.New("Cursor approval projection exceeds the safe display limit")
+	display, err := cursorAgentApprovalDisplay(args)
+	if err != nil {
+		return approval.Operation{}, err
 	}
+	return approval.Operation{
+		SessionID: sessionID,
+		Tool:      "cursor_agent",
+		Arguments: string(display),
+		Message:   cursorApprovalMessage(args.Action),
+		Reason:    "Cursor operations are paid and change remote state",
+	}, nil
+}
 
+type cursorAgentApprovalProjection struct {
+	Action              string                            `json:"action"`
+	AgentID             string                            `json:"agent_id,omitempty"`
+	RunID               string                            `json:"run_id,omitempty"`
+	Model               string                            `json:"model,omitempty"`
+	ModelParams         *[]cursor.ModelParameterSelection `json:"model_params,omitempty"`
+	RepositoryURL       string                            `json:"repository_url,omitempty"`
+	StartingRef         string                            `json:"starting_ref,omitempty"`
+	PullRequestURL      string                            `json:"pull_request_url,omitempty"`
+	Mode                string                            `json:"mode,omitempty"`
+	AutoCreatePR        *bool                             `json:"auto_create_pr,omitempty"`
+	SkipReviewerRequest *bool                             `json:"skip_reviewer_request,omitempty"`
+	Wait                *bool                             `json:"wait,omitempty"`
+}
+
+func cursorAgentApprovalDisplay(args cursorAgentArgs) ([]byte, error) {
+	if len(args.ModelParams) > maxCursorApprovalModelParams {
+		return nil, errors.New("Cursor approval projection exceeds the safe display limit")
+	}
 	projection := cursorAgentApprovalProjection{
 		Action:         boundCursorApprovalField(args.Action),
 		AgentID:        boundCursorApprovalField(args.AgentID),
@@ -118,36 +147,14 @@ func (cursorAgentTool) ApprovalOperation(raw json.RawMessage, sessionID string) 
 		}
 		projection.Wait = &wait
 	}
-
 	display, err := json.Marshal(projection)
 	if err != nil {
-		return approval.Operation{}, fmt.Errorf("build approval projection: %w", err)
+		return nil, fmt.Errorf("build approval projection: %w", err)
 	}
 	if len(display) > maxCursorApprovalBytes {
-		return approval.Operation{}, errors.New("Cursor approval projection exceeds the safe display limit")
+		return nil, errors.New("Cursor approval projection exceeds the safe display limit")
 	}
-	return approval.Operation{
-		SessionID: sessionID,
-		Tool:      "cursor_agent",
-		Arguments: string(display),
-		Message:   cursorApprovalMessage(args.Action),
-		Reason:    "Cursor operations are paid and change remote state",
-	}, nil
-}
-
-type cursorAgentApprovalProjection struct {
-	Action              string                            `json:"action"`
-	AgentID             string                            `json:"agent_id,omitempty"`
-	RunID               string                            `json:"run_id,omitempty"`
-	Model               string                            `json:"model,omitempty"`
-	ModelParams         *[]cursor.ModelParameterSelection `json:"model_params,omitempty"`
-	RepositoryURL       string                            `json:"repository_url,omitempty"`
-	StartingRef         string                            `json:"starting_ref,omitempty"`
-	PullRequestURL      string                            `json:"pull_request_url,omitempty"`
-	Mode                string                            `json:"mode,omitempty"`
-	AutoCreatePR        *bool                             `json:"auto_create_pr,omitempty"`
-	SkipReviewerRequest *bool                             `json:"skip_reviewer_request,omitempty"`
-	Wait                *bool                             `json:"wait,omitempty"`
+	return display, nil
 }
 
 func cursorApprovalMessage(action string) string {
@@ -308,7 +315,7 @@ func startCursorAgent(
 			policy = cursorrun.RequireExactVariant
 		}
 		if _, err := runner.ValidateModel(ctx, model, policy); err != nil {
-			return cursorOperationError(err, "agent", "", "", in)
+			return cursorModelSelectionError(err, in)
 		}
 	}
 
@@ -411,7 +418,7 @@ func validateCursorAgentArgs(args cursorAgentArgs) error {
 		if args.modelParamsSet && args.Model == "" {
 			return errors.New("model is required when model_params is set")
 		}
-		return nil
+		return validateCursorAgentApprovalBounds(args)
 	case "follow_up":
 		if args.AgentID == "" {
 			return errors.New("agent_id is required for follow_up")
@@ -428,7 +435,10 @@ func validateCursorAgentArgs(args cursorAgentArgs) error {
 		if err := rejectCursorStartFields(args, "follow_up"); err != nil {
 			return err
 		}
-		return validateCursorMode(args.Mode)
+		if err := validateCursorMode(args.Mode); err != nil {
+			return err
+		}
+		return validateCursorAgentApprovalBounds(args)
 	case "cancel":
 		if args.AgentID == "" {
 			return errors.New("agent_id is required for cancel")
@@ -454,10 +464,15 @@ func validateCursorAgentArgs(args cursorAgentArgs) error {
 		if err := rejectCursorStartFields(args, "cancel"); err != nil {
 			return err
 		}
-		return nil
+		return validateCursorAgentApprovalBounds(args)
 	default:
 		return errors.New("action must be start, follow_up, or cancel")
 	}
+}
+
+func validateCursorAgentApprovalBounds(args cursorAgentArgs) error {
+	_, err := cursorAgentApprovalDisplay(args)
+	return err
 }
 
 func rejectCursorStartFields(args cursorAgentArgs, action string) error {
@@ -722,6 +737,35 @@ func safeCursorResultError(err error, agentID, runID string, in Input) Result {
 		redactCursorString(agentID, secret),
 		redactCursorString(runID, secret),
 	)
+}
+
+func cursorModelSelectionError(err error, in Input) Result {
+	meta := map[string]any{"agent_id": "", "run_id": ""}
+	var content string
+	switch {
+	case cursor.IsAuthError(err):
+		content = "Cursor model selection failed: API key was rejected."
+	case cursor.IsRateLimit(err):
+		var apiErr *cursor.APIError
+		_ = errors.As(err, &apiErr)
+		if apiErr != nil && apiErr.RetryAfter > 0 {
+			meta["retry_after_seconds"] = int(apiErr.RetryAfter.Seconds())
+		}
+		content = "Cursor model selection failed: rate limit reached; retry later."
+	case errors.Is(err, context.DeadlineExceeded):
+		content = "Cursor model selection timed out before a run was created."
+	case errors.Is(err, context.Canceled):
+		content = "Cursor model selection was cancelled before a run was created."
+	default:
+		detail := redactCursorString(err.Error(), cursorSecretFromInput(in))
+		content = "Cursor model selection failed: " + detail
+	}
+	content = strings.ToValidUTF8(content, "\uFFFD")
+	runes := []rune(content)
+	if len(runes) > maxCursorModelErrorRunes {
+		content = string(runes[:maxCursorModelErrorRunes-1]) + "…"
+	}
+	return Result{Content: content, Meta: meta, IsError: true}
 }
 
 // cursorNotFoundLabel prefers Cursor's typed code over the caller's guess:
