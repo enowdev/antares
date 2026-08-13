@@ -7,6 +7,7 @@ import {
   cursorVariantSummary,
   defaultCursorVariant,
   matchingCursorVariants,
+  resolveCursorVariant,
   selectExactVariant,
   variantSelection,
 } from './cursorModels.ts'
@@ -233,6 +234,65 @@ describe('Cursor variant dimensions', () => {
     expect(cursorVariantSummary(multiVariantFixture, multiVariantFixture.variants[2])).toBe(
       'Context 1M · Reasoning max',
     )
+  })
+})
+
+describe('restoring a stored selection', () => {
+  test('matches the one variant carrying exactly those params', () => {
+    const variant = resolveCursorVariant(multiVariantFixture, [
+      { id: 'context', value: '1m' },
+      { id: 'reasoning', value: 'max' },
+      { id: 'internal', value: 'on' },
+    ])
+    expect(variant).toBe(multiVariantFixture.variants[2])
+  })
+
+  test('ignores the order the params were stored in', () => {
+    const variant = resolveCursorVariant(multiVariantFixture, [
+      { id: 'internal', value: 'off' },
+      { id: 'reasoning', value: 'low' },
+      { id: 'context', value: '272k' },
+    ])
+    expect(variant).toBe(multiVariantFixture.variants[0])
+  })
+
+  test('a partial or unknown selection never falls back to the default variant', () => {
+    expect(
+      resolveCursorVariant(multiVariantFixture, [{ id: 'context', value: '272k' }]),
+    ).toBeNull()
+    expect(resolveCursorVariant(multiVariantFixture, [])).toBeNull()
+    expect(
+      resolveCursorVariant(multiVariantFixture, [
+        { id: 'context', value: '1m' },
+        { id: 'reasoning', value: 'low' },
+        { id: 'internal', value: 'on' },
+      ]),
+    ).toBeNull()
+    expect(
+      resolveCursorVariant(multiVariantFixture, [
+        { id: 'context', value: '1m' },
+        { id: 'reasoning', value: 'max' },
+        { id: 'internal', value: 'on' },
+        { id: 'extra', value: 'yes' },
+      ]),
+    ).toBeNull()
+  })
+
+  test('a duplicated parameter id is not a resolvable selection', () => {
+    expect(
+      resolveCursorVariant(multiVariantFixture, [
+        { id: 'context', value: '272k' },
+        { id: 'context', value: '1m' },
+        { id: 'reasoning', value: 'low' },
+        { id: 'internal', value: 'off' },
+      ]),
+    ).toBeNull()
+  })
+
+  test('a variant-less model resolves only an empty selection', () => {
+    const bare = { id: 'bare', name: 'Bare', aliases: [], parameters: [], variants: [] }
+    expect(resolveCursorVariant(bare, [])).toEqual({ params: [], displayName: 'Bare' })
+    expect(resolveCursorVariant(bare, [{ id: 'reasoning', value: 'max' }])).toBeNull()
   })
 })
 

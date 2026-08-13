@@ -435,7 +435,17 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"session": sess, "messages": messages})
+	// The durable Cursor projection is what lets the composer restore the exact
+	// execution target after a reload. It is null for every ordinary chat, and
+	// a failed read is reported rather than shown as "no Cursor state".
+	cursorState, err := s.cursorSessionView(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, s.cursorSafeError(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session": sess, "messages": messages, "cursor_state": cursorState,
+	})
 }
 
 // handleEditPreview lists the files the agent changed at/after a given user

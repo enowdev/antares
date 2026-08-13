@@ -152,13 +152,26 @@ export function cursorRunIdentity(value: CursorOptionsValue): string {
   })
 }
 
+/**
+ * The run a follow-up would continue: what it was configured with, and whether
+ * the server still considers that agent reusable.
+ */
+export interface CursorRunBaseline {
+  options: CursorOptionsValue
+  reuseValid: boolean
+}
+
 /** Whether sending now would start a new Cursor agent instead of following up. */
 export function startsNewCursorAgent(
-  previous: CursorOptionsValue | null,
+  previous: CursorRunBaseline | null,
   next: CursorOptionsValue,
 ): boolean {
   if (!previous) return false
-  return cursorRunIdentity(previous) !== cursorRunIdentity(next)
+  // An invalidated chain always creates a new agent, even for an identical
+  // selection — a failed create, a target switch, or an interrupted approval
+  // all leave nothing to follow up on.
+  if (!previous.reuseValid) return true
+  return cursorRunIdentity(previous.options) !== cursorRunIdentity(next)
 }
 
 export interface CursorChatRequest {

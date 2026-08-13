@@ -105,6 +105,49 @@ export function selectExactVariant(
   return matches.length === 1 ? matches[0] : null
 }
 
+/** A selection as an id → value map, or null when an id repeats. */
+function canonicalParamMap(
+  params: CursorVariantParam[],
+): Map<string, string> | null {
+  const canonical = new Map<string, string>()
+  for (const param of params ?? []) {
+    if (!param.id || canonical.has(param.id)) return null
+    canonical.set(param.id, param.value)
+  }
+  return canonical
+}
+
+/**
+ * The upstream variant that carries exactly this stored selection, whatever
+ * order it was stored in. A selection that no longer matches any variant
+ * resolves to nothing: falling back to the default would silently run a
+ * different model configuration than the conversation used.
+ */
+export function resolveCursorVariant(
+  model: CursorModel,
+  params: CursorVariantParam[],
+): CursorVariant | null {
+  const wanted = canonicalParamMap(params)
+  if (!wanted) return null
+  const variants = model.variants ?? []
+  if (variants.length === 0) {
+    return wanted.size === 0 ? { params: [], displayName: model.name } : null
+  }
+  for (const variant of variants) {
+    const candidate = canonicalParamMap(variant.params ?? [])
+    if (!candidate || candidate.size !== wanted.size) continue
+    let equal = true
+    for (const [id, value] of wanted) {
+      if (candidate.get(id) !== value) {
+        equal = false
+        break
+      }
+    }
+    if (equal) return variant
+  }
+  return null
+}
+
 /**
  * Move one dimension while keeping as much of the current variant as Cursor
  * actually offers. The result is always an upstream variant, so hidden params

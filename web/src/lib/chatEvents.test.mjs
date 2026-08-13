@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   approvalFromEvent,
+  cursorHydrationFromDetail,
   cursorSessionHydration,
   mergeApprovals,
   parseCursorApproval,
@@ -208,5 +209,154 @@ describe('Cursor session hydration', () => {
         { id: 'm1', role: 'assistant', content: 'x', model: 'sol', meta: { cursor_remote_status: 'ERROR', cursor_git_state: '{' } },
       ]),
     ).toEqual({ active: true, modelId: 'sol', remoteStatus: 'ERROR', branches: [] })
+  })
+})
+
+const cursorTranscript = [
+  {
+    id: 'm1',
+    role: 'assistant',
+    content: 'done',
+    model: 'gpt-5.6-sol',
+    meta: { cursor_remote_status: 'FINISHED' },
+  },
+]
+
+const activeProjection = {
+  target_active: true,
+  reuse_valid: true,
+  model_id: 'gpt-5.6-sol',
+  model_params: [
+    { id: 'cyber', value: 'false' },
+    { id: 'reasoning', value: 'max' },
+  ],
+  repository_url: 'https://github.com/acme/repo',
+  starting_ref: 'main',
+  mode: 'plan',
+  auto_create_pr: true,
+  remote_status: 'RUNNING',
+  operation_state: 'run_in_flight',
+  git: {
+    branches: [
+      {
+        repo_url: 'https://github.com/acme/repo',
+        branch: 'cursor/x',
+        pr_url: 'https://github.com/acme/repo/pull/7',
+      },
+    ],
+  },
+}
+
+describe('durable Cursor hydration', () => {
+  test('the durable projection restores the exact target and its identity', () => {
+    expect(
+      cursorHydrationFromDetail({ cursor_state: activeProjection, messages: cursorTranscript }),
+    ).toEqual({
+      active: true,
+      modelId: 'gpt-5.6-sol',
+      params: [
+        { id: 'cyber', value: 'false' },
+        { id: 'reasoning', value: 'max' },
+      ],
+      mode: 'plan',
+      repositoryUrl: 'https://github.com/acme/repo',
+      startingRef: 'main',
+      autoCreatePR: true,
+      reuseValid: true,
+      remoteStatus: 'RUNNING',
+      operationState: 'run_in_flight',
+      running: true,
+      branches: [
+        {
+          repoUrl: 'https://github.com/acme/repo',
+          branch: 'cursor/x',
+          prUrl: 'https://github.com/acme/repo/pull/7',
+        },
+      ],
+    })
+  })
+
+  test('an inactive target is not restored even with old Cursor messages', () => {
+    const state = cursorHydrationFromDetail({
+      cursor_state: { ...activeProjection, target_active: false, reuse_valid: false, operation_state: 'committed' },
+      messages: cursorTranscript,
+    })
+    expect(state.active).toBe(false)
+    expect(state.modelId).toBeUndefined()
+    expect(state.params).toBeUndefined()
+    expect(state.running).toBe(false)
+    // The finished run's outcome is still worth showing.
+    expect(state.remoteStatus).toBe('RUNNING')
+    expect(state.branches).toHaveLength(1)
+  })
+
+  test('a session the server says has no Cursor state ignores old transcript metadata', () => {
+    expect(
+      cursorHydrationFromDetail({ cursor_state: null, messages: cursorTranscript }),
+    ).toEqual({ active: false, branches: [] })
+  })
+
+  test('a server that omits the projection still hydrates from the transcript', () => {
+    const state = cursorHydrationFromDetail({ messages: cursorTranscript })
+    expect(state.active).toBe(true)
+    expect(state.modelId).toBe('gpt-5.6-sol')
+    expect(state.remoteStatus).toBe('FINISHED')
+    // A transcript cannot prove the exact variant, so nothing claims to know it.
+    expect(state.params).toBeUndefined()
+    expect(state.reuseValid).toBe(false)
+    expect(state.running).toBe(false)
+  })
+
+  test('auto-discovery stays auto and an explicit empty repository stays explicit', () => {
+    expect(
+      cursorHydrationFromDetail({
+        cursor_state: { ...activeProjection, repository_url: null },
+        messages: [],
+      }).repositoryUrl,
+    ).toBeNull()
+    expect(
+      cursorHydrationFromDetail({
+        cursor_state: { ...activeProjection, repository_url: '' },
+        messages: [],
+      }).repositoryUrl,
+    ).toBe('')
+  })
+
+  test('a selection the server could not decode restores no model', () => {
+    const state = cursorHydrationFromDetail({
+      cursor_state: { ...activeProjection, model_id: '', model_params: [] },
+      messages: cursorTranscript,
+    })
+    expect(state.active).toBe(true)
+    expect(state.modelId).toBeUndefined()
+    expect(state.params).toBeUndefined()
+  })
+
+  test('an awaiting-approval or creating run counts as running', () => {
+    for (const operation of ['awaiting_approval', 'create_in_flight', 'run_in_flight']) {
+      expect(
+        cursorHydrationFromDetail({
+          cursor_state: { ...activeProjection, operation_state: operation },
+          messages: [],
+        }).running,
+      ).toBe(true)
+    }
+    for (const operation of ['idle', 'terminal', 'committed', 'ambiguous']) {
+      expect(
+        cursorHydrationFromDetail({
+          cursor_state: { ...activeProjection, operation_state: operation },
+          messages: [],
+        }).running,
+      ).toBe(false)
+    }
+  })
+
+  test('an unknown stored mode never becomes a Cursor mode', () => {
+    expect(
+      cursorHydrationFromDetail({
+        cursor_state: { ...activeProjection, mode: 'chaos' },
+        messages: [],
+      }).mode,
+    ).toBeUndefined()
   })
 })

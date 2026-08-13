@@ -144,21 +144,27 @@ describe('Cursor run identity', () => {
     startingRef: 'main',
     autoCreatePR: false,
   }
+  const reusable = { options: base, reuseValid: true }
 
   test('mode-only changes continue the same agent', () => {
-    expect(startsNewCursorAgent(base, { ...base, mode: 'plan' })).toBe(false)
+    expect(startsNewCursorAgent(reusable, { ...base, mode: 'plan' })).toBe(false)
   })
 
   test('model, variant, repository, ref, and auto-PR changes start a new agent', () => {
     expect(
-      startsNewCursorAgent(base, { ...base, variant: cursorModels[0].variants[1] }),
+      startsNewCursorAgent(reusable, { ...base, variant: cursorModels[0].variants[1] }),
     ).toBe(true)
     expect(
-      startsNewCursorAgent(base, { ...base, model: cursorModels[1], variant: { params: [] } }),
+      startsNewCursorAgent(reusable, { ...base, model: cursorModels[1], variant: { params: [] } }),
     ).toBe(true)
-    expect(startsNewCursorAgent(base, { ...base, repositoryUrl: '' })).toBe(true)
-    expect(startsNewCursorAgent(base, { ...base, startingRef: 'release' })).toBe(true)
-    expect(startsNewCursorAgent(base, { ...base, autoCreatePR: true })).toBe(true)
+    expect(startsNewCursorAgent(reusable, { ...base, repositoryUrl: '' })).toBe(true)
+    expect(startsNewCursorAgent(reusable, { ...base, repositoryUrl: null })).toBe(true)
+    expect(startsNewCursorAgent(reusable, { ...base, startingRef: 'release' })).toBe(true)
+    expect(startsNewCursorAgent(reusable, { ...base, autoCreatePR: true })).toBe(true)
+  })
+
+  test('an identical selection whose reuse was invalidated still starts a new agent', () => {
+    expect(startsNewCursorAgent({ options: base, reuseValid: false }, { ...base })).toBe(true)
   })
 
   test('no previous run never warns about a new agent', () => {

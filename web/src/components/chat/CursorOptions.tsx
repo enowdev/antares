@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CaretDown, Cloud, Warning } from '@phosphor-icons/react'
 import { get } from '@/lib/api'
-import type { CursorMode, CursorOptionsValue } from '@/lib/composerTargets'
+import type { CursorMode, CursorOptionsValue, CursorRunBaseline } from '@/lib/composerTargets'
 import { startsNewCursorAgent } from '@/lib/composerTargets'
 import {
   applyCursorDimension,
@@ -40,8 +40,8 @@ export function CursorOptions({
   value: CursorOptionsValue
   onChange: (value: CursorOptionsValue) => void
   projectDir?: string
-  /** The identity of the run in flight for this session, if any. */
-  lastStarted: CursorOptionsValue | null
+  /** The run a follow-up would continue, if this session has one. */
+  lastStarted: CursorRunBaseline | null
   disabled?: boolean
 }) {
   const { t } = useI18n()

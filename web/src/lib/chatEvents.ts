@@ -176,6 +176,116 @@ export interface CursorSessionHydration {
   branches: CursorBranch[]
 }
 
+/** The durable Cursor state `GET /api/sessions/{id}` projects for the composer. */
+export interface CursorStateProjection {
+  target_active: boolean
+  reuse_valid: boolean
+  model_id: string
+  model_params: Array<{ id: string; value: string }>
+  /** null when the run discovered its repository (or ran without one). */
+  repository_url: string | null
+  starting_ref: string
+  mode: string
+  auto_create_pr: boolean
+  remote_status: string
+  operation_state: string
+  git?: { branches?: Array<{ repo_url: string; branch: string; pr_url: string }> }
+}
+
+export interface CursorHydration {
+  /** Whether this conversation's execution target is still Cursor. */
+  active: boolean
+  modelId?: string
+  params?: Array<{ id: string; value: string }>
+  mode?: 'agent' | 'plan'
+  repositoryUrl?: string | null
+  startingRef?: string
+  autoCreatePR?: boolean
+  reuseValid?: boolean
+  remoteStatus?: string
+  operationState?: string
+  /** A remote run that has not reached a terminal state yet. */
+  running?: boolean
+  branches: CursorBranch[]
+}
+
+/** Operation states in which Cursor still owns unfinished remote work. */
+const CURSOR_RUNNING_OPERATIONS = [
+  'awaiting_approval',
+  'create_in_flight',
+  'run_in_flight',
+]
+
+/**
+ * Restore the Cursor half of a session. The durable projection is
+ * authoritative: when the server reports no state, or a target that is no
+ * longer Cursor, old transcript metadata must not resurrect Cursor mode.
+ * Transcript parsing survives only for a server that predates the projection,
+ * which is the one case where the field is absent rather than null.
+ */
+export function cursorHydrationFromDetail(detail: {
+  cursor_state?: CursorStateProjection | null
+  messages: HydrationMessage[]
+}): CursorHydration {
+  if (detail.cursor_state === undefined) {
+    const legacy = cursorSessionHydration(detail.messages)
+    return {
+      active: legacy.active,
+      modelId: legacy.modelId,
+      remoteStatus: legacy.remoteStatus,
+      // A transcript proves neither the exact variant nor that a follow-up
+      // would reuse the same agent.
+      reuseValid: false,
+      running: false,
+      branches: legacy.branches,
+    }
+  }
+
+  const state = detail.cursor_state
+  if (!state) return { active: false, branches: [] }
+
+  const branches: CursorBranch[] = (state.git?.branches ?? []).map((branch) => ({
+    repoUrl: String(branch.repo_url ?? ''),
+    branch: String(branch.branch ?? ''),
+    prUrl: String(branch.pr_url ?? ''),
+  }))
+  const remoteStatus = state.remote_status || undefined
+  const operationState = state.operation_state || undefined
+
+  if (!state.target_active) {
+    return {
+      active: false,
+      reuseValid: false,
+      running: false,
+      remoteStatus,
+      operationState,
+      branches,
+    }
+  }
+
+  const hydration: CursorHydration = {
+    active: true,
+    mode: state.mode === 'agent' || state.mode === 'plan' ? state.mode : undefined,
+    repositoryUrl: state.repository_url ?? null,
+    startingRef: typeof state.starting_ref === 'string' ? state.starting_ref : '',
+    autoCreatePR: state.auto_create_pr === true,
+    reuseValid: state.reuse_valid === true,
+    remoteStatus,
+    operationState,
+    running: CURSOR_RUNNING_OPERATIONS.includes(state.operation_state),
+    branches,
+  }
+  // The server drops both halves of a selection it could not decode exactly.
+  if (state.model_id) {
+    hydration.modelId = state.model_id
+    hydration.params = (state.model_params ?? []).map((param) => ({
+      id: String(param.id ?? ''),
+      value: String(param.value ?? ''),
+    }))
+  }
+  return hydration
+}
+
 interface HydrationMessage {
   role: string
   model?: string

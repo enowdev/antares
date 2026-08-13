@@ -31,12 +31,13 @@ import {
 } from '@/lib/api'
 import {
   approvalFromEvent,
-  cursorSessionHydration,
+  cursorHydrationFromDetail,
   mergeApprovals,
   pendingApprovalsForSession,
   shouldReconnectAttach,
   stopBehavior,
-  type CursorSessionHydration,
+  type CursorHydration,
+  type CursorStateProjection,
   type PendingApproval,
 } from '@/lib/chatEvents'
 import {
@@ -48,15 +49,19 @@ import {
 import { copyText } from '@/lib/clipboard'
 import {
   cursorChatRequest,
-  cursorTargetFromModel,
   isCursorTarget,
   type ChatTarget,
   type ComposerTarget,
   type CursorMode,
   type CursorOptionsValue,
+  type CursorRunBaseline,
 } from '@/lib/composerTargets'
 import { composerImageLimit, validateCursorAttachments } from '@/lib/cursorAttachments'
-import type { CursorModel } from '@/lib/cursorModels'
+import {
+  defaultCursorVariant,
+  resolveCursorVariant,
+  type CursorModel,
+} from '@/lib/cursorModels'
 import { useI18n, useTimeAgo, type MessageKey } from '@/lib/i18n'
 import type { ReasoningCapability } from '@/lib/models'
 import {
@@ -215,6 +220,11 @@ interface SessionDetail {
     model?: string
     meta?: Record<string, unknown> | null
   }>
+  /**
+   * Durable Cursor state. Null for an ordinary chat; absent only on a server
+   * that predates the projection, where the transcript is the last resort.
+   */
+  cursor_state?: CursorStateProjection | null
 }
 
 /** Rebuild view models from the persisted message log. */
@@ -283,6 +293,14 @@ function hydrate(detail: SessionDetail): ChatMessage[] {
     out.push(msg)
   }
   return out
+}
+
+/** The part of a Cursor turn that is not the model and its variant. */
+interface CursorTurnSettings {
+  mode: CursorMode
+  repositoryUrl: string | null
+  startingRef: string | null
+  autoCreatePR: boolean
 }
 
 const SUGGESTION_KEYS: MessageKey[] = [
@@ -412,12 +430,12 @@ export default function ChatPage() {
   targetRef.current = target
   const cursorMode = isCursorTarget(target)
   // The non-model half of a Cursor turn, kept while switching Cursor models.
-  const [cursorSettings, setCursorSettings] = useState<{
-    mode: CursorMode
-    repositoryUrl: string | null
-    startingRef: string | null
-    autoCreatePR: boolean
-  }>({ mode: 'agent', repositoryUrl: null, startingRef: null, autoCreatePR: false })
+  const [cursorSettings, setCursorSettings] = useState<CursorTurnSettings>({
+    mode: 'agent',
+    repositoryUrl: null,
+    startingRef: null,
+    autoCreatePR: false,
+  })
   const cursorOptions = useMemo<CursorOptionsValue | null>(
     () =>
       isCursorTarget(target)
@@ -427,13 +445,13 @@ export default function ChatPage() {
   )
   const cursorOptionsRef = useRef<CursorOptionsValue | null>(null)
   cursorOptionsRef.current = cursorOptions
-  // The identity of the Cursor run this session last started, so the options
-  // popover can warn that sending now starts a new agent instead of following
-  // up on the existing one.
-  const [lastCursorRun, setLastCursorRun] = useState<CursorOptionsValue | null>(null)
-  // What a reopened Cursor session already produced: remote status, branches,
-  // and pull requests from the persisted transcript.
-  const [cursorState, setCursorState] = useState<CursorSessionHydration | null>(null)
+  // The run a follow-up would continue, and whether the server still considers
+  // it reusable, so the options popover can warn that sending now starts a new
+  // agent instead of following up.
+  const [lastCursorRun, setLastCursorRun] = useState<CursorRunBaseline | null>(null)
+  // What this session's Cursor run is doing or produced: remote status,
+  // operation state, branches, and pull requests.
+  const [cursorState, setCursorState] = useState<CursorHydration | null>(null)
   // Local Stop detaches from a Cursor run that keeps going remotely. The ref is
   // what the standing attach loop reads, so it never re-follows immediately.
   const [detached, setDetached] = useState(false)
@@ -472,26 +490,125 @@ export default function ChatPage() {
     })
   }, [])
   /**
-   * Point the composer back at the Cursor model a reopened session used. Only
-   * the catalogue knows that model's variants, so the target is restored from
-   * it rather than reconstructed from the transcript.
+   * Record the run a follow-up would continue, when the composer is already
+   * pointed at exactly that selection. Reports whether it could.
+   */
+  const applyCursorBaseline = useCallback(
+    (
+      modelId: string,
+      params: Array<{ id: string; value: string }>,
+      settings: CursorTurnSettings,
+      reuseValid: boolean,
+    ): boolean => {
+      const current = targetRef.current
+      if (
+        current?.kind !== 'cursor' ||
+        current.model.id !== modelId ||
+        resolveCursorVariant(current.model, params) !== current.variant
+      ) {
+        return false
+      }
+      setLastCursorRun({
+        options: { model: current.model, variant: current.variant, ...settings },
+        reuseValid,
+      })
+      return true
+    },
+    [],
+  )
+  /**
+   * Point the composer back at the exact model and variant a session's durable
+   * state names. The catalogue is the only place that knows a model's variants,
+   * and a selection it no longer offers is reported instead of being replaced
+   * by the default one — that would silently run a different configuration.
    */
   const restoreCursorTarget = useCallback(
-    (modelId: string) => {
-      const before = targetRef.current
-      void get<{ models?: CursorModel[] }>('/providers/cursor/models')
+    (
+      modelId: string,
+      /** Null when only a transcript named the model, so no exact selection exists. */
+      params: Array<{ id: string; value: string }> | null,
+      settings: CursorTurnSettings,
+      reuseValid: boolean,
+    ) => {
+      // The composer already holds this exact selection; no catalogue lookup
+      // can tell us anything new.
+      if (params && applyCursorBaseline(modelId, params, settings, reuseValid)) return
+      const current = targetRef.current
+      void get<{ models?: CursorModel[]; needs_key?: boolean }>('/providers/cursor/models')
         .then((d) => {
           // Never overwrite a target the user chose while this was in flight.
-          if (targetRef.current !== before) return
+          if (targetRef.current !== current) return
+          if (d.needs_key) {
+            setError(t('target.cursorNeedsKey'))
+            return
+          }
           const model = (d.models ?? []).find(
             (candidate) =>
               candidate.id === modelId || (candidate.aliases ?? []).includes(modelId),
           )
-          if (model) setTarget(cursorTargetFromModel(model))
+          // With a stored selection only that exact variant may be restored;
+          // without one (an older server) the model's own default is the
+          // honest starting point, and nothing claims a run to follow up on.
+          const variant = model
+            ? params
+              ? resolveCursorVariant(model, params)
+              : defaultCursorVariant(model)
+            : null
+          if (!model || !variant) {
+            setError(t('cursor.staleSelection'))
+            return
+          }
+          setTarget({ kind: 'cursor', model, variant })
+          setLastCursorRun(
+            params ? { options: { model, variant, ...settings }, reuseValid } : null,
+          )
         })
         .catch(() => {})
     },
-    [],
+    [applyCursorBaseline, t],
+  )
+  /**
+   * Apply a session's durable Cursor state. Opening a session restores the
+   * composer from it; a refresh during or after a turn only updates the run's
+   * status and reuse baseline, so neither an edit made while the turn ran nor a
+   * model the user has just switched to is overwritten.
+   */
+  const applyCursorHydration = useCallback(
+    (hydration: CursorHydration, restoreComposer: boolean) => {
+      const worthShowing =
+        hydration.active || Boolean(hydration.remoteStatus) || hydration.branches.length > 0
+      setCursorState(worthShowing ? hydration : null)
+      if (!hydration.active) {
+        setLastCursorRun(null)
+        return
+      }
+      const settings: CursorTurnSettings = {
+        mode: hydration.mode ?? 'agent',
+        repositoryUrl: hydration.repositoryUrl ?? null,
+        // The exact stored ref, so a follow-up reproduces the same run identity.
+        startingRef: hydration.startingRef ?? null,
+        autoCreatePR: hydration.autoCreatePR === true,
+      }
+      if (!hydration.modelId) {
+        // The server could not decode an exact selection; restore no target.
+        if (restoreComposer) setCursorSettings(settings)
+        setLastCursorRun(null)
+        return
+      }
+      // An absent selection means a server that predates the projection; an
+      // exact one must be matched exactly.
+      const params = hydration.params ?? null
+      const reuseValid = hydration.reuseValid === true
+      if (!restoreComposer) {
+        if (!params || !applyCursorBaseline(hydration.modelId, params, settings, reuseValid)) {
+          setLastCursorRun(null)
+        }
+        return
+      }
+      setCursorSettings(settings)
+      restoreCursorTarget(hydration.modelId, params, settings, reuseValid)
+    },
+    [applyCursorBaseline, restoreCursorTarget],
   )
   const pickReasoning = useCallback((value: string) => {
     const current = composerReasoningRef.current
@@ -1050,6 +1167,7 @@ export default function ChatPage() {
                       if (!alive) return
                       setMessages(hydrate(d))
                       setTitle(d.session.title || t('chat.conversation'))
+                      applyCursorHydration(cursorHydrationFromDetail(d), false)
                     })
                     .catch(() => {})
                 : Promise.resolve()
@@ -1084,7 +1202,7 @@ export default function ChatPage() {
         close?.()
       }
     },
-    [applyEvent, drainPatches, t],
+    [applyEvent, applyCursorHydration, drainPatches, t],
   )
 
   useEffect(() => {
@@ -1135,12 +1253,9 @@ export default function ChatPage() {
           }
         }
         setError(undefined)
-        // Only a Cursor turn persists a remote status, so the transcript itself
-        // says whether this conversation runs on Cursor, which model it used,
-        // and which branches or pull requests it produced.
-        const cursor = cursorSessionHydration(d.messages)
-        setCursorState(cursor.active ? cursor : null)
-        if (cursor.active && cursor.modelId) restoreCursorTarget(cursor.modelId)
+        // Durable Cursor state decides whether this conversation still runs on
+        // Cursor, and with exactly which model, variant, repository, and mode.
+        applyCursorHydration(cursorHydrationFromDetail(d), true)
         // A decision published before this page attached is still blocking the
         // run; the pending list is the only place left to find it.
         void refreshApprovals(sessionId)
@@ -1178,7 +1293,7 @@ export default function ChatPage() {
       cancelled = true
       closeAttach?.()
     }
-  }, [sessionId, t, attachLive, refreshApprovals, restoreCursorTarget])
+  }, [sessionId, t, attachLive, refreshApprovals, applyCursorHydration])
 
   /** Append a locally-produced message without touching the server. */
   const pushSystem = useCallback((content: string) => {
@@ -1328,7 +1443,10 @@ export default function ChatPage() {
     // session is being followed again.
     detachedRef.current = false
     setDetached(false)
-    if (cursor) setLastCursorRun(cursor)
+    // The turn being started is the run a follow-up would continue. Whether the
+    // server keeps it reusable is only known once it ends, which the durable
+    // state at end-of-turn corrects.
+    if (cursor) setLastCursorRun({ options: cursor, reuseValid: true })
     abortRef.current = streamPost(
       cursor ? '/chat/cursor' : '/chat',
       cursor
@@ -1389,8 +1507,9 @@ export default function ChatPage() {
               .then((d) => {
                 setMessages(hydrate(d))
                 setTitle(d.session.title || t('chat.conversation'))
-                const state = cursorSessionHydration(d.messages)
-                if (state.active) setCursorState(state)
+                // The turn that just ended decides whether a follow-up can
+                // reuse its agent; the composer's own edits are left alone.
+                applyCursorHydration(cursorHydrationFromDetail(d), false)
               })
               .catch(() => {})
           }
@@ -1435,7 +1554,18 @@ export default function ChatPage() {
       },
     )
     },
-    [role, projectDir, streaming, sessionId, navigate, runCommand, applyEvent, drainPatches, t],
+    [
+      role,
+      projectDir,
+      streaming,
+      sessionId,
+      navigate,
+      runCommand,
+      applyEvent,
+      applyCursorHydration,
+      drainPatches,
+      t,
+    ],
   )
 
   const send = useCallback(() => {
@@ -2322,7 +2452,7 @@ function CursorRunBar({
   detached: boolean
   cancelling: boolean
   canCancel: boolean
-  state: CursorSessionHydration | null
+  state: CursorHydration | null
   onCancel: () => void
   onReattach: () => void
 }) {
@@ -2362,7 +2492,9 @@ function CursorRunBar({
             {t('cursor.reattach')}
           </Button>
         ) : null}
-        {canCancel && (streaming || detached) ? (
+        {/* A run the server still owns can be cancelled even when this browser
+            is neither streaming nor detached — after a reload, for example. */}
+        {canCancel && (streaming || detached || state?.running === true) ? (
           <Button
             size="sm"
             variant="outline"
