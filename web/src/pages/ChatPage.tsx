@@ -84,6 +84,7 @@ import {
   reasoningOptions,
   saveReasoningPreference,
 } from '@/lib/reasoning'
+import { createSessionScope, type SessionScope } from '@/lib/sessionScope'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/primitives'
@@ -476,6 +477,23 @@ export default function ChatPage() {
       sessionId: sessionId ?? '',
       epoch: location,
     }),
+  )
+  /** The route opening currently committed. */
+  const currentSessionOpen = useEffectEvent(
+    (): SessionOpenOccurrence => ({ sessionId: sessionId ?? '', epoch: location }),
+  )
+  /**
+   * Scope an operation to one route opening. Everything it starts — a pending
+   * approval fetch, an attachment and its retries, an end-of-turn refresh —
+   * asks this scope again at the instant it would write, so no completion from
+   * a conversation that has been left can land in the one on screen.
+   */
+  const sessionScopeFor = useCallback(
+    (open: SessionOpenOccurrence): SessionScope =>
+      // Deferred on purpose: an Effect Event answers for the latest committed
+      // render, which is exactly the question a late callback has to ask.
+      createSessionScope(open, () => currentSessionOpen()),
+    [],
   )
   /** Record ownership only if this exact route occurrence is still current. */
   const resolveTargetOwner = useEffectEvent(
@@ -1074,12 +1092,20 @@ export default function ChatPage() {
     setDetached(false)
   }, [])
 
-  const refreshApprovals = useCallback((sessionOverride?: string) => {
+  /**
+   * Load the decisions already waiting on this session. The pending list is
+   * global, so the answer is filtered by session id — but a session id cannot
+   * tell one opening of a conversation from the next, and this request outlives
+   * both. The scope it was started for decides whether the answer may be shown.
+   */
+  const refreshApprovals = useCallback((scope: SessionScope, sessionOverride?: string) => {
     const sid = sessionOverride ?? sessionIdRef.current
-    if (!sid) return Promise.resolve()
+    if (!sid || !scope.isCurrent()) return Promise.resolve()
     return get<{ approvals?: PendingApproval[] }>('/approvals')
       .then((d) => {
-        setApprovals((prev) => pendingApprovalsForSession(prev, d.approvals ?? [], sid))
+        scope.run(() => {
+          setApprovals((prev) => pendingApprovalsForSession(prev, d.approvals ?? [], sid))
+        })
       })
       .catch(() => {})
   }, [])
@@ -1092,25 +1118,33 @@ export default function ChatPage() {
   const cancelCursorRun = useCallback(async () => {
     const sid = sessionIdRef.current
     if (!sid || cancelling) return
+    // The cancellation belongs to the conversation that was open when it was
+    // asked for: its poll, its failure message, and its final refresh may not
+    // surface in whatever is on screen by the time the server answers.
+    const scope = sessionScopeFor(currentSessionOpen())
     setCancelling(true)
     setError(undefined)
-    const poll = window.setInterval(() => void refreshApprovals(), 2000)
+    const poll = window.setInterval(() => void refreshApprovals(scope), 2000)
     try {
       await post('/chat/cursor/cancel', { session_id: sid })
     } catch (e) {
-      setError(
-        isDashboardPasswordRequired(e)
-          ? t('sensitive.needPasswordDesc')
-          : e instanceof Error
-            ? e.message
-            : String(e),
+      scope.run(() =>
+        setError(
+          isDashboardPasswordRequired(e)
+            ? t('sensitive.needPasswordDesc')
+            : e instanceof Error
+              ? e.message
+              : String(e),
+        ),
       )
     } finally {
       window.clearInterval(poll)
-      setCancelling(false)
-      void refreshApprovals()
+      scope.run(() => {
+        setCancelling(false)
+        void refreshApprovals(scope)
+      })
     }
-  }, [cancelling, refreshApprovals, t])
+  }, [cancelling, refreshApprovals, sessionScopeFor, t])
 
   // Apply one stream event to the named assistant message. Shared by a fresh
   // send and a reattach, so both render a turn identically. Session handling
@@ -1256,12 +1290,16 @@ export default function ChatPage() {
   // when no event came (the previous behaviour) left the chat showing the
   // pre-turn state — the symptom that looked like "session disappeared".
   const attachLive = useCallback(
-    (sid: string) => {
+    (scope: SessionScope, sid: string) => {
       // A standing attachment: after a turn ends we reconnect, so a turn the
       // SERVER starts later — a background sub-agent finishing and waking the
-      // main agent — streams in live without a refresh. `alive` gates the loop
-      // so the cleanup truly stops it.
-      let alive = true
+      // main agent — streams in live without a refresh.
+      //
+      // The loop's own scope ends when this attachment is closed AND when the
+      // route opening that started it does, so one question — asked again at
+      // every completion, not once at the start — covers a cleanup, an unmount,
+      // and a navigation whose cleanup has not been flushed yet.
+      const loop = scope.derive()
       let close: (() => void) | undefined
       let assistantId: string | null = null
       let cursor = 0
@@ -1271,7 +1309,7 @@ export default function ChatPage() {
       let idleRefreshDone = false
 
       const connect = () => {
-        if (!alive) return
+        if (!loop.isCurrent()) return
         // Never run the standing attach while a foreground send is streaming:
         // that turn already renders via streamPost, and a second follower would
         // double-render it. An intentional Cursor detach holds the loop open
@@ -1279,7 +1317,7 @@ export default function ChatPage() {
         // run it just left. Retry shortly instead.
         if (
           !shouldReconnectAttach({
-            alive,
+            alive: loop.isCurrent(),
             detached: abortRef.current !== null || detachedRef.current,
           })
         ) {
@@ -1300,6 +1338,12 @@ export default function ChatPage() {
         close = streamGet(
           `/chat/attach?session_id=${encodeURIComponent(sid)}&cursor=${cursor}`,
           (event) => {
+            // A frame decoded after another conversation opened has nothing
+            // left to render into, and the connection carrying it is finished.
+            if (!loop.isCurrent()) {
+              close?.()
+              return
+            }
             const eventCursor = Number(event.cursor ?? cursor)
             if (Number.isFinite(eventCursor) && eventCursor >= cursor) cursor = eventCursor
             if (event.type === 'done') {
@@ -1315,17 +1359,18 @@ export default function ChatPage() {
               const refresh = shouldRefresh
                 ? get<SessionDetail>(`/sessions/${sid}`)
                     .then((d) => {
-                      if (!alive) return
-                      setMessages(hydrate(d))
-                      setTitle(d.session.title || t('chat.conversation'))
-                      applyCursorHydration(cursorHydrationFromDetail(d), false)
+                      loop.run(() => {
+                        setMessages(hydrate(d))
+                        setTitle(d.session.title || t('chat.conversation'))
+                        applyCursorHydration(cursorHydrationFromDetail(d), false)
+                      })
                     })
                     .catch(() => {})
                 : Promise.resolve()
               // Do not overlap canonical hydration with the next attachment: a
               // stale response could otherwise overwrite fresh live deltas.
               void refresh.finally(() => {
-                if (alive) window.setTimeout(connect, 1500)
+                loop.run(() => window.setTimeout(connect, 1500))
               })
               return
             }
@@ -1334,22 +1379,25 @@ export default function ChatPage() {
             })
           },
           (err) => {
-            setStreaming(false)
             close?.()
+            // A failure of the connection this route opened is not news for the
+            // one on screen now, and clearing its spinner would be a lie.
+            if (!loop.isCurrent()) return
+            setStreaming(false)
             // Auth failure will not fix itself with a retry — stop the 3s 401
             // loop that filled the daemon log after every restart.
             if (err instanceof ApiError && err.status === 401) {
               setError(t('chat.attachAuthFailed') || 'Dashboard login expired — refresh and sign in again.')
               return
             }
-            if (alive) window.setTimeout(connect, 3000)
+            window.setTimeout(connect, 3000)
           },
         )
       }
 
       connect()
       return () => {
-        alive = false
+        loop.release()
         close?.()
       }
     },
@@ -1375,12 +1423,13 @@ export default function ChatPage() {
     // Every hydration gets its own token, so a slower answer for the session
     // that was open a moment ago can never apply to the one open now.
     const generation = ++hydrationRef.current
-    // Approvals, Cursor recovery state, and the detach flag all belong to one
-    // conversation; carrying them into another session would show a decision
-    // that no longer blocks anything.
+    // Approvals, Cursor recovery state, a cancellation in flight, and the
+    // detach flag all belong to one conversation; carrying them into another
+    // session would show a decision that no longer blocks anything.
     setApprovals([])
     setCursorState(null)
     setLastCursorRun(null)
+    setCancelling(false)
     detachedRef.current = false
     setDetached(false)
     // A Cursor target belongs to the conversation that chose it. Until this
@@ -1402,6 +1451,10 @@ export default function ChatPage() {
     setLoading(true)
     let cancelled = false
     let closeAttach: (() => void) | undefined
+    // Everything this opening starts carries its identity, so a completion is
+    // judged when it arrives rather than when it was launched. Passive cleanup
+    // is not enough on its own: a navigation commits before its cleanup runs.
+    const scope = sessionScopeFor(opened)
     get<SessionDetail>(`/sessions/${sessionId}`)
       .then((d) => {
         if (
@@ -1438,10 +1491,10 @@ export default function ChatPage() {
         )
         // A decision published before this page attached is still blocking the
         // run; the pending list is the only place left to find it.
-        void refreshApprovals(sessionId)
+        void refreshApprovals(scope, sessionId)
         // Once the persisted history is on screen, reconnect to any turn still
         // in flight for this session so streaming continues where it left off.
-        closeAttach = attachLive(sessionId)
+        closeAttach = attachLive(scope, sessionId)
       })
       .catch((e: unknown) => {
         if (cancelled || !isCurrentSessionOpen(opened)) return
@@ -1483,6 +1536,9 @@ export default function ChatPage() {
     // t is stable per language; refetching on language change is harmless.
     return () => {
       cancelled = true
+      // Ends every completion this opening could still produce, including the
+      // ones an unmount would otherwise leave holding live state.
+      scope.release()
       closeAttach?.()
     }
   }, [
@@ -1494,6 +1550,7 @@ export default function ChatPage() {
     applyCursorHydration,
     commitTarget,
     selectTarget,
+    sessionScopeFor,
   ])
 
   /** Append a locally-produced message without touching the server. */
