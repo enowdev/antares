@@ -13,6 +13,13 @@ import {
   Trash,
 } from '@phosphor-icons/react'
 import { del, get, post } from '@/lib/api'
+import {
+  cursorModelMatches,
+  cursorVariantDimensions,
+  cursorVariantSummary,
+  defaultCursorVariant,
+  type CursorModel,
+} from '@/lib/cursorModels'
 import { agentModelsErrorText, isAgentProvider, providerModelsPath, type ProviderCapability } from '@/lib/providerCapabilities'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
@@ -250,17 +257,49 @@ interface AllModel {
   reasoning_capability?: ReasoningCapability
 }
 
-interface AgentModel {
-  id: string
-  name: string
-  description?: string
-  parameters?: unknown[]
-}
-
 interface AgentModelsResponse {
-  models: AgentModel[]
+  models: CursorModel[]
   needs_key?: boolean
   error?: string
+}
+
+/**
+ * One Cursor model as the catalogue describes it: its aliases, the parameter
+ * values real variants offer, and the variant a run starts from. Choosing a
+ * model for execution happens in the composer, not here.
+ */
+function AgentModelRow({ model }: { model: CursorModel }) {
+  const { t } = useI18n()
+  const dimensions = cursorVariantDimensions(model)
+  const variants = model.variants ?? []
+  const summary = cursorVariantSummary(model, defaultCursorVariant(model))
+
+  return (
+    <div className="rounded-[var(--radius-sm)] border border-border p-2.5">
+      <p className="truncate font-mono text-xs">{model.id}</p>
+      <p className="truncate text-xs text-muted-foreground">{model.name}</p>
+      {model.description ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">{model.description}</p>
+      ) : null}
+      {(model.aliases ?? []).length > 0 ? (
+        <p className="mt-1 truncate text-[10px] text-muted-foreground">
+          {t('providers.aliases', { list: (model.aliases ?? []).join(', ') })}
+        </p>
+      ) : null}
+      {dimensions.map((dimension) => (
+        <p key={dimension.id} className="mt-1 text-[10px] text-muted-foreground">
+          <span className="font-medium">{dimension.label}:</span>{' '}
+          {dimension.values.map((value) => value.label).join(', ')}
+        </p>
+      ))}
+      {variants.length > 0 ? (
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          {t('providers.variantCount', { n: variants.length })}
+          {summary ? ` · ${t('providers.defaultVariant', { summary })}` : ''}
+        </p>
+      ) : null}
+    </div>
+  )
 }
 
 /**
@@ -299,6 +338,14 @@ function ProviderModal({
   const llmModelsState = useApi<{ models: AllModel[] }>(agentOnly ? null : '/model/list-all')
   const myModels = (llmModelsState.data?.models ?? []).filter((m) => m.provider === p.id)
   const agentModelsError = agentModelsErrorText(agentModelsState.data, agentModelsState.error)
+  const [agentQuery, setAgentQuery] = useState('')
+  const agentModels = useMemo(
+    () =>
+      (agentModelsState.data?.models ?? []).filter((model) =>
+        cursorModelMatches(model, agentQuery),
+      ),
+    [agentModelsState.data, agentQuery],
+  )
   const [newModel, setNewModel] = useState('')
   const [newCtx, setNewCtx] = useState('')
   const [ctxAuto, setCtxAuto] = useState(false)
@@ -487,15 +534,24 @@ function ProviderModal({
                   ) : (agentModelsState.data?.models ?? []).length === 0 ? (
                     <p className="py-4 text-center text-xs text-muted-foreground">{t('models.none')}</p>
                   ) : (
-                    <div className="max-h-64 space-y-1.5 overflow-y-auto">
-                      {(agentModelsState.data?.models ?? []).map((m) => (
-                        <div key={m.id} className="rounded-[var(--radius-sm)] border border-border p-2.5">
-                          <p className="truncate font-mono text-xs">{m.id}</p>
-                          <p className="truncate text-xs text-muted-foreground">{m.name}</p>
-                          {m.description ? <p className="mt-1 text-[11px] text-muted-foreground">{m.description}</p> : null}
+                    <>
+                      <Input
+                        value={agentQuery}
+                        onChange={(e) => setAgentQuery(e.target.value)}
+                        placeholder={t('providers.searchModels')}
+                        aria-label={t('providers.searchModels')}
+                        className="h-8 text-xs"
+                      />
+                      {agentModels.length === 0 ? (
+                        <p className="py-4 text-center text-xs text-muted-foreground">{t('models.none')}</p>
+                      ) : (
+                        <div className="max-h-64 space-y-1.5 overflow-y-auto">
+                          {agentModels.map((m) => (
+                            <AgentModelRow key={m.id} model={m} />
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    </>
                   )}
                 </>
               ) : (

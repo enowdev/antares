@@ -6,18 +6,39 @@ import {
   Brain,
   CaretDown,
   Check,
+  Cloud,
   Copy,
   FileText,
+  GitBranch,
   Paperclip,
   PencilSimple,
   Plus,
+  Prohibit,
   SidebarSimple,
   Stop,
   Terminal,
   Warning,
   X,
 } from '@phosphor-icons/react'
-import { ApiError, get, post, streamGet, streamPost, type StreamEvent } from '@/lib/api'
+import {
+  ApiError,
+  get,
+  isDashboardPasswordRequired,
+  post,
+  streamGet,
+  streamPost,
+  type StreamEvent,
+} from '@/lib/api'
+import {
+  approvalFromEvent,
+  cursorSessionHydration,
+  mergeApprovals,
+  pendingApprovalsForSession,
+  shouldReconnectAttach,
+  stopBehavior,
+  type CursorSessionHydration,
+  type PendingApproval,
+} from '@/lib/chatEvents'
 import {
   groupStreamPatches,
   queueStreamDelta,
@@ -25,8 +46,19 @@ import {
   type QueuedStreamPatch,
 } from '@/lib/chatStreamQueue'
 import { copyText } from '@/lib/clipboard'
+import {
+  cursorChatRequest,
+  cursorTargetFromModel,
+  isCursorTarget,
+  type ChatTarget,
+  type ComposerTarget,
+  type CursorMode,
+  type CursorOptionsValue,
+} from '@/lib/composerTargets'
+import { composerImageLimit, validateCursorAttachments } from '@/lib/cursorAttachments'
+import type { CursorModel } from '@/lib/cursorModels'
 import { useI18n, useTimeAgo, type MessageKey } from '@/lib/i18n'
-import type { ChatModelSelection, ReasoningCapability } from '@/lib/models'
+import type { ReasoningCapability } from '@/lib/models'
 import {
   loadReasoningPreference,
   reasoningOptions,
@@ -43,6 +75,7 @@ import { ApprovalCard, type ApprovalView } from '@/components/chat/ApprovalCard'
 import { AskUserCard } from '@/components/chat/AskUserCard'
 import { RolePicker } from '@/components/chat/RolePicker'
 import { ModelPicker } from '@/components/chat/ModelPicker'
+import { CursorOptions } from '@/components/chat/CursorOptions'
 import { ReasoningPicker } from '@/components/chat/ReasoningPicker'
 import { ProjectPicker } from '@/components/chat/ProjectPicker'
 import { ProjectSidebar } from '@/components/chat/ProjectSidebar'
@@ -179,6 +212,8 @@ interface SessionDetail {
     tokens_in: number
     tokens_out: number
     hidden?: boolean
+    model?: string
+    meta?: Record<string, unknown> | null
   }>
 }
 
@@ -369,17 +404,54 @@ export default function ChatPage() {
     if (r) localStorage.setItem('antares:last-role', r)
     else localStorage.removeItem('antares:last-role')
   }, [])
+  // Where the next message runs: an Antares chat model, or a Cursor Cloud
+  // Agent. Only a chat target has an adaptive reasoning override — Cursor's own
+  // variant controls take that role in Cursor mode.
+  const [target, setTarget] = useState<ComposerTarget | null>(null)
+  const targetRef = useRef<ComposerTarget | null>(null)
+  targetRef.current = target
+  const cursorMode = isCursorTarget(target)
+  // The non-model half of a Cursor turn, kept while switching Cursor models.
+  const [cursorSettings, setCursorSettings] = useState<{
+    mode: CursorMode
+    repositoryUrl: string | null
+    startingRef: string | null
+    autoCreatePR: boolean
+  }>({ mode: 'agent', repositoryUrl: null, startingRef: null, autoCreatePR: false })
+  const cursorOptions = useMemo<CursorOptionsValue | null>(
+    () =>
+      isCursorTarget(target)
+        ? { model: target.model, variant: target.variant, ...cursorSettings }
+        : null,
+    [target, cursorSettings],
+  )
+  const cursorOptionsRef = useRef<CursorOptionsValue | null>(null)
+  cursorOptionsRef.current = cursorOptions
+  // The identity of the Cursor run this session last started, so the options
+  // popover can warn that sending now starts a new agent instead of following
+  // up on the existing one.
+  const [lastCursorRun, setLastCursorRun] = useState<CursorOptionsValue | null>(null)
+  // What a reopened Cursor session already produced: remote status, branches,
+  // and pull requests from the persisted transcript.
+  const [cursorState, setCursorState] = useState<CursorSessionHydration | null>(null)
+  // Local Stop detaches from a Cursor run that keeps going remotely. The ref is
+  // what the standing attach loop reads, so it never re-follows immediately.
+  const [detached, setDetached] = useState(false)
+  const detachedRef = useRef(false)
+  const [cancelling, setCancelling] = useState(false)
+
   // The model, its capability, and its scoped reasoning value move together.
   // Updating the ref synchronously prevents a send immediately after switching
   // models from carrying the previous model's override.
-  const [modelSelection, setModelSelection] = useState<ChatModelSelection>()
   const [reasoning, setReasoning] = useState('')
   const composerReasoningRef = useRef<{
-    selection: ChatModelSelection
+    selection: ChatTarget
     capability?: ReasoningCapability
     value: string
   } | null>(null)
-  const selectModel = useCallback((selection: ChatModelSelection) => {
+  const selectTarget = useCallback((selection: ComposerTarget) => {
+    setTarget(selection)
+    if (selection.kind !== 'chat') return
     const capability = selection.reasoningCapability
     const { value } = loadReasoningPreference(
       localStorage,
@@ -388,9 +460,39 @@ export default function ChatPage() {
       capability,
     )
     composerReasoningRef.current = { selection, capability, value }
-    setModelSelection(selection)
     setReasoning(value)
   }, [])
+  const changeCursorOptions = useCallback((next: CursorOptionsValue) => {
+    setTarget({ kind: 'cursor', model: next.model, variant: next.variant })
+    setCursorSettings({
+      mode: next.mode,
+      repositoryUrl: next.repositoryUrl,
+      startingRef: next.startingRef,
+      autoCreatePR: next.autoCreatePR,
+    })
+  }, [])
+  /**
+   * Point the composer back at the Cursor model a reopened session used. Only
+   * the catalogue knows that model's variants, so the target is restored from
+   * it rather than reconstructed from the transcript.
+   */
+  const restoreCursorTarget = useCallback(
+    (modelId: string) => {
+      const before = targetRef.current
+      void get<{ models?: CursorModel[] }>('/providers/cursor/models')
+        .then((d) => {
+          // Never overwrite a target the user chose while this was in flight.
+          if (targetRef.current !== before) return
+          const model = (d.models ?? []).find(
+            (candidate) =>
+              candidate.id === modelId || (candidate.aliases ?? []).includes(modelId),
+          )
+          if (model) setTarget(cursorTargetFromModel(model))
+        })
+        .catch(() => {})
+    },
+    [],
+  )
   const pickReasoning = useCallback((value: string) => {
     const current = composerReasoningRef.current
     if (!current) return
@@ -668,16 +770,79 @@ export default function ChatPage() {
   }, [input])
 
   const stop = useCallback(() => {
+    // A Cursor run lives in Cursor's cloud: Stop may only close this browser's
+    // stream. Interrupting the turn, or cancelling it remotely, is never
+    // implied by leaving — cancellation is a separate, approved action.
+    const behavior = stopBehavior(isCursorTarget(targetRef.current) ? 'cursor' : 'chat')
     abortRef.current?.()
     abortRef.current = null
     setStreaming(false)
-    if (sessionId) {
+    if (behavior.detach) {
+      detachedRef.current = true
+      setDetached(true)
+    }
+    if (behavior.interrupt && sessionId) {
       void post<{ interrupted: boolean }>('/chat/interrupt', { session_id: sessionId }).catch(() => {
         // The stream is already closed locally. A failed interrupt will surface
         // when the user reattaches instead of leaving the stop button stuck.
       })
     }
   }, [sessionId])
+
+  /**
+   * Follow this session's Cursor run again after an intentional detach. The
+   * attach stream replays the run from its first event, so the half-finished
+   * bubble this browser was writing is dropped first — otherwise the replay
+   * would render the same answer a second time until the turn ends.
+   */
+  const reattach = useCallback(() => {
+    setMessages((prev) => {
+      const last = prev[prev.length - 1]
+      const optimistic =
+        last?.role === 'assistant' && last.id.startsWith('local_') && last.id.endsWith('_a')
+      return optimistic ? prev.slice(0, -1) : prev
+    })
+    detachedRef.current = false
+    setDetached(false)
+  }, [])
+
+  const refreshApprovals = useCallback((sessionOverride?: string) => {
+    const sid = sessionOverride ?? sessionIdRef.current
+    if (!sid) return Promise.resolve()
+    return get<{ approvals?: PendingApproval[] }>('/approvals')
+      .then((d) => {
+        setApprovals((prev) => pendingApprovalsForSession(prev, d.approvals ?? [], sid))
+      })
+      .catch(() => {})
+  }, [])
+
+  /**
+   * Ask Cursor to cancel the remote run. The server holds the request until the
+   * approval card is answered, so the pending list is polled while it waits —
+   * the card must be reachable even when this browser has detached.
+   */
+  const cancelCursorRun = useCallback(async () => {
+    const sid = sessionIdRef.current
+    if (!sid || cancelling) return
+    setCancelling(true)
+    setError(undefined)
+    const poll = window.setInterval(() => void refreshApprovals(), 2000)
+    try {
+      await post('/chat/cursor/cancel', { session_id: sid })
+    } catch (e) {
+      setError(
+        isDashboardPasswordRequired(e)
+          ? t('sensitive.needPasswordDesc')
+          : e instanceof Error
+            ? e.message
+            : String(e),
+      )
+    } finally {
+      window.clearInterval(poll)
+      setCancelling(false)
+      void refreshApprovals()
+    }
+  }, [cancelling, refreshApprovals, t])
 
   // Apply one stream event to the named assistant message. Shared by a fresh
   // send and a reattach, so both render a turn identically. Session handling
@@ -761,6 +926,14 @@ export default function ChatPage() {
           setAskId(String(event.id ?? ''))
           setLive((s) => ({ ...s, tool: undefined, waiting: true, notice: undefined }))
           break
+        case 'approval': {
+          // The run is blocked on a decision. Replay and a reconnect both
+          // deliver the same id, so the card is added exactly once and keeps
+          // any decision already shown.
+          const view = approvalFromEvent(event)
+          if (view) setApprovals((prev) => mergeApprovals(prev, view))
+          break
+        }
         case 'usage':
           patchAssistant((m) => ({
             ...m,
@@ -833,8 +1006,15 @@ export default function ChatPage() {
         if (!alive) return
         // Never run the standing attach while a foreground send is streaming:
         // that turn already renders via streamPost, and a second follower would
-        // double-render it. Retry shortly instead.
-        if (abortRef.current) {
+        // double-render it. An intentional Cursor detach holds the loop open
+        // but idle in the same way, so Stop does not instantly re-follow the
+        // run it just left. Retry shortly instead.
+        if (
+          !shouldReconnectAttach({
+            alive,
+            detached: abortRef.current !== null || detachedRef.current,
+          })
+        ) {
           window.setTimeout(connect, 1500)
           return
         }
@@ -908,6 +1088,14 @@ export default function ChatPage() {
   )
 
   useEffect(() => {
+    // Approvals, Cursor recovery state, and the detach flag all belong to one
+    // conversation; carrying them into another session would show a decision
+    // that no longer blocks anything.
+    setApprovals([])
+    setCursorState(null)
+    setLastCursorRun(null)
+    detachedRef.current = false
+    setDetached(false)
     if (!sessionId) {
       setMessages([])
       setTitle('')
@@ -947,6 +1135,15 @@ export default function ChatPage() {
           }
         }
         setError(undefined)
+        // Only a Cursor turn persists a remote status, so the transcript itself
+        // says whether this conversation runs on Cursor, which model it used,
+        // and which branches or pull requests it produced.
+        const cursor = cursorSessionHydration(d.messages)
+        setCursorState(cursor.active ? cursor : null)
+        if (cursor.active && cursor.modelId) restoreCursorTarget(cursor.modelId)
+        // A decision published before this page attached is still blocking the
+        // run; the pending list is the only place left to find it.
+        void refreshApprovals(sessionId)
         // Once the persisted history is on screen, reconnect to any turn still
         // in flight for this session so streaming continues where it left off.
         closeAttach = attachLive(sessionId)
@@ -981,7 +1178,7 @@ export default function ChatPage() {
       cancelled = true
       closeAttach?.()
     }
-  }, [sessionId, t, attachLive])
+  }, [sessionId, t, attachLive, refreshApprovals, restoreCursorTarget])
 
   /** Append a locally-produced message without touching the server. */
   const pushSystem = useCallback((content: string) => {
@@ -1079,6 +1276,19 @@ export default function ChatPage() {
         return
       }
 
+    // Cursor runs in its own cloud VM. Everything it cannot accept is rejected
+    // here, before the draft and its attachments are cleared, so nothing is
+    // silently dropped and no paid operation is ever offered for a turn that
+    // could not have been sent.
+    const cursor = cursorOptionsRef.current
+    if (cursor) {
+      const issue = validateCursorAttachments({ images: attached, docs: attachedDocs })
+      if (issue) {
+        setError(t(`cursorAttach.${issue.code}`, issue.values))
+        return
+      }
+    }
+
     // Non-image attachments live in a temp dir; the model can't see them until
     // it reads them. Tell it they're there and how — read_document by path.
     let message = text
@@ -1114,32 +1324,46 @@ export default function ChatPage() {
     setLive({ turn: 1 })
 
     const composerReasoning = composerReasoningRef.current
+    // Sending is a deliberate re-attachment: whatever was detached before, this
+    // session is being followed again.
+    detachedRef.current = false
+    setDetached(false)
+    if (cursor) setLastCursorRun(cursor)
     abortRef.current = streamPost(
-      '/chat',
-      {
-        session_id: sessionIdRef.current ?? '',
-        message,
-        images: attached,
-        role,
-        // Per-chat model override; omitted when unset so the server falls
-        // back to the configured default.
-        ...(composerReasoning
-          ? {
-              model: `${composerReasoning.selection.provider}/${composerReasoning.selection.model}`,
-            }
-          : {}),
-        // Per-turn reasoning override; omitted when unset so the server falls
-        // back to the configured default.
-        ...(composerReasoning?.value
-          ? { reasoning_effort: composerReasoning.value }
-          : {}),
-        // Only meaningful when starting a new session; the server ignores it once
-        // the session exists. Read from the ref so an auto-analyze turn fired
-        // right after binding still carries the project.
-        ...(projectDirRef.current && !sessionIdRef.current
-          ? { project_dir: projectDirRef.current, index_rag: indexRagRef.current }
-          : {}),
-      },
+      cursor ? '/chat/cursor' : '/chat',
+      cursor
+        ? cursorChatRequest(cursor, {
+            sessionId: sessionIdRef.current ?? '',
+            message,
+            images: attached,
+            // Only meaningful when starting a new session; the server binds the
+            // project once and discovers its repository from there.
+            projectDir: sessionIdRef.current ? undefined : projectDirRef.current,
+          })
+        : {
+            session_id: sessionIdRef.current ?? '',
+            message,
+            images: attached,
+            role,
+            // Per-chat model override; omitted when unset so the server falls
+            // back to the configured default.
+            ...(composerReasoning
+              ? {
+                  model: `${composerReasoning.selection.provider}/${composerReasoning.selection.model}`,
+                }
+              : {}),
+            // Per-turn reasoning override; omitted when unset so the server falls
+            // back to the configured default.
+            ...(composerReasoning?.value
+              ? { reasoning_effort: composerReasoning.value }
+              : {}),
+            // Only meaningful when starting a new session; the server ignores it once
+            // the session exists. Read from the ref so an auto-analyze turn fired
+            // right after binding still carries the project.
+            ...(projectDirRef.current && !sessionIdRef.current
+              ? { project_dir: projectDirRef.current, index_rag: indexRagRef.current }
+              : {}),
+          },
       (event: StreamEvent) => {
         // End-of-turn: stop streaming immediately rather than waiting for the
         // socket to close. A detached run keeps the connection open past the
@@ -1165,6 +1389,8 @@ export default function ChatPage() {
               .then((d) => {
                 setMessages(hydrate(d))
                 setTitle(d.session.title || t('chat.conversation'))
+                const state = cursorSessionHydration(d.messages)
+                if (state.active) setCursorState(state)
               })
               .catch(() => {})
           }
@@ -1190,7 +1416,12 @@ export default function ChatPage() {
       },
       (err) => {
         drainPatches()
-        setError(err.message)
+        // A refused turn carries the server's own explanation (busy session,
+        // rate limit, stale Cursor selection); only the password gate answers
+        // with a marker instead of a sentence.
+        setError(
+          isDashboardPasswordRequired(err) ? t('sensitive.needPasswordDesc') : err.message,
+        )
         setStreaming(false)
         abortRef.current = null
         // The turn is persisted now, so a later revisit should hydrate fresh.
@@ -1297,10 +1528,21 @@ export default function ChatPage() {
     const all = Array.from(files)
     const imgs = all.filter((f) => f.type.startsWith('image/'))
     const others = all.filter((f) => !f.type.startsWith('image/'))
+    const cursor = isCursorTarget(targetRef.current)
+    const limit = composerImageLimit(cursor ? 'cursor' : 'chat')
 
     if (imgs.length > 0) {
-      const read = await Promise.all(imgs.slice(0, 4).map(readDataURL))
-      setImages((prev) => [...prev, ...read].slice(0, 4))
+      const read = await Promise.all(imgs.slice(0, limit).map(readDataURL))
+      setImages((prev) => [...prev, ...read].slice(0, limit))
+    }
+
+    // A Cursor cloud VM cannot read a path on this machine, so a document is
+    // refused at the point it is attached rather than uploaded and ignored.
+    if (cursor && others.length > 0) {
+      setError(
+        t('cursorAttach.documents', { names: others.map((file) => file.name).join(', ') }),
+      )
+      return
     }
 
     for (const file of others.slice(0, 4)) {
@@ -1316,7 +1558,7 @@ export default function ChatPage() {
         setError((e as Error).message)
       }
     }
-  }, [])
+  }, [t])
 
   // Pasting a screenshot is the fastest way to show the agent something.
   const onPaste = (e: React.ClipboardEvent) => {
@@ -1442,6 +1684,13 @@ export default function ChatPage() {
     lastSession.clear()
     setMessages([])
     setTitle('')
+    setApprovals([])
+    // A new Antares chat is a new Cursor conversation too: the next Cursor turn
+    // starts a fresh agent rather than following up on the previous one.
+    setCursorState(null)
+    setLastCursorRun(null)
+    detachedRef.current = false
+    setDetached(false)
     // Keep the remembered role for the new chat instead of resetting to default.
     setRole(localStorage.getItem('antares:last-role') ?? '')
     // A project binding belongs to one session; a new chat starts unbound.
@@ -1479,14 +1728,28 @@ export default function ChatPage() {
         attachLabel={t('chat.attach')}
         roleSlot={
           <div className="flex min-w-0 items-center gap-1.5">
-            <RolePicker value={role} onChange={pickRole} compact />
-            <ModelPicker onModelChange={selectModel} />
-            <ReasoningPicker
-              value={reasoning}
-              capability={modelSelection?.reasoningCapability}
-              onChange={pickReasoning}
-              compact
-            />
+            {/* A Cursor run has no Antares role and no generic reasoning
+                override — its own variant controls take that place. */}
+            {cursorMode ? null : <RolePicker value={role} onChange={pickRole} compact />}
+            <ModelPicker value={target} onChange={selectTarget} />
+            {cursorMode && cursorOptions ? (
+              <CursorOptions
+                value={cursorOptions}
+                onChange={changeCursorOptions}
+                projectDir={projectDir}
+                lastStarted={lastCursorRun}
+                disabled={streaming}
+              />
+            ) : (
+              <ReasoningPicker
+                value={reasoning}
+                capability={
+                  target?.kind === 'chat' ? target.reasoningCapability : undefined
+                }
+                onChange={pickReasoning}
+                compact
+              />
+            )}
             <ProjectPicker
               value={projectDir}
               onChange={(dir) => {
@@ -1700,6 +1963,19 @@ export default function ChatPage() {
                 tool={live.tool}
                 waiting={live.waiting}
                 notice={live.notice}
+              />
+            </div>
+          ) : null}
+          {cursorMode || cursorState ? (
+            <div className="pb-2">
+              <CursorRunBar
+                streaming={streaming}
+                detached={detached}
+                cancelling={cancelling}
+                canCancel={Boolean(sessionId)}
+                state={cursorState}
+                onCancel={cancelCursorRun}
+                onReattach={reattach}
               />
             </div>
           ) : null}
@@ -2024,6 +2300,82 @@ function ContextBar({ used, window }: { used: number; window: number }) {
           </div>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * The Cursor run's own controls. Stop (in the composer) only closes this
+ * browser's stream, so this bar is where the run's remote state, a way back to
+ * it, and the separate approved cancellation live.
+ */
+function CursorRunBar({
+  streaming,
+  detached,
+  cancelling,
+  canCancel,
+  state,
+  onCancel,
+  onReattach,
+}: {
+  streaming: boolean
+  detached: boolean
+  cancelling: boolean
+  canCancel: boolean
+  state: CursorSessionHydration | null
+  onCancel: () => void
+  onReattach: () => void
+}) {
+  const { t } = useI18n()
+  const branches = (state?.branches ?? []).filter((b) => b.branch || b.prUrl)
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-[var(--radius-md)] border border-border bg-card/60 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+      <span className="flex items-center gap-1.5 font-medium text-foreground/70">
+        <Cloud className="size-3.5 text-primary" />
+        {t('cursor.runLabel')}
+      </span>
+      {state?.remoteStatus ? (
+        <span className="font-mono text-[10px]">{state.remoteStatus}</span>
+      ) : null}
+      {detached ? <span className="min-w-0">{t('cursor.detachedNotice')}</span> : null}
+      {branches.map((branch) => (
+        <span key={`${branch.repoUrl}/${branch.branch}`} className="flex items-center gap-1">
+          <GitBranch className="size-3 shrink-0" />
+          {branch.prUrl ? (
+            <a
+              href={branch.prUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="truncate text-primary underline underline-offset-2"
+            >
+              {branch.branch || branch.prUrl}
+            </a>
+          ) : (
+            <span className="truncate font-mono text-[10px]">{branch.branch}</span>
+          )}
+        </span>
+      ))}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {detached ? (
+          <Button size="sm" variant="outline" onClick={onReattach}>
+            {t('cursor.reattach')}
+          </Button>
+        ) : null}
+        {canCancel && (streaming || detached) ? (
+          <Button
+            size="sm"
+            variant="outline"
+            loading={cancelling}
+            onClick={onCancel}
+            className="gap-1.5"
+            title={t('cursor.cancelHint')}
+          >
+            <Prohibit className="size-3.5" />
+            {t('cursor.cancel')}
+          </Button>
+        ) : null}
+      </div>
     </div>
   )
 }

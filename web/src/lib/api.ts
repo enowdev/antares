@@ -1,8 +1,15 @@
 /** Typed client for the Antares HTTP API. */
 
-/** True when an error is the "set a dashboard password first" 428 gate. */
+/**
+ * True when an error is the "set a dashboard password first" gate. The marker
+ * in the body distinguishes it from other 428 answers — Cursor reports a
+ * missing integration credential with the same status but its own message.
+ */
 export function isDashboardPasswordRequired(e: unknown): boolean {
-  return e instanceof ApiError && e.status === 428
+  if (!(e instanceof ApiError) || e.status !== 428) return false
+  const body = e.body
+  if (typeof body !== 'object' || body === null || !('error' in body)) return true
+  return (body as { error: unknown }).error === 'dashboard_password_required'
 }
 
 export class ApiError extends Error {
@@ -33,6 +40,30 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+/**
+ * Turn a non-2xx response into an ApiError that keeps the parsed body. The
+ * status and the server's own `error` string are what the UI needs to explain a
+ * 409 busy session, a 429 with retry-after, an auth failure, or a stale model.
+ */
+async function responseError(res: Response): Promise<ApiError> {
+  const text = await res.text().catch(() => '')
+  let body: unknown = text
+  if (text) {
+    try {
+      body = JSON.parse(text)
+    } catch {
+      /* keep raw text */
+    }
+  }
+  const message =
+    typeof body === 'object' && body !== null && 'error' in body
+      ? String((body as { error: unknown }).error)
+      : typeof body === 'string' && body.trim() !== ''
+        ? body
+        : res.statusText || `HTTP ${res.status}`
+  return new ApiError(res.status, message, body)
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
@@ -53,6 +84,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
   }
 
+  if (!res.ok) throw await responseError(res)
+
   const text = await res.text()
   let body: unknown = text
   if (text) {
@@ -61,14 +94,6 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       /* keep raw text */
     }
-  }
-
-  if (!res.ok) {
-    const msg =
-      typeof body === 'object' && body !== null && 'error' in body
-        ? String((body as { error: unknown }).error)
-        : res.statusText || `HTTP ${res.status}`
-    throw new ApiError(res.status, msg, body)
   }
   return body as T
 }
@@ -138,10 +163,11 @@ export function streamPost(
         body: JSON.stringify(data),
         signal: controller.signal,
       })
-      if (!res.ok || !res.body) {
-        const text = await res.text().catch(() => '')
-        throw new ApiError(res.status, text || res.statusText)
-      }
+      // A refused turn answers with the same JSON error envelope as `api`, so
+      // the composer can tell a busy session from a rate limit or a stale
+      // model instead of showing a bare status line.
+      if (!res.ok) throw await responseError(res)
+      if (!res.body) throw new ApiError(res.status, 'the response had no body')
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -211,10 +237,8 @@ export function streamGet(
         headers: { ...authHeaders(), Accept: 'text/event-stream' },
         signal: controller.signal,
       })
-      if (!res.ok || !res.body) {
-        const text = await res.text().catch(() => '')
-        throw new ApiError(res.status, text || res.statusText)
-      }
+      if (!res.ok) throw await responseError(res)
+      if (!res.body) throw new ApiError(res.status, 'the response had no body')
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
