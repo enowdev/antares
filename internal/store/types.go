@@ -65,6 +65,44 @@ type Session struct {
 	Meta         Meta      `json:"meta"`
 }
 
+// Cursor operation states persisted across process restarts.
+const (
+	CursorOperationIdle             = "idle"
+	CursorOperationAwaitingApproval = "awaiting_approval"
+	CursorOperationCreateInFlight   = "create_in_flight"
+	CursorOperationRunInFlight      = "run_in_flight"
+	CursorOperationTerminal         = "terminal"
+	CursorOperationCommitted        = "committed"
+	CursorOperationAmbiguous        = "ambiguous"
+)
+
+// CursorSessionState is the durable recovery snapshot for one Cursor-backed
+// conversation. Credentials and prompt image data deliberately do not belong
+// in this persistence model.
+type CursorSessionState struct {
+	SessionID          string    `json:"session_id"`
+	TargetActive       bool      `json:"target_active"`
+	ReuseValid         bool      `json:"reuse_valid"`
+	ModelID            string    `json:"model_id"`
+	ModelParams        string    `json:"model_params"`
+	RepositoryURL      string    `json:"repository_url"`
+	StartingRef        string    `json:"starting_ref"`
+	Mode               string    `json:"mode"`
+	AutoCreatePR       bool      `json:"auto_create_pr"`
+	AgentID            string    `json:"agent_id"`
+	RunID              string    `json:"run_id"`
+	RemoteStatus       string    `json:"remote_status"`
+	LastEventID        string    `json:"last_event_id"`
+	PartialText        string    `json:"partial_text"`
+	PartialReasoning   string    `json:"partial_reasoning"`
+	GitState           string    `json:"git_state"`
+	OperationState     string    `json:"operation_state"`
+	UserMessageID      string    `json:"user_message_id"`
+	AssistantMessageID string    `json:"assistant_message_id"`
+	Revision           int64     `json:"revision"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
 // Role values for Message.
 const (
 	RoleSystem    = "system"
@@ -303,6 +341,13 @@ type Store interface {
 	DeleteEmptySessions(ctx context.Context) (int64, error)
 	CountEmptySessions(ctx context.Context) (int64, error)
 	PruneSessions(ctx context.Context, olderThan time.Time) (int64, error)
+
+	PutCursorSessionState(ctx context.Context, state *CursorSessionState) error
+	GetCursorSessionState(ctx context.Context, sessionID string) (*CursorSessionState, error)
+	ListRecoverableCursorSessionStates(ctx context.Context) ([]CursorSessionState, error)
+	CompareAndSwapCursorSessionState(ctx context.Context, state *CursorSessionState, expectedRevision int64) (bool, error)
+	InvalidateCursorReuse(ctx context.Context, sessionID string) error
+	CommitCursorAssistant(ctx context.Context, state *CursorSessionState, message *Message) error
 
 	AppendMessage(ctx context.Context, m *Message) error
 	ListMessages(ctx context.Context, sessionID string, limit, offset int) ([]Message, error)

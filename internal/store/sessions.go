@@ -148,6 +148,9 @@ func (s *sqlStore) ListSessions(ctx context.Context, f SessionFilter) ([]Session
 }
 
 func (s *sqlStore) DeleteSession(ctx context.Context, id string) error {
+	if _, err := s.exec(ctx, `DELETE FROM cursor_session_states WHERE session_id=?`, id); err != nil {
+		return err
+	}
 	if _, err := s.exec(ctx, `DELETE FROM messages WHERE session_id=?`, id); err != nil {
 		return err
 	}

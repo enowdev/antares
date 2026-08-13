@@ -47,6 +47,32 @@ var migrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, seq)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC)`,
 
+	`CREATE TABLE IF NOT EXISTS cursor_session_states (
+		session_id           TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+		target_active        BOOLEAN NOT NULL DEFAULT FALSE,
+		reuse_valid          BOOLEAN NOT NULL DEFAULT FALSE,
+		model_id             TEXT NOT NULL DEFAULT '',
+		model_params         TEXT NOT NULL DEFAULT '[]',
+		repository_url       TEXT NOT NULL DEFAULT '',
+		starting_ref         TEXT NOT NULL DEFAULT '',
+		mode                 TEXT NOT NULL DEFAULT '',
+		auto_create_pr       BOOLEAN NOT NULL DEFAULT FALSE,
+		agent_id             TEXT NOT NULL DEFAULT '',
+		run_id               TEXT NOT NULL DEFAULT '',
+		remote_status        TEXT NOT NULL DEFAULT '',
+		last_event_id        TEXT NOT NULL DEFAULT '',
+		partial_text         TEXT NOT NULL DEFAULT '',
+		partial_reasoning    TEXT NOT NULL DEFAULT '',
+		git_state            TEXT NOT NULL DEFAULT '',
+		operation_state      TEXT NOT NULL DEFAULT 'idle'
+			CHECK (operation_state IN ('idle','awaiting_approval','create_in_flight','run_in_flight','terminal','committed','ambiguous')),
+		user_message_id      TEXT NOT NULL DEFAULT '',
+		assistant_message_id TEXT NOT NULL DEFAULT '',
+		revision             BIGINT NOT NULL DEFAULT 1,
+		updated_at           BIGINT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_cursor_session_operation ON cursor_session_states(operation_state)`,
+
 	`CREATE TABLE IF NOT EXISTS memories (
 		id         TEXT PRIMARY KEY,
 		scope      TEXT NOT NULL DEFAULT 'global',
