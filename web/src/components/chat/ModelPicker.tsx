@@ -13,11 +13,11 @@ import {
   composerTargetKey,
   composerTargetLabel,
   cursorCatalogueState,
-  cursorTargetFromModel,
   searchComposerTargets,
   type ChatCatalogueModel,
   type ChatTarget,
   type ComposerTarget,
+  type CursorTarget,
 } from "@/lib/composerTargets";
 import type { CursorModel } from "@/lib/cursorModels";
 import { cursorVariantSummary, defaultCursorVariant } from "@/lib/cursorModels";
@@ -53,13 +53,21 @@ interface ModelInfo {
  * Cursor Cloud Agents are searched together but stay separate targets: picking
  * a chat model sets the active Antares model, while picking a Cursor model only
  * routes this conversation's turns to Cursor and never touches `/model/set`.
+ *
+ * `onChange` reports how the target was chosen. The mount-time active-model
+ * lookup is a `default`, not an edit: only the composer knows whether a session
+ * being restored has a better claim on the target, so it decides what to do
+ * with it.
  */
 export function ModelPicker({
   value,
   onChange,
+  disabled,
 }: {
   value: ComposerTarget | null;
-  onChange: (target: ComposerTarget) => void;
+  onChange: (target: ComposerTarget, origin: "user" | "default") => void;
+  /** Locked while a turn streams: the running stream owns the target. */
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -79,16 +87,12 @@ export function ModelPicker({
     provider: string;
   } | null>(null);
 
-  // Read the current target through a ref: the mount resolution below must not
-  // overwrite a Cursor selection the user already made, and must not re-run
-  // (and re-fetch) every time the composer hands down a new target object.
-  const valueRef = useRef(value);
-  valueRef.current = value;
+  // Read the callback through a ref so the mount resolution below does not
+  // re-run (and re-fetch) every time the composer hands down a new target.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const adoptChatDefault = useCallback((target: ChatTarget) => {
-    if (valueRef.current) return;
-    onChangeRef.current(target);
+    onChangeRef.current(target, "default");
   }, []);
 
   const load = () => {
@@ -215,7 +219,7 @@ export function ModelPicker({
           ? { ...d, active: { model: target.model, provider: target.provider } }
           : d,
       );
-      onChange(target);
+      onChange(target, "user");
       setOpen(false);
       setQuery("");
     } catch (e) {
@@ -235,9 +239,9 @@ export function ModelPicker({
 
   // Cursor is an execution target, not a chat provider: selecting one changes
   // only this composer, so there is nothing to save and nothing to fail.
-  const pickCursor = (model: CursorModel) => {
+  const pickCursor = (target: CursorTarget) => {
     setPickError(undefined);
-    onChange(cursorTargetFromModel(model));
+    onChange(target, "user");
     setOpen(false);
     setQuery("");
   };
@@ -253,10 +257,11 @@ export function ModelPicker({
           setPickError(undefined);
           setOpen((v) => !v);
         }}
+        disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        title={chipLabel}
-        className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-card px-2.5 text-xs transition-colors hover:border-primary/40"
+        title={disabled ? t("target.lockedWhileStreaming") : chipLabel}
+        className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-card px-2.5 text-xs transition-colors hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {value?.kind === "cursor" ? (
           <Cloud className="size-3.5 shrink-0 text-primary" />
@@ -376,34 +381,43 @@ export function ModelPicker({
                 {cursorMessage}
               </p>
             ) : null}
-            {shown.cursor.map((target) => {
-              const key = composerTargetKey(target);
-              const summary = cursorVariantSummary(
-                target.model,
-                defaultCursorVariant(target.model),
-              );
+            {shown.cursor.map(({ model, target }) => {
+              const key = `cursor:${model.id}`;
+              const variant = defaultCursorVariant(model);
+              const summary = variant ? cursorVariantSummary(model, variant) : "";
               return (
                 <button
                   key={key}
+                  // A model the catalogue returned no variant for cannot be run
+                  // at all: it is listed so its absence is explained, but there
+                  // is no selection to make.
+                  disabled={!target}
                   aria-current={key === selectedKey}
-                  onClick={() => pickCursor(target.model)}
+                  onClick={() => target && pickCursor(target)}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left transition-colors hover:bg-muted",
                     key === selectedKey && "bg-primary/5",
+                    !target && "cursor-not-allowed opacity-60 hover:bg-transparent",
                   )}
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs font-medium">
-                      {target.model.name}
+                      {model.name}
                     </span>
                     <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                      {target.model.id} · {t("target.cursorRow")}
+                      {model.id} · {t("target.cursorRow")}
                     </span>
-                    {summary ? (
-                      <span className="block truncate text-[10px] text-muted-foreground">
-                        {summary}
+                    {target ? (
+                      summary ? (
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {summary}
+                        </span>
+                      ) : null
+                    ) : (
+                      <span className="block text-[10px] leading-snug text-[var(--warning)]">
+                        {t("target.cursorNoVariant")}
                       </span>
-                    ) : null}
+                    )}
                   </span>
                 </button>
               );

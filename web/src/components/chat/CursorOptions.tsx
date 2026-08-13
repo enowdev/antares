@@ -5,6 +5,7 @@ import type { CursorMode, CursorOptionsValue, CursorRunBaseline } from '@/lib/co
 import { startsNewCursorAgent } from '@/lib/composerTargets'
 import {
   applyCursorDimension,
+  cursorDimensionAvailability,
   cursorOtherDimensions,
   cursorReasoningDimension,
   cursorVariantSummary,
@@ -47,6 +48,9 @@ export function CursorOptions({
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [preflight, setPreflight] = useState<RepositoryPreflight>()
+  // Set when a control could not commit: the catalogue has no single variant
+  // for that combination, and guessing one would change something else.
+  const [unavailable, setUnavailable] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -92,8 +96,14 @@ export function CursorOptions({
       dimension.id,
       option,
     )
-    // A value no upstream variant carries is never committed.
-    if (variant) onChange({ ...value, variant })
+    // Only a combination that identifies one upstream variant is committed;
+    // anything else leaves the current selection exactly as it was.
+    if (!variant) {
+      setUnavailable(true)
+      return
+    }
+    setUnavailable(false)
+    onChange({ ...value, variant })
   }
 
   const discoveredRepo = preflight?.repository ? (preflight.url ?? '') : ''
@@ -140,23 +150,28 @@ export function CursorOptions({
             </p>
           </div>
 
-          {reasoning ? (
-            <DimensionRow
-              dimension={reasoning}
-              selected={variantParamValue(value.variant, reasoning.id)}
-              onPick={(option) => pickDimension(reasoning, option)}
-              disabled={disabled}
-            />
-          ) : null}
-          {others.map((dimension) => (
+          {[...(reasoning ? [reasoning] : []), ...others].map((dimension) => (
             <DimensionRow
               key={dimension.id}
               dimension={dimension}
               selected={variantParamValue(value.variant, dimension.id)}
+              available={cursorDimensionAvailability(
+                value.model,
+                value.variant,
+                dimension.id,
+              )}
               onPick={(option) => pickDimension(dimension, option)}
               disabled={disabled}
             />
           ))}
+          {unavailable ? (
+            <p
+              role="alert"
+              className="rounded-[var(--radius-sm)] border border-[var(--warning)]/40 bg-[color-mix(in_oklch,var(--warning)_8%,transparent)] px-2.5 py-2 text-[10.5px] leading-snug text-muted-foreground"
+            >
+              {t('cursor.variantUnavailable')}
+            </p>
+          ) : null}
 
           <div role="group" aria-label={t('cursor.mode')} className="space-y-1.5">
             <Label className="text-[11px]">{t('cursor.mode')}</Label>
@@ -265,27 +280,37 @@ export function CursorOptions({
 function DimensionRow({
   dimension,
   selected,
+  available,
   onPick,
   disabled,
 }: {
   dimension: CursorDimension
   selected?: string
+  /** Values that resolve to exactly one variant from the current selection. */
+  available: string[]
   onPick: (value: string) => void
   disabled?: boolean
 }) {
+  const { t } = useI18n()
   return (
     <div role="group" aria-label={dimension.label} className="space-y-1.5">
       <Label className="text-[11px]">{dimension.label}</Label>
       <div className="flex flex-wrap gap-1">
-        {dimension.values.map((option) => (
-          <OptionChip
-            key={option.value}
-            active={selected === option.value}
-            disabled={disabled}
-            onClick={() => onPick(option.value)}
-            label={option.label}
-          />
-        ))}
+        {dimension.values.map((option) => {
+          const reachable = available.includes(option.value)
+          return (
+            <OptionChip
+              key={option.value}
+              active={selected === option.value}
+              // Unreachable here means another dimension has to move first, so
+              // it is shown as unavailable instead of silently moving it.
+              disabled={disabled || (!reachable && selected !== option.value)}
+              title={reachable ? undefined : t('cursor.variantUnavailable')}
+              onClick={() => onPick(option.value)}
+              label={option.label}
+            />
+          )
+        })}
       </div>
     </div>
   )
@@ -296,17 +321,20 @@ function OptionChip({
   label,
   onClick,
   disabled,
+  title,
 }: {
   active: boolean
   label: string
   onClick: () => void
   disabled?: boolean
+  title?: string
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       aria-pressed={active}
       className={cn(
         'rounded-[var(--radius-sm)] border px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50',

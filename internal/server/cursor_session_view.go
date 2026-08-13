@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/enowdev/antares/internal/cursor"
 	"github.com/enowdev/antares/internal/store"
@@ -82,9 +84,6 @@ func (s *Server) projectCursorState(
 		TargetActive: state.TargetActive,
 		ReuseValid:   state.ReuseValid,
 		ModelParams:  []cursor.ModelParameterSelection{},
-		StartingRef: truncateCursorRunes(
-			s.redactCursorString(state.StartingRef), maxCursorStartingRefRunes,
-		),
 		AutoCreatePR: state.AutoCreatePR,
 		RemoteStatus: truncateCursorRunes(
 			s.redactCursorString(state.RemoteStatus), maxCursorProjectionStatusRunes,
@@ -99,26 +98,88 @@ func (s *Server) projectCursorState(
 	if state.Mode == "agent" || state.Mode == "plan" {
 		view.Mode = state.Mode
 	}
-	// The auto-discovery identity is an internal marker, not a repository.
-	if state.RepositoryURL != cursorAutoNoRepositoryIdentity {
-		repository := truncateCursorRunes(
-			s.redactCursorString(state.RepositoryURL), maxCursorRepositoryRunes,
-		)
-		view.RepositoryURL = &repository
+
+	// Everything below identifies the run rather than describing it, so it is
+	// copied byte for byte or omitted. Rewriting an opaque catalogue value (or
+	// a Git ref) would resolve to a different selection, or to none at all.
+	repository, repositoryOK := s.projectCursorRepository(state.RepositoryURL)
+	if repositoryOK {
+		view.RepositoryURL = repository
 	}
-	if params, ok := s.decodeCursorProjectionParams(state.ModelParams); ok {
-		view.ModelID = truncateCursorRunes(
-			s.redactCursorString(state.ModelID), maxCursorIdentifierRunes,
-		)
+	referenceOK := s.safeCursorIdentityValue(state.StartingRef, maxCursorStartingRefRunes)
+	if referenceOK {
+		view.StartingRef = state.StartingRef
+	}
+	params, paramsOK := s.decodeCursorProjectionParams(state.ModelParams)
+	modelOK := state.ModelID != "" &&
+		s.safeCursorIdentityValue(state.ModelID, maxCursorIdentifierRunes)
+	// A selection is only restorable when every part of its identity survived
+	// intact; one unsafe field rejects the whole thing.
+	if modelOK && paramsOK && repositoryOK && referenceOK {
+		view.ModelID = state.ModelID
 		view.ModelParams = params
 	}
 	return view
 }
 
+// projectCursorRepository maps a stored repository identity to its wire form:
+// null for the internal auto-discovery marker, the value itself when it is
+// safe, and "not projectable" when it is not.
+func (s *Server) projectCursorRepository(stored string) (*string, bool) {
+	if stored == cursorAutoNoRepositoryIdentity {
+		return nil, true
+	}
+	if !s.safeCursorIdentityValue(stored, maxCursorRepositoryRunes) {
+		return nil, false
+	}
+	repository := stored
+	return &repository, true
+}
+
+// safeCursorIdentityValue reports whether a stored identity value may be sent
+// to the browser unchanged. It validates structure instead of rewriting
+// content: an oversized, malformed, or credential-bearing value is rejected, so
+// nothing secret is echoed and nothing legitimate is altered.
+func (s *Server) safeCursorIdentityValue(value string, maxRunes int) bool {
+	if value == "" {
+		return true
+	}
+	if !utf8.ValidString(value) ||
+		utf8.RuneCountInString(value) > maxRunes ||
+		strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return false
+	}
+	if s.containsCursorSecret(value) {
+		return false
+	}
+	return !cursorCredentialToken.MatchString(value) &&
+		!cursorCredentialAssignment.MatchString(value) &&
+		!cursorBearerCredential.MatchString(value) &&
+		!cursorURLUserinfo.MatchString(value) &&
+		privateKeyMarker(value) < 0
+}
+
+func (s *Server) containsCursorSecret(value string) bool {
+	cfg := s.config()
+	if cfg == nil {
+		return false
+	}
+	_, provider := cfg.ResolveProvider("cursor")
+	for _, secret := range []string{
+		strings.TrimSpace(provider.APIKey),
+		strings.TrimSpace(cfg.Server.AuthToken),
+	} {
+		if secret != "" && strings.Contains(value, secret) {
+			return true
+		}
+	}
+	return false
+}
+
 // decodeCursorProjectionParams reads a stored selection back into its exact
-// ordered parameters. The store only guarantees a JSON array, so a value that
-// is not a well-formed, unambiguous parameter list is reported as undecodable
-// rather than partially restored.
+// ordered parameters. The store only guarantees a JSON array, so anything that
+// is not a well-formed, unambiguous, safely projectable parameter list is
+// reported as undecodable — never partially restored and never rewritten.
 func (s *Server) decodeCursorProjectionParams(
 	raw string,
 ) ([]cursor.ModelParameterSelection, bool) {
@@ -135,21 +196,16 @@ func (s *Server) decodeCursorProjectionParams(
 		return nil, false
 	}
 	seen := make(map[string]struct{}, len(params))
-	for i := range params {
-		id := truncateCursorRunes(
-			s.redactCursorString(params[i].ID), maxCursorIdentifierRunes,
-		)
-		if id == "" {
+	for _, param := range params {
+		if param.ID == "" ||
+			!s.safeCursorIdentityValue(param.ID, maxCursorIdentifierRunes) ||
+			!s.safeCursorIdentityValue(param.Value, maxCursorIdentifierRunes) {
 			return nil, false
 		}
-		if _, duplicate := seen[id]; duplicate {
+		if _, duplicate := seen[param.ID]; duplicate {
 			return nil, false
 		}
-		seen[id] = struct{}{}
-		params[i].ID = id
-		params[i].Value = truncateCursorRunes(
-			s.redactCursorString(params[i].Value), maxCursorIdentifierRunes,
-		)
+		seen[param.ID] = struct{}{}
 	}
 	return params, true
 }

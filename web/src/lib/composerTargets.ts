@@ -72,11 +72,16 @@ export function chatTargetFromModel(model: ChatCatalogueModel): ChatTarget {
   }
 }
 
+/**
+ * A Cursor target for this model, or null when the catalogue offers no variant
+ * to run it with. Inventing an empty parameter list would send a selection
+ * Cursor never returned.
+ */
 export function cursorTargetFromModel(
   model: CursorModel,
-  variant: CursorVariant = defaultCursorVariant(model),
-): CursorTarget {
-  return { kind: 'cursor', model, variant }
+  variant: CursorVariant | null = defaultCursorVariant(model),
+): CursorTarget | null {
+  return variant ? { kind: 'cursor', model, variant } : null
 }
 
 export function composerTargetKey(target: ComposerTarget): string {
@@ -101,15 +106,23 @@ function chatModelMatches(model: ChatCatalogueModel, query: string): boolean {
   )
 }
 
+/** A Cursor search hit. `target` is null when the model cannot be run at all. */
+export interface CursorSearchRow {
+  model: CursorModel
+  target: CursorTarget | null
+}
+
 /**
  * One search over both catalogues, presented as two groups. The catalogues stay
- * separate: a Cursor hit is never offered as a chat model.
+ * separate: a Cursor hit is never offered as a chat model. A model the
+ * catalogue gave no variant for is still listed — with nothing to select — so
+ * its absence from the composer is explained rather than silent.
  */
 export function searchComposerTargets(input: {
   chatModels: ChatCatalogueModel[]
   cursorModels: CursorModel[]
   query: string
-}): { chat: ChatTarget[]; cursor: CursorTarget[] } {
+}): { chat: ChatTarget[]; cursor: CursorSearchRow[] } {
   const { chatModels = [], cursorModels = [], query } = input
   return {
     chat: chatModels
@@ -117,7 +130,7 @@ export function searchComposerTargets(input: {
       .map(chatTargetFromModel),
     cursor: cursorModels
       .filter((model) => cursorModelMatches(model, query))
-      .map((model) => cursorTargetFromModel(model)),
+      .map((model) => ({ model, target: cursorTargetFromModel(model) })),
   }
 }
 

@@ -80,6 +80,11 @@ describe('composer targets', () => {
     expect(isCursorTarget(target)).toBe(true)
   })
 
+  test('a model with no upstream variant cannot become a target', () => {
+    // cursorModels[1] is the catalogue's variant-less entry.
+    expect(cursorTargetFromModel(cursorModels[1])).toBeNull()
+  })
+
   test('target keys separate the two execution surfaces', () => {
     expect(composerTargetKey(chatTargetFromModel(chatModels[0]))).toBe('chat:openai/gpt-5.6')
     expect(composerTargetKey(cursorTargetFromModel(cursorModels[0]))).toBe('cursor:gpt-5.6-sol')
@@ -110,6 +115,14 @@ describe('grouped target search', () => {
     const found = searchComposerTargets({ chatModels, cursorModels, query: 'cursor' })
     expect(found.cursor).toHaveLength(2)
     expect(found.chat).toHaveLength(0)
+  })
+
+  test('a model with no upstream variant is listed but has no target to select', () => {
+    const found = searchComposerTargets({ chatModels, cursorModels, query: 'auto' })
+    expect(found.cursor.map((row) => row.model.id)).toEqual(['auto-smart'])
+    expect(found.cursor[0].target).toBeNull()
+    const usable = searchComposerTargets({ chatModels, cursorModels, query: 'sol' })
+    expect(usable.cursor[0].target?.variant).toBe(cursorModels[0].variants[0])
   })
 
   test('an empty query keeps both catalogues intact', () => {

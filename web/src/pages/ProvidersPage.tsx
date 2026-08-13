@@ -272,7 +272,8 @@ function AgentModelRow({ model }: { model: CursorModel }) {
   const { t } = useI18n()
   const dimensions = cursorVariantDimensions(model)
   const variants = model.variants ?? []
-  const summary = cursorVariantSummary(model, defaultCursorVariant(model))
+  const preferred = defaultCursorVariant(model)
+  const summary = preferred ? cursorVariantSummary(model, preferred) : ''
 
   return (
     <div className="rounded-[var(--radius-sm)] border border-border p-2.5">
@@ -297,7 +298,11 @@ function AgentModelRow({ model }: { model: CursorModel }) {
           {t('providers.variantCount', { n: variants.length })}
           {summary ? ` · ${t('providers.defaultVariant', { summary })}` : ''}
         </p>
-      ) : null}
+      ) : (
+        <p className="mt-1 text-[10px] leading-snug text-[var(--warning)]">
+          {t('target.cursorNoVariant')}
+        </p>
+      )}
     </div>
   )
 }

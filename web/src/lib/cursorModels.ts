@@ -54,12 +54,19 @@ export interface CursorDimension {
 /** Parameter ids Cursor uses for the reasoning-like axis, in priority order. */
 export const REASONING_DIMENSION_IDS = ['reasoning', 'effort', 'thinking'] as const
 
-/** The upstream default variant, or an empty selection for a variant-less model. */
-export function defaultCursorVariant(model: CursorModel): CursorVariant {
+/**
+ * The upstream default variant, or null when the catalogue returned none. An
+ * empty parameter list is not a substitute: it would be a selection Cursor
+ * never offered.
+ */
+export function defaultCursorVariant(model: CursorModel): CursorVariant | null {
   const variants = model.variants ?? []
-  const preferred = variants.find((variant) => variant.isDefault) ?? variants[0]
-  if (preferred) return preferred
-  return { params: [], displayName: model.name }
+  return variants.find((variant) => variant.isDefault) ?? variants[0] ?? null
+}
+
+/** Whether the catalogue gives this model anything that can actually be run. */
+export function cursorModelSelectable(model: CursorModel): boolean {
+  return defaultCursorVariant(model) !== null
 }
 
 /** A variant's params as an id → value map, hidden params included. */
@@ -96,11 +103,6 @@ export function selectExactVariant(
   model: CursorModel,
   selection: Record<string, string>,
 ): CursorVariant | null {
-  if ((model.variants ?? []).length === 0) {
-    return Object.keys(selection).length === 0
-      ? { params: [], displayName: model.name }
-      : null
-  }
   const matches = matchingCursorVariants(model, selection)
   return matches.length === 1 ? matches[0] : null
 }
@@ -129,11 +131,7 @@ export function resolveCursorVariant(
 ): CursorVariant | null {
   const wanted = canonicalParamMap(params)
   if (!wanted) return null
-  const variants = model.variants ?? []
-  if (variants.length === 0) {
-    return wanted.size === 0 ? { params: [], displayName: model.name } : null
-  }
-  for (const variant of variants) {
+  for (const variant of model.variants ?? []) {
     const candidate = canonicalParamMap(variant.params ?? [])
     if (!candidate || candidate.size !== wanted.size) continue
     let equal = true
@@ -148,10 +146,26 @@ export function resolveCursorVariant(
   return null
 }
 
+/** The current variant's values for the dimensions a control can show. */
+function visibleSelection(
+  model: CursorModel,
+  variant: CursorVariant,
+): Record<string, string> {
+  const params = variantSelection(variant)
+  const selection: Record<string, string> = {}
+  for (const dimension of cursorVariantDimensions(model)) {
+    const value = params[dimension.id]
+    if (value !== undefined) selection[dimension.id] = value
+  }
+  return selection
+}
+
 /**
- * Move one dimension while keeping as much of the current variant as Cursor
- * actually offers. The result is always an upstream variant, so hidden params
- * belong to the variant that was chosen rather than the one left behind.
+ * Move one dimension and keep every other visible one exactly as it was. The
+ * move commits only when that combination identifies a single upstream variant:
+ * picking the nearest candidate instead would silently change a dimension the
+ * user did not touch, or pick between variants that differ only in params the
+ * catalogue never shows.
  */
 export function applyCursorDimension(
   model: CursorModel,
@@ -159,29 +173,33 @@ export function applyCursorDimension(
   dimensionId: string,
   value: string,
 ): CursorVariant | null {
-  const candidates = matchingCursorVariants(model, { [dimensionId]: value })
-  if (candidates.length === 0) return null
+  const matches = matchingCursorVariants(model, {
+    ...visibleSelection(model, current),
+    [dimensionId]: value,
+  })
+  return matches.length === 1 ? matches[0] : null
+}
 
-  const previous = variantSelection(current)
-  const dimensions = cursorVariantDimensions(model)
-    .map((dimension) => dimension.id)
-    .filter((id) => id !== dimensionId)
-
-  let best = candidates[0]
-  let bestScore = -1
-  for (const candidate of candidates) {
-    const params = variantSelection(candidate)
-    let score = dimensions.reduce(
-      (total, id) => total + (params[id] === previous[id] ? 1 : 0),
-      0,
+/**
+ * The values of one dimension a control may commit from the current variant.
+ * Anything else would need another dimension to move first, so the UI shows it
+ * as unavailable rather than silently rewriting the rest of the selection.
+ */
+export function cursorDimensionAvailability(
+  model: CursorModel,
+  current: CursorVariant,
+  dimensionId: string,
+): string[] {
+  const dimension = cursorVariantDimensions(model).find(
+    (candidate) => candidate.id === dimensionId,
+  )
+  if (!dimension) return []
+  return dimension.values
+    .filter(
+      (option) =>
+        applyCursorDimension(model, current, dimensionId, option.value) !== null,
     )
-    if (candidate.isDefault) score += 0.5
-    if (score > bestScore) {
-      best = candidate
-      bestScore = score
-    }
-  }
-  return best
+    .map((option) => option.value)
 }
 
 /**

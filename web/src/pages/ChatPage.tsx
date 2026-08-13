@@ -56,6 +56,15 @@ import {
   type CursorOptionsValue,
   type CursorRunBaseline,
 } from '@/lib/composerTargets'
+import {
+  baselineAfterSend,
+  restoreIsCurrent,
+  shouldAdoptDefaultTarget,
+  stopStreamKind,
+  targetAfterCursorHydration,
+  targetChangeAllowed,
+  type TargetOwner,
+} from '@/lib/composerRestore'
 import { composerImageLimit, validateCursorAttachments } from '@/lib/cursorAttachments'
 import {
   defaultCursorVariant,
@@ -385,6 +394,9 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(!!sessionId)
   const [streaming, setStreaming] = useState(false)
+  // Read by stable callbacks that must not change identity per render.
+  const streamingRef = useRef(false)
+  streamingRef.current = streaming
   // Live status for the streaming indicator: which step, and what tool (if any)
   // is running right now. Reset at the start of every send.
   const [live, setLive] = useState<{
@@ -429,6 +441,18 @@ export default function ChatPage() {
   const targetRef = useRef<ComposerTarget | null>(null)
   targetRef.current = target
   const cursorMode = isCursorTarget(target)
+  // Who may set the target right now. A session's own durable state outranks
+  // the picker's automatic active-model default, which is stashed until the
+  // session turns out not to own the target.
+  const targetOwnerRef = useRef<TargetOwner>('free')
+  const pendingDefaultRef = useRef<ChatTarget | null>(null)
+  // Bumped for every session hydration, so an answer for the session that was
+  // open a moment ago can never apply to the one open now.
+  const hydrationRef = useRef(0)
+  // The kind of stream that is actually running. The picker is locked while a
+  // turn streams, but an attach can outlive a target change, so Stop asks this
+  // rather than the composer.
+  const streamKindRef = useRef<'chat' | 'cursor' | null>(null)
   // The non-model half of a Cursor turn, kept while switching Cursor models.
   const [cursorSettings, setCursorSettings] = useState<CursorTurnSettings>({
     mode: 'agent',
@@ -449,9 +473,13 @@ export default function ChatPage() {
   // it reusable, so the options popover can warn that sending now starts a new
   // agent instead of following up.
   const [lastCursorRun, setLastCursorRun] = useState<CursorRunBaseline | null>(null)
+  const lastCursorRunRef = useRef<CursorRunBaseline | null>(null)
+  lastCursorRunRef.current = lastCursorRun
   // What this session's Cursor run is doing or produced: remote status,
   // operation state, branches, and pull requests.
   const [cursorState, setCursorState] = useState<CursorHydration | null>(null)
+  const cursorStateRef = useRef<CursorHydration | null>(null)
+  cursorStateRef.current = cursorState
   // Local Stop detaches from a Cursor run that keeps going remotely. The ref is
   // what the standing attach loop reads, so it never re-follows immediately.
   const [detached, setDetached] = useState(false)
@@ -467,28 +495,59 @@ export default function ChatPage() {
     capability?: ReasoningCapability
     value: string
   } | null>(null)
-  const selectTarget = useCallback((selection: ComposerTarget) => {
-    setTarget(selection)
-    if (selection.kind !== 'chat') return
-    const capability = selection.reasoningCapability
-    const { value } = loadReasoningPreference(
-      localStorage,
-      selection.provider,
-      selection.model,
-      capability,
-    )
-    composerReasoningRef.current = { selection, capability, value }
-    setReasoning(value)
+  /**
+   * Set the target and its ref together. Restoration decides in one pass, and
+   * every step of that pass has to see the target the previous step chose
+   * rather than the one still rendered.
+   */
+  const commitTarget = useCallback((next: ComposerTarget | null) => {
+    targetRef.current = next
+    setTarget(next)
   }, [])
+  /**
+   * Point the composer at a target. `default` is the picker's automatic
+   * active-model lookup, which must never outrank a session being restored or
+   * a choice already made; `user` is an edit, refused while a turn streams.
+   */
+  const selectTarget = useCallback(
+    (selection: ComposerTarget, origin: 'user' | 'default' | 'restore' = 'user') => {
+      if (origin === 'default') {
+        // Keep it either way: this session may turn out not to own the target.
+        if (selection.kind === 'chat') pendingDefaultRef.current = selection
+        if (
+          !shouldAdoptDefaultTarget({
+            owner: targetOwnerRef.current,
+            hasTarget: targetRef.current !== null,
+          })
+        ) {
+          return
+        }
+      }
+      if (origin === 'user' && !targetChangeAllowed(streamingRef.current)) return
+      commitTarget(selection)
+      if (selection.kind !== 'chat') return
+      const capability = selection.reasoningCapability
+      const { value } = loadReasoningPreference(
+        localStorage,
+        selection.provider,
+        selection.model,
+        capability,
+      )
+      composerReasoningRef.current = { selection, capability, value }
+      setReasoning(value)
+    },
+    [commitTarget],
+  )
   const changeCursorOptions = useCallback((next: CursorOptionsValue) => {
-    setTarget({ kind: 'cursor', model: next.model, variant: next.variant })
+    if (!targetChangeAllowed(streamingRef.current)) return
+    commitTarget({ kind: 'cursor', model: next.model, variant: next.variant })
     setCursorSettings({
       mode: next.mode,
       repositoryUrl: next.repositoryUrl,
       startingRef: next.startingRef,
       autoCreatePR: next.autoCreatePR,
     })
-  }, [])
+  }, [commitTarget])
   /**
    * Record the run a follow-up would continue, when the composer is already
    * pointed at exactly that selection. Reports whether it could.
@@ -533,10 +592,13 @@ export default function ChatPage() {
       // The composer already holds this exact selection; no catalogue lookup
       // can tell us anything new.
       if (params && applyCursorBaseline(modelId, params, settings, reuseValid)) return
+      const generation = hydrationRef.current
       const current = targetRef.current
       void get<{ models?: CursorModel[]; needs_key?: boolean }>('/providers/cursor/models')
         .then((d) => {
-          // Never overwrite a target the user chose while this was in flight.
+          // Another session opened, or the user chose something, while this
+          // catalogue request was in flight.
+          if (!restoreIsCurrent(generation, hydrationRef.current)) return
           if (targetRef.current !== current) return
           if (d.needs_key) {
             setError(t('target.cursorNeedsKey'))
@@ -558,14 +620,14 @@ export default function ChatPage() {
             setError(t('cursor.staleSelection'))
             return
           }
-          setTarget({ kind: 'cursor', model, variant })
+          commitTarget({ kind: 'cursor', model, variant })
           setLastCursorRun(
             params ? { options: { model, variant, ...settings }, reuseValid } : null,
           )
         })
         .catch(() => {})
     },
-    [applyCursorBaseline, t],
+    [applyCursorBaseline, commitTarget, t],
   )
   /**
    * Apply a session's durable Cursor state. Opening a session restores the
@@ -578,10 +640,6 @@ export default function ChatPage() {
       const worthShowing =
         hydration.active || Boolean(hydration.remoteStatus) || hydration.branches.length > 0
       setCursorState(worthShowing ? hydration : null)
-      if (!hydration.active) {
-        setLastCursorRun(null)
-        return
-      }
       const settings: CursorTurnSettings = {
         mode: hydration.mode ?? 'agent',
         repositoryUrl: hydration.repositoryUrl ?? null,
@@ -589,9 +647,26 @@ export default function ChatPage() {
         startingRef: hydration.startingRef ?? null,
         autoCreatePR: hydration.autoCreatePR === true,
       }
-      if (!hydration.modelId) {
-        // The server could not decode an exact selection; restore no target.
-        if (restoreComposer) setCursorSettings(settings)
+      if (restoreComposer) {
+        // Whatever this session is, the composer must stop pointing at another
+        // conversation's Cursor agent before the next message can be sent.
+        const decision = targetAfterCursorHydration({
+          active: hydration.active,
+          modelId: hydration.modelId,
+          current: targetRef.current,
+          pendingDefault: pendingDefaultRef.current,
+          lastChat: composerReasoningRef.current?.selection ?? null,
+        })
+        targetOwnerRef.current = decision.owner
+        if (decision.action === 'set') {
+          if (decision.target) selectTarget(decision.target, 'restore')
+          else commitTarget(null)
+        }
+      }
+      if (!hydration.active || !hydration.modelId) {
+        // Not a Cursor session, or one whose exact selection is unreadable:
+        // there is no run a follow-up could continue.
+        if (restoreComposer && hydration.active) setCursorSettings(settings)
         setLastCursorRun(null)
         return
       }
@@ -608,7 +683,7 @@ export default function ChatPage() {
       setCursorSettings(settings)
       restoreCursorTarget(hydration.modelId, params, settings, reuseValid)
     },
-    [applyCursorBaseline, restoreCursorTarget],
+    [applyCursorBaseline, commitTarget, restoreCursorTarget, selectTarget],
   )
   const pickReasoning = useCallback((value: string) => {
     const current = composerReasoningRef.current
@@ -890,7 +965,11 @@ export default function ChatPage() {
     // A Cursor run lives in Cursor's cloud: Stop may only close this browser's
     // stream. Interrupting the turn, or cancelling it remotely, is never
     // implied by leaving — cancellation is a separate, approved action.
-    const behavior = stopBehavior(isCursorTarget(targetRef.current) ? 'cursor' : 'chat')
+    // Which semantics apply is decided by the stream that is running, not by
+    // the composer, which an attached run can outlive.
+    const behavior = stopBehavior(
+      stopStreamKind(streamKindRef.current, cursorStateRef.current?.active === true),
+    )
     abortRef.current?.()
     abortRef.current = null
     setStreaming(false)
@@ -1206,6 +1285,17 @@ export default function ChatPage() {
   )
 
   useEffect(() => {
+    // A brand-new chat navigates to its own url mid-stream. The live messages
+    // are already on screen; re-fetching now would find the turn not yet
+    // persisted and wipe them, and adopting an id is not a session switch — the
+    // running turn keeps its target, approvals, and Cursor state.
+    if (sessionId && sessionId === localSessionRef.current) {
+      setLoading(false)
+      return
+    }
+    // Every hydration gets its own token, so a slower answer for the session
+    // that was open a moment ago can never apply to the one open now.
+    const generation = ++hydrationRef.current
     // Approvals, Cursor recovery state, and the detach flag all belong to one
     // conversation; carrying them into another session would show a decision
     // that no longer blocks anything.
@@ -1214,18 +1304,19 @@ export default function ChatPage() {
     setLastCursorRun(null)
     detachedRef.current = false
     setDetached(false)
+    // A Cursor target belongs to the conversation that chose it. Until this
+    // session's own state says otherwise, the composer holds no Cursor target,
+    // so a message sent meanwhile cannot reach another session's agent.
+    if (isCursorTarget(targetRef.current)) commitTarget(null)
+    targetOwnerRef.current = sessionId ? 'pending' : 'free'
     if (!sessionId) {
+      // A new chat is owned by nobody, so the picker's default may fill it.
+      const stashed = pendingDefaultRef.current
+      if (stashed && !targetRef.current) selectTarget(stashed, 'default')
       setMessages([])
       setTitle('')
       setProjectDir('')
       setCtxUsed(0)
-      setLoading(false)
-      return
-    }
-    // A brand-new chat navigates to its own url mid-stream. The live messages
-    // are already on screen; re-fetching now would find the turn not yet
-    // persisted and wipe them. Skip the hydrate for that one session.
-    if (sessionId === localSessionRef.current) {
       setLoading(false)
       return
     }
@@ -1234,7 +1325,7 @@ export default function ChatPage() {
     let closeAttach: (() => void) | undefined
     get<SessionDetail>(`/sessions/${sessionId}`)
       .then((d) => {
-        if (cancelled) return
+        if (cancelled || !restoreIsCurrent(generation, hydrationRef.current)) return
         const restored = hydrate(d)
         // Open a restored transcript at its newest message. Set before the list
         // mounts (it is still `loading`), so Virtuoso reads the final value once.
@@ -1279,6 +1370,13 @@ export default function ChatPage() {
           return
         }
         setError(e instanceof Error ? e.message : String(e))
+        // Nothing will claim the target now, so the composer must not stay
+        // waiting on a session state that never arrived.
+        if (restoreIsCurrent(generation, hydrationRef.current)) {
+          targetOwnerRef.current = 'free'
+          const stashed = pendingDefaultRef.current
+          if (stashed && !targetRef.current) selectTarget(stashed, 'default')
+        }
       })
     get<{ role?: string }>(`/sessions/${sessionId}/role`)
       .then((r) => {
@@ -1293,7 +1391,15 @@ export default function ChatPage() {
       cancelled = true
       closeAttach?.()
     }
-  }, [sessionId, t, attachLive, refreshApprovals, applyCursorHydration])
+  }, [
+    sessionId,
+    t,
+    attachLive,
+    refreshApprovals,
+    applyCursorHydration,
+    commitTarget,
+    selectTarget,
+  ])
 
   /** Append a locally-produced message without touching the server. */
   const pushSystem = useCallback((content: string) => {
@@ -1443,10 +1549,13 @@ export default function ChatPage() {
     // session is being followed again.
     detachedRef.current = false
     setDetached(false)
-    // The turn being started is the run a follow-up would continue. Whether the
-    // server keeps it reusable is only known once it ends, which the durable
-    // state at end-of-turn corrects.
-    if (cursor) setLastCursorRun({ options: cursor, reuseValid: true })
+    // Stop must know what it is stopping even if the composer moves on.
+    streamKindRef.current = cursor ? 'cursor' : 'chat'
+    // A refused request starts nothing, so the run a follow-up would continue
+    // only changes once the server has accepted this one.
+    const baselineBeforeSend = lastCursorRunRef.current
+    const generation = hydrationRef.current
+    let accepted = false
     abortRef.current = streamPost(
       cursor ? '/chat/cursor' : '/chat',
       cursor
@@ -1483,6 +1592,20 @@ export default function ChatPage() {
               : {}),
           },
       (event: StreamEvent) => {
+        // Events only flow after the server accepted the request, which is the
+        // first moment this turn is the one a follow-up would continue.
+        if (!accepted) {
+          accepted = true
+          if (cursor) {
+            setLastCursorRun(
+              baselineAfterSend({
+                previous: baselineBeforeSend,
+                attempted: cursor,
+                accepted: true,
+              }),
+            )
+          }
+        }
         // End-of-turn: stop streaming immediately rather than waiting for the
         // socket to close. A detached run keeps the connection open past the
         // final event, which otherwise left the indicator and the task bar
@@ -1494,6 +1617,7 @@ export default function ChatPage() {
           setLive((s) => ({ ...s, waiting: false }))
           abortRef.current?.()
           abortRef.current = null
+          streamKindRef.current = null
           localSessionRef.current = null
           // The turn may have written project_info — refresh the sidebar.
           setSidebarRefresh((n) => n + 1)
@@ -1505,6 +1629,7 @@ export default function ChatPage() {
           if (sid) {
             get<SessionDetail>(`/sessions/${sid}`)
               .then((d) => {
+                if (!restoreIsCurrent(generation, hydrationRef.current)) return
                 setMessages(hydrate(d))
                 setTitle(d.session.title || t('chat.conversation'))
                 // The turn that just ended decides whether a follow-up can
@@ -1543,13 +1668,30 @@ export default function ChatPage() {
         )
         setStreaming(false)
         abortRef.current = null
+        streamKindRef.current = null
         // The turn is persisted now, so a later revisit should hydrate fresh.
         localSessionRef.current = null
+        if (!cursor) return
+        // Nothing was started, so the previous follow-up baseline still stands.
+        // Anything that did happen is in the durable state, which decides.
+        setLastCursorRun(
+          baselineAfterSend({ previous: baselineBeforeSend, attempted: cursor, accepted: false }),
+        )
+        const sid = sessionIdRef.current
+        if (sid) {
+          get<SessionDetail>(`/sessions/${sid}`)
+            .then((d) => {
+              if (!restoreIsCurrent(generation, hydrationRef.current)) return
+              applyCursorHydration(cursorHydrationFromDetail(d), false)
+            })
+            .catch(() => {})
+        }
       },
       () => {
         drainPatches()
         setStreaming(false)
         abortRef.current = null
+        streamKindRef.current = null
         localSessionRef.current = null
       },
     )
@@ -1861,7 +2003,9 @@ export default function ChatPage() {
             {/* A Cursor run has no Antares role and no generic reasoning
                 override — its own variant controls take that place. */}
             {cursorMode ? null : <RolePicker value={role} onChange={pickRole} compact />}
-            <ModelPicker value={target} onChange={selectTarget} />
+            {/* The running stream owns the target: changing it mid-turn would
+                leave Stop and the next send disagreeing about where it went. */}
+            <ModelPicker value={target} onChange={selectTarget} disabled={streaming} />
             {cursorMode && cursorOptions ? (
               <CursorOptions
                 value={cursorOptions}

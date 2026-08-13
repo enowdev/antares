@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
   applyCursorDimension,
+  cursorDimensionAvailability,
   cursorModelMatches,
+  cursorModelSelectable,
   cursorReasoningDimension,
   cursorVariantDimensions,
   cursorVariantSummary,
@@ -144,10 +146,14 @@ describe('exact Cursor variants', () => {
     expect(defaultCursorVariant(noDefault)).toBe(noDefault.variants[0])
   })
 
-  test('a model without variants selects an empty parameter list', () => {
+  test('a model the catalogue gave no variant for is not selectable', () => {
     const bare = { id: 'bare', name: 'Bare', aliases: [], parameters: [], variants: [] }
-    expect(defaultCursorVariant(bare)).toEqual({ params: [], displayName: 'Bare' })
-    expect(selectExactVariant(bare, {})).toEqual({ params: [], displayName: 'Bare' })
+    // Sending an invented empty params array would be a selection Cursor never
+    // offered, so there is nothing to select at all.
+    expect(defaultCursorVariant(bare)).toBeNull()
+    expect(selectExactVariant(bare, {})).toBeNull()
+    expect(cursorModelSelectable(bare)).toBe(false)
+    expect(cursorModelSelectable(multiVariantFixture)).toBe(true)
   })
 
   test('an exact match returns the upstream variant object itself', () => {
@@ -165,26 +171,79 @@ describe('exact Cursor variants', () => {
     expect(selectExactVariant(multiVariantFixture, { context: '272k' })).toBeNull()
   })
 
-  test('changing one dimension lands on a concrete variant with its hidden params', () => {
+  test('changing one dimension keeps the others and carries the hidden params', () => {
     const from = multiVariantFixture.variants[0]
     const next = applyCursorDimension(multiVariantFixture, from, 'reasoning', 'max')
     expect(next).toBe(multiVariantFixture.variants[1])
-
-    const wider = applyCursorDimension(multiVariantFixture, from, 'context', '1m')
-    // 1M has no low-reasoning variant upstream, so the only real 1M variant wins
-    // and carries its own hidden internal flag.
-    expect(wider).toBe(multiVariantFixture.variants[2])
-    expect(variantSelection(wider)).toEqual({
-      context: '1m',
+    expect(variantSelection(next)).toEqual({
+      context: '272k',
       reasoning: 'max',
-      internal: 'on',
+      internal: 'off',
     })
+
+    const wider = applyCursorDimension(
+      multiVariantFixture,
+      multiVariantFixture.variants[1],
+      'context',
+      '1m',
+    )
+    expect(wider).toBe(multiVariantFixture.variants[2])
+  })
+
+  test('a value that would silently change another dimension commits nothing', () => {
+    // Only 1M + max exists upstream, so moving context while reasoning is low
+    // must not quietly raise reasoning too.
+    expect(
+      applyCursorDimension(multiVariantFixture, multiVariantFixture.variants[0], 'context', '1m'),
+    ).toBeNull()
   })
 
   test('an unreachable dimension value commits nothing', () => {
     expect(
       applyCursorDimension(modelFixture, modelFixture.variants[0], 'context', '1m'),
     ).toBeNull()
+  })
+
+  test('a tie between variants commits nothing', () => {
+    // Two variants share every visible dimension and differ only in a hidden
+    // one, so "fast on" cannot identify a single upstream variant.
+    const tied = {
+      id: 'tied',
+      name: 'Tied',
+      aliases: [],
+      parameters: [{ id: 'fast', values: [{ value: 'off' }, { value: 'on' }] }],
+      variants: [
+        { params: [{ id: 'fast', value: 'off' }], displayName: 'off', isDefault: true },
+        {
+          params: [
+            { id: 'fast', value: 'on' },
+            { id: 'internal', value: 'a' },
+          ],
+          displayName: 'on a',
+        },
+        {
+          params: [
+            { id: 'fast', value: 'on' },
+            { id: 'internal', value: 'b' },
+          ],
+          displayName: 'on b',
+        },
+      ],
+    }
+    expect(applyCursorDimension(tied, tied.variants[0], 'fast', 'on')).toBeNull()
+    expect(cursorDimensionAvailability(tied, tied.variants[0], 'fast')).toEqual(['off'])
+  })
+
+  test('availability marks exactly the values a control may commit', () => {
+    expect(
+      cursorDimensionAvailability(multiVariantFixture, multiVariantFixture.variants[0], 'context'),
+    ).toEqual(['272k'])
+    expect(
+      cursorDimensionAvailability(multiVariantFixture, multiVariantFixture.variants[1], 'context'),
+    ).toEqual(['272k', '1m'])
+    expect(
+      cursorDimensionAvailability(multiVariantFixture, multiVariantFixture.variants[0], 'reasoning'),
+    ).toEqual(['low', 'max'])
   })
 })
 
@@ -289,10 +348,20 @@ describe('restoring a stored selection', () => {
     ).toBeNull()
   })
 
-  test('a variant-less model resolves only an empty selection', () => {
+  test('a variant-less model resolves nothing at all', () => {
     const bare = { id: 'bare', name: 'Bare', aliases: [], parameters: [], variants: [] }
-    expect(resolveCursorVariant(bare, [])).toEqual({ params: [], displayName: 'Bare' })
+    expect(resolveCursorVariant(bare, [])).toBeNull()
     expect(resolveCursorVariant(bare, [{ id: 'reasoning', value: 'max' }])).toBeNull()
+  })
+
+  test('stored values are matched case-sensitively', () => {
+    expect(
+      resolveCursorVariant(multiVariantFixture, [
+        { id: 'context', value: '272K' },
+        { id: 'reasoning', value: 'low' },
+        { id: 'internal', value: 'off' },
+      ]),
+    ).toBeNull()
   })
 })
 

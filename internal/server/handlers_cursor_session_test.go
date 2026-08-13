@@ -270,6 +270,103 @@ func TestSessionDetailDropsUndecodableCursorSelection(t *testing.T) {
 	}
 }
 
+func TestSessionDetailCopiesCatalogueValuesExactly(t *testing.T) {
+	fixture := newCursorDirectTestServer(t)
+	// Catalogue identifiers are opaque and case-sensitive: a projection that
+	// rewrites them would resolve to a different variant, or to none at all.
+	seedCursorSession(t, fixture, "ses-opaque", func(state *store.CursorSessionState) {
+		state.ModelID = "GPT-5.6-Sol_Max"
+		state.ModelParams = `[{"id":"Reasoning","value":"MAX"},{"id":"context","value":"1M"}]`
+		state.StartingRef = "Feature/Big-Change"
+		state.RepositoryURL = "https://github.com/Acme/Repo"
+	})
+
+	_, body, raw := getSessionDetail(t, fixture, "ses-opaque")
+	state := cursorStateOf(t, body)
+	if state["model_id"] != "GPT-5.6-Sol_Max" {
+		t.Fatalf("model_id = %#v, want the stored value unchanged (%s)", state["model_id"], raw)
+	}
+	if state["starting_ref"] != "Feature/Big-Change" {
+		t.Fatalf("starting_ref = %#v, want the stored value unchanged", state["starting_ref"])
+	}
+	if state["repository_url"] != "https://github.com/Acme/Repo" {
+		t.Fatalf("repository_url = %#v, want the stored value unchanged", state["repository_url"])
+	}
+	params, _ := state["model_params"].([]any)
+	if len(params) != 2 {
+		t.Fatalf("model_params = %#v", state["model_params"])
+	}
+	first, _ := params[0].(map[string]any)
+	second, _ := params[1].(map[string]any)
+	if first["id"] != "Reasoning" || first["value"] != "MAX" ||
+		second["id"] != "context" || second["value"] != "1M" {
+		t.Fatalf("model_params = %#v, want the stored values unchanged", params)
+	}
+}
+
+func TestSessionDetailRejectsUnsafeSelectionInsteadOfRewritingIt(t *testing.T) {
+	cases := []struct {
+		name  string
+		apply func(*store.CursorSessionState)
+	}{
+		{
+			name: "credential-like model id",
+			apply: func(state *store.CursorSessionState) {
+				state.ModelID = "sk-live_abcdef123456"
+			},
+		},
+		{
+			name: "credential-like parameter value",
+			apply: func(state *store.CursorSessionState) {
+				state.ModelParams = `[{"id":"reasoning","value":"authorization: Bearer abcdef123456"}]`
+			},
+		},
+		{
+			name: "control characters in a parameter id",
+			apply: func(state *store.CursorSessionState) {
+				state.ModelParams = "[{\"id\":\"reason\\ning\",\"value\":\"max\"}]"
+			},
+		},
+		{
+			name: "repository carrying credentials",
+			apply: func(state *store.CursorSessionState) {
+				state.RepositoryURL = "https://user:secret@github.com/acme/repo"
+			},
+		},
+		{
+			name: "starting ref with control characters",
+			apply: func(state *store.CursorSessionState) {
+				state.StartingRef = "main\nrm -rf"
+			},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newCursorDirectTestServer(t)
+			seedCursorSession(t, fixture, "ses-unsafe", tt.apply)
+
+			_, body, raw := getSessionDetail(t, fixture, "ses-unsafe")
+			state := cursorStateOf(t, body)
+			if state["model_id"] != "" {
+				t.Fatalf("model_id = %#v, want the whole selection rejected (%s)",
+					state["model_id"], raw)
+			}
+			params, _ := state["model_params"].([]any)
+			if len(params) != 0 {
+				t.Fatalf("model_params = %#v, want empty", state["model_params"])
+			}
+			for _, forbidden := range []string{
+				"sk-live_abcdef123456", "Bearer abcdef123456", "user:secret",
+				"rm -rf", "REDACTED",
+			} {
+				if strings.Contains(raw, forbidden) {
+					t.Fatalf("projection kept or rewrote an unsafe value %q: %s", forbidden, raw)
+				}
+			}
+		})
+	}
+}
+
 func TestSessionDetailRedactsCursorProjectionStrings(t *testing.T) {
 	fixture := newCursorDirectTestServer(t)
 	seedCursorSession(t, fixture, "ses-secret", func(state *store.CursorSessionState) {
