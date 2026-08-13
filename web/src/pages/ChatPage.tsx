@@ -60,10 +60,12 @@ import {
   baselineAfterSend,
   composerCanSend,
   restoreIsCurrent,
+  sessionTargetOwner,
   shouldAdoptDefaultTarget,
   stopStreamKind,
   targetAfterCursorHydration,
   targetChangeAllowed,
+  type SessionOwnershipResolution,
   type TargetOwner,
 } from '@/lib/composerRestore'
 import { composerImageLimit, validateCursorAttachments } from '@/lib/cursorAttachments'
@@ -444,13 +446,24 @@ export default function ChatPage() {
   const cursorMode = isCursorTarget(target)
   // Who may set the target right now. A session's own durable state outranks
   // the picker's automatic active-model default, which is stashed until the
-  // session turns out not to own the target. The state mirror drives the
-  // composer, which must not accept a message while the answer is unknown.
-  const [targetOwner, setTargetOwnerState] = useState<TargetOwner>('free')
-  const targetOwnerRef = useRef<TargetOwner>('free')
-  const setTargetOwner = useCallback((owner: TargetOwner) => {
-    targetOwnerRef.current = owner
-    setTargetOwnerState(owner)
+  // session turns out not to own the target.
+  //
+  // Ownership is derived from the open session on every render rather than
+  // recorded by an effect: an effect runs after the first paint, which would
+  // leave the composer of a just-opened conversation briefly claiming it knows
+  // where a message should go.
+  const [ownershipResolution, setOwnershipResolution] =
+    useState<SessionOwnershipResolution>({ sessionId: null, owner: 'free' })
+  const targetOwner = sessionTargetOwner({ sessionId, resolved: ownershipResolution })
+  const targetOwnerRef = useRef<TargetOwner>(targetOwner)
+  targetOwnerRef.current = targetOwner
+  /** Record what ownership resolved to, for the session it was resolved for. */
+  const resolveTargetOwner = useCallback((forSession: string, owner: TargetOwner) => {
+    setOwnershipResolution((prev) =>
+      prev.sessionId === forSession && prev.owner === owner
+        ? prev
+        : { sessionId: forSession, owner },
+    )
   }, [])
   const pendingDefaultRef = useRef<ChatTarget | null>(null)
   // Whether the target was chosen deliberately since this session opened.
@@ -648,9 +661,12 @@ export default function ChatPage() {
    * composer from it; a refresh during or after a turn only updates the run's
    * status and reuse baseline, so neither an edit made while the turn ran nor a
    * model the user has just switched to is overwritten.
+   *
+   * Returns who owns the target now, for the caller to record against the
+   * session it hydrated — a slower answer must never resolve a different one.
    */
   const applyCursorHydration = useCallback(
-    (hydration: CursorHydration, restoreComposer: boolean) => {
+    (hydration: CursorHydration, restoreComposer: boolean): TargetOwner | null => {
       const worthShowing =
         hydration.active || Boolean(hydration.remoteStatus) || hydration.branches.length > 0
       setCursorState(worthShowing ? hydration : null)
@@ -662,6 +678,7 @@ export default function ChatPage() {
         autoCreatePR: hydration.autoCreatePR === true,
       }
       const userChose = userChoseRef.current
+      let owner: TargetOwner | null = null
       if (restoreComposer) {
         // Whatever this session is, the composer must stop pointing at another
         // conversation's Cursor agent — and must end up with somewhere to send
@@ -674,7 +691,7 @@ export default function ChatPage() {
           lastChat: composerReasoningRef.current?.selection ?? null,
           userChose,
         })
-        setTargetOwner(decision.owner)
+        owner = decision.owner
         if (decision.action === 'set') {
           if (decision.target) selectTarget(decision.target, 'restore')
           else commitTarget(null)
@@ -685,7 +702,7 @@ export default function ChatPage() {
         // there is no run a follow-up could continue.
         if (restoreComposer && hydration.active) setCursorSettings(settings)
         setLastCursorRun(null)
-        return
+        return owner
       }
       // An absent selection means a server that predates the projection; an
       // exact one must be matched exactly.
@@ -697,12 +714,13 @@ export default function ChatPage() {
         if (!params || !applyCursorBaseline(hydration.modelId, params, settings, reuseValid)) {
           setLastCursorRun(null)
         }
-        return
+        return owner
       }
       setCursorSettings(settings)
       restoreCursorTarget(hydration.modelId, params, settings, reuseValid)
+      return owner
     },
-    [applyCursorBaseline, commitTarget, restoreCursorTarget, selectTarget, setTargetOwner],
+    [applyCursorBaseline, commitTarget, restoreCursorTarget, selectTarget],
   )
   const pickReasoning = useCallback((value: string) => {
     const current = composerReasoningRef.current
@@ -1309,6 +1327,8 @@ export default function ChatPage() {
     // persisted and wipe them, and adopting an id is not a session switch — the
     // running turn keeps its target, approvals, and Cursor state.
     if (sessionId && sessionId === localSessionRef.current) {
+      // The running turn already knows where it goes, so this id is resolved.
+      resolveTargetOwner(sessionId, targetRef.current ? 'restored' : 'free')
       setLoading(false)
       return
     }
@@ -1328,8 +1348,6 @@ export default function ChatPage() {
     // so a message sent meanwhile cannot reach another session's agent.
     if (isCursorTarget(targetRef.current)) commitTarget(null)
     userChoseRef.current = false
-    // Until this session says where its messages go, the composer accepts none.
-    setTargetOwner(sessionId ? 'pending' : 'free')
     if (!sessionId) {
       // A new chat is owned by nobody, so the picker's default may fill it.
       const stashed = pendingDefaultRef.current
@@ -1367,7 +1385,11 @@ export default function ChatPage() {
         setError(undefined)
         // Durable Cursor state decides whether this conversation still runs on
         // Cursor, and with exactly which model, variant, repository, and mode.
-        applyCursorHydration(cursorHydrationFromDetail(d), true)
+        // Only that answer, for this exact id, opens the composer.
+        resolveTargetOwner(
+          sessionId,
+          applyCursorHydration(cursorHydrationFromDetail(d), true) ?? 'free',
+        )
         // A decision published before this page attached is still blocking the
         // run; the pending list is the only place left to find it.
         void refreshApprovals(sessionId)
@@ -1394,7 +1416,7 @@ export default function ChatPage() {
         // Nothing will claim the target now, so the composer must not stay
         // waiting on a session state that never arrived.
         if (restoreIsCurrent(generation, hydrationRef.current)) {
-          setTargetOwner('free')
+          resolveTargetOwner(sessionId, 'free')
           const stashed = pendingDefaultRef.current
           if (stashed && !targetRef.current) selectTarget(stashed, 'default')
         }
@@ -1420,7 +1442,7 @@ export default function ChatPage() {
     applyCursorHydration,
     commitTarget,
     selectTarget,
-    setTargetOwner,
+    resolveTargetOwner,
   ])
 
   /** Append a locally-produced message without touching the server. */
@@ -1678,6 +1700,9 @@ export default function ChatPage() {
               // the navigation triggers does not overwrite the live messages).
               localSessionRef.current = id
               lastSession.set(id)
+              // This turn already decided where it runs, so the id it was just
+              // given is resolved rather than waiting on a hydration.
+              resolveTargetOwner(id, targetRef.current ? 'restored' : 'free')
               navigate(`/c/${id}`, { replace: true })
             }
           }
@@ -1732,6 +1757,7 @@ export default function ChatPage() {
       applyEvent,
       applyCursorHydration,
       drainPatches,
+      resolveTargetOwner,
       t,
     ],
   )

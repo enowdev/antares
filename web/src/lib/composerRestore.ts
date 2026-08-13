@@ -23,6 +23,29 @@ export function restoreIsCurrent(captured: number, current: number): boolean {
   return captured === current
 }
 
+/** The session ownership was last resolved for, and what it resolved to. */
+export interface SessionOwnershipResolution {
+  sessionId: string | null
+  owner: TargetOwner
+}
+
+/**
+ * Who owns the target for the session currently open, derived rather than
+ * remembered. An existing conversation is pending until something has resolved
+ * ownership *for that exact id*, which is true on its first render, across a
+ * route change, and while a slower answer for the previous session is still in
+ * flight. A new chat owns itself, so it is never blocked.
+ */
+export function sessionTargetOwner(input: {
+  sessionId?: string
+  resolved: SessionOwnershipResolution
+}): TargetOwner {
+  const sessionId = input.sessionId ?? ''
+  if (!sessionId) return 'free'
+  if (input.resolved.sessionId !== sessionId) return 'pending'
+  return input.resolved.owner
+}
+
 /**
  * Whether the picker's automatic active-model default may be adopted. It never
  * competes with a session's own state, and never replaces a chosen target.

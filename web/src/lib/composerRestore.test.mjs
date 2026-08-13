@@ -3,6 +3,7 @@ import {
   baselineAfterSend,
   composerCanSend,
   restoreIsCurrent,
+  sessionTargetOwner,
   shouldAdoptDefaultTarget,
   stopStreamKind,
   targetAfterCursorHydration,
@@ -49,6 +50,61 @@ describe('automatic chat defaults', () => {
 
   test('a default never overwrites a target that is already chosen', () => {
     expect(shouldAdoptDefaultTarget({ owner: 'free', hasTarget: true })).toBe(false)
+  })
+})
+
+describe('ownership derived from the open session', () => {
+  const unresolved = { sessionId: null, owner: 'free' }
+
+  test('an existing session is pending from its very first render', () => {
+    // Nothing has run for this id yet, so the answer cannot be "free" even
+    // though that is what a fresh composer starts as.
+    expect(sessionTargetOwner({ sessionId: 'A', resolved: unresolved })).toBe('pending')
+  })
+
+  test('a route change is pending before anything runs for the new session', () => {
+    expect(
+      sessionTargetOwner({
+        sessionId: 'B',
+        resolved: { sessionId: 'A', owner: 'restored' },
+      }),
+    ).toBe('pending')
+  })
+
+  test('a result for the previous session never resolves the open one', () => {
+    expect(
+      sessionTargetOwner({ sessionId: 'B', resolved: { sessionId: 'A', owner: 'free' } }),
+    ).toBe('pending')
+  })
+
+  test('the open session is resolved only by its own result', () => {
+    expect(
+      sessionTargetOwner({
+        sessionId: 'B',
+        resolved: { sessionId: 'B', owner: 'restored' },
+      }),
+    ).toBe('restored')
+    expect(
+      sessionTargetOwner({ sessionId: 'B', resolved: { sessionId: 'B', owner: 'free' } }),
+    ).toBe('free')
+  })
+
+  test('a new chat owns itself and stays sendable', () => {
+    expect(sessionTargetOwner({ resolved: unresolved })).toBe('free')
+    expect(sessionTargetOwner({ sessionId: '', resolved: unresolved })).toBe('free')
+    expect(
+      sessionTargetOwner({ resolved: { sessionId: 'A', owner: 'restored' } }),
+    ).toBe('free')
+  })
+
+  test('the composer is closed to both submit routes in that first window', () => {
+    const owner = sessionTargetOwner({ sessionId: 'A', resolved: unresolved })
+    expect(composerCanSend({ owner, streaming: false })).toBe(false)
+    const resolved = sessionTargetOwner({
+      sessionId: 'A',
+      resolved: { sessionId: 'A', owner: 'free' },
+    })
+    expect(composerCanSend({ owner: resolved, streaming: false })).toBe(true)
   })
 })
 
