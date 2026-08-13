@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/enowdev/antares/internal/approval"
 )
 
 // Progress is an incremental update emitted while a tool runs.
@@ -96,6 +98,12 @@ type Tool interface {
 // Approval reports whether a tool mutates state and should be gated.
 type Approval interface {
 	RequiresApproval() bool
+}
+
+// OperationApproval marks paid or mutating operations that must always stop
+// for an explicit decision, independently of the general approval mode.
+type OperationApproval interface {
+	ApprovalOperation(args json.RawMessage, sessionID string) (approval.Operation, error)
 }
 
 // Registry holds the process-wide tool set.

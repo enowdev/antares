@@ -79,6 +79,152 @@ func TestCursorToolSchemasAndApprovalClassification(t *testing.T) {
 	}
 }
 
+func TestCursorAgentApprovalProjectionIsBoundedAndRedacted(t *testing.T) {
+	const secret = "must-not-appear-in-approval"
+	raw, err := json.Marshal(map[string]any{
+		"action":                "start",
+		"prompt":                "Fix the issue using " + secret,
+		"model":                 "composer-2",
+		"repository_url":        "https://github.com/acme/repo",
+		"starting_ref":          "main",
+		"pull_request_url":      "https://github.com/acme/repo/pull/7",
+		"mode":                  "plan",
+		"auto_create_pr":        true,
+		"skip_reviewer_request": false,
+		"wait":                  false,
+		"images":                []string{"data:image/png;base64," + secret},
+		"api_key":               secret,
+		"untrusted":             map[string]any{"instructions": secret},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	op, err := (cursorAgentTool{}).ApprovalOperation(raw, "ses-one")
+	if err != nil {
+		t.Fatalf("ApprovalOperation: %v", err)
+	}
+	if op.SessionID != "ses-one" || op.Tool != "cursor_agent" {
+		t.Fatalf("operation identity = %+v", op)
+	}
+	if op.Message != "Start Cursor Cloud Agent run" {
+		t.Fatalf("operation message = %q", op.Message)
+	}
+	if len(op.Arguments) > 4096 {
+		t.Fatalf("approval projection has %d bytes, want at most 4096", len(op.Arguments))
+	}
+	for _, forbidden := range []string{secret, "prompt", "images", "api_key", "untrusted", "instructions"} {
+		if strings.Contains(op.Arguments, forbidden) {
+			t.Errorf("approval projection contains forbidden %q: %s", forbidden, op.Arguments)
+		}
+	}
+
+	var projection map[string]any
+	if err := json.Unmarshal([]byte(op.Arguments), &projection); err != nil {
+		t.Fatalf("approval projection is not JSON: %v", err)
+	}
+	want := map[string]any{
+		"action":                "start",
+		"model":                 "composer-2",
+		"repository_url":        "https://github.com/acme/repo",
+		"starting_ref":          "main",
+		"pull_request_url":      "https://github.com/acme/repo/pull/7",
+		"mode":                  "plan",
+		"auto_create_pr":        true,
+		"skip_reviewer_request": false,
+		"wait":                  false,
+	}
+	for key, value := range want {
+		if got := projection[key]; got != value {
+			t.Errorf("projection[%q] = %#v, want %#v", key, got, value)
+		}
+	}
+
+	longValue := strings.Repeat("界", 10_000)
+	longRaw, _ := json.Marshal(map[string]any{
+		"action":         "start",
+		"prompt":         secret,
+		"model":          longValue,
+		"repository_url": "https://github.com/acme/repo",
+		"starting_ref":   longValue,
+	})
+	longOp, err := (cursorAgentTool{}).ApprovalOperation(longRaw, "ses-long")
+	if err != nil {
+		t.Fatalf("long ApprovalOperation: %v", err)
+	}
+	if len(longOp.Arguments) > 4096 {
+		t.Fatalf("long approval projection has %d bytes, want at most 4096", len(longOp.Arguments))
+	}
+	if strings.Contains(longOp.Arguments, longValue) {
+		t.Fatal("long approval field was not bounded")
+	}
+}
+
+func TestCursorAgentApprovalProjectionIncludesFollowUpAndCancelIDs(t *testing.T) {
+	tests := []struct {
+		name        string
+		raw         string
+		wantMessage string
+		want        map[string]any
+	}{
+		{
+			name:        "follow up",
+			raw:         `{"action":"follow_up","agent_id":"bc-one","prompt":"continue privately","mode":"agent","wait":false}`,
+			wantMessage: "Continue Cursor Cloud Agent run",
+			want: map[string]any{
+				"action":   "follow_up",
+				"agent_id": "bc-one",
+				"mode":     "agent",
+				"wait":     false,
+			},
+		},
+		{
+			name:        "cancel",
+			raw:         `{"action":"cancel","agent_id":"bc-one","run_id":"run-one"}`,
+			wantMessage: "Cancel Cursor Cloud Agent run",
+			want: map[string]any{
+				"action":   "cancel",
+				"agent_id": "bc-one",
+				"run_id":   "run-one",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			op, err := (cursorAgentTool{}).ApprovalOperation(json.RawMessage(tt.raw), "ses-one")
+			if err != nil {
+				t.Fatalf("ApprovalOperation: %v", err)
+			}
+			if op.Message != tt.wantMessage {
+				t.Fatalf("message = %q, want %q", op.Message, tt.wantMessage)
+			}
+			if strings.Contains(op.Arguments, "continue privately") ||
+				strings.Contains(op.Arguments, "prompt") {
+				t.Fatalf("projection leaked prompt: %s", op.Arguments)
+			}
+			var got map[string]any
+			if err := json.Unmarshal([]byte(op.Arguments), &got); err != nil {
+				t.Fatal(err)
+			}
+			for key, want := range tt.want {
+				if got[key] != want {
+					t.Errorf("projection[%q] = %#v, want %#v", key, got[key], want)
+				}
+			}
+		})
+	}
+}
+
+func TestCursorAgentApprovalRejectsInvalidOperation(t *testing.T) {
+	if _, err := (cursorAgentTool{}).ApprovalOperation(
+		json.RawMessage(`{"action":"follow_up","agent_id":"bc-one"}`),
+		"ses-one",
+	); err == nil || !strings.Contains(err.Error(), "prompt is required") {
+		t.Fatalf("invalid operation error = %v", err)
+	}
+}
+
 func TestCursorAgentRejectsMissingConfigAndInvalidRepository(t *testing.T) {
 	in := cursorToolTestInput(config.Default(), `{"action":"start","prompt":"fix it"}`, nil)
 	result := (cursorAgentTool{}).Execute(context.Background(), in)

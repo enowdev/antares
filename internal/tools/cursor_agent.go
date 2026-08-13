@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/enowdev/antares/internal/approval"
 	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/cursor"
 )
@@ -41,6 +43,100 @@ func (cursorAgentTool) Schema() map[string]any {
 }
 
 func (cursorAgentTool) RequiresApproval() bool { return true }
+
+func (cursorAgentTool) ApprovalOperation(raw json.RawMessage, sessionID string) (approval.Operation, error) {
+	var args cursorAgentArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return approval.Operation{}, fmt.Errorf("invalid arguments: %w", err)
+		}
+	}
+	args.trim()
+	if err := validateCursorAgentArgs(args); err != nil {
+		return approval.Operation{}, err
+	}
+
+	projection := cursorAgentApprovalProjection{
+		Action:         boundCursorApprovalField(args.Action),
+		AgentID:        boundCursorApprovalField(args.AgentID),
+		RunID:          boundCursorApprovalField(args.RunID),
+		Model:          boundCursorApprovalField(args.Model),
+		RepositoryURL:  boundCursorApprovalField(args.RepositoryURL),
+		StartingRef:    boundCursorApprovalField(args.StartingRef),
+		PullRequestURL: boundCursorApprovalField(args.PullRequestURL),
+		Mode:           boundCursorApprovalField(args.Mode),
+	}
+	switch args.Action {
+	case "start":
+		autoCreatePR := args.AutoCreatePR
+		skipReviewer := true
+		if args.SkipReviewerRequest != nil {
+			skipReviewer = *args.SkipReviewerRequest
+		}
+		wait := true
+		if args.Wait != nil {
+			wait = *args.Wait
+		}
+		projection.AutoCreatePR = &autoCreatePR
+		projection.SkipReviewerRequest = &skipReviewer
+		projection.Wait = &wait
+	case "follow_up":
+		wait := true
+		if args.Wait != nil {
+			wait = *args.Wait
+		}
+		projection.Wait = &wait
+	}
+
+	display, err := json.Marshal(projection)
+	if err != nil {
+		return approval.Operation{}, fmt.Errorf("build approval projection: %w", err)
+	}
+	return approval.Operation{
+		SessionID: sessionID,
+		Tool:      "cursor_agent",
+		Arguments: string(display),
+		Message:   cursorApprovalMessage(args.Action),
+		Reason:    "Cursor operations are paid and change remote state",
+	}, nil
+}
+
+type cursorAgentApprovalProjection struct {
+	Action              string `json:"action"`
+	AgentID             string `json:"agent_id,omitempty"`
+	RunID               string `json:"run_id,omitempty"`
+	Model               string `json:"model,omitempty"`
+	RepositoryURL       string `json:"repository_url,omitempty"`
+	StartingRef         string `json:"starting_ref,omitempty"`
+	PullRequestURL      string `json:"pull_request_url,omitempty"`
+	Mode                string `json:"mode,omitempty"`
+	AutoCreatePR        *bool  `json:"auto_create_pr,omitempty"`
+	SkipReviewerRequest *bool  `json:"skip_reviewer_request,omitempty"`
+	Wait                *bool  `json:"wait,omitempty"`
+}
+
+func cursorApprovalMessage(action string) string {
+	switch action {
+	case "start":
+		return "Start Cursor Cloud Agent run"
+	case "follow_up":
+		return "Continue Cursor Cloud Agent run"
+	case "cancel":
+		return "Cancel Cursor Cloud Agent run"
+	default:
+		return "Run Cursor Cloud Agent operation"
+	}
+}
+
+func boundCursorApprovalField(value string) string {
+	const maxRunes = 128
+	value = strings.ToValidUTF8(value, "\uFFFD")
+	runes := []rune(value)
+	if len(runes) > maxRunes {
+		return string(runes[:maxRunes]) + "…"
+	}
+	return value
+}
 
 type cursorAgentArgs struct {
 	Action              string `json:"action"`

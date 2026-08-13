@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/enowdev/antares/internal/approval"
 	"github.com/enowdev/antares/internal/board"
 	"github.com/enowdev/antares/internal/checkpoint"
 	"github.com/enowdev/antares/internal/config"
@@ -195,6 +196,8 @@ type Agent struct {
 	mu     sync.Mutex
 	active map[string]context.CancelFunc
 
+	approvals *approval.Gate
+
 	catalogMu    sync.Mutex
 	catalogCache map[providerCatalogScope]*providerCatalogEntry
 	catalogNow   func() time.Time
@@ -213,6 +216,7 @@ func New(cfg *config.Config, db store.Store, reg *tools.Registry, shell *tools.S
 		bg:           newBGManager(),
 		bgAct:        newBgActivity(),
 		active:       map[string]context.CancelFunc{},
+		approvals:    approval.NewGate(approvalTimeout),
 		catalogCache: make(map[providerCatalogScope]*providerCatalogEntry),
 		catalogNow:   time.Now,
 	}

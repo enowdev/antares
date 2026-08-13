@@ -3,12 +3,13 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/enowdev/antares/internal/approval"
 	"github.com/enowdev/antares/internal/llm"
 	"github.com/enowdev/antares/internal/tools"
 )
@@ -21,56 +22,28 @@ import (
 // when its deadline passes — the failure mode has to be "did not happen",
 // never "happened without being asked".
 
-// ApprovalRequest is one pending decision.
-type ApprovalRequest struct {
-	ID        string `json:"id"`
-	SessionID string `json:"session_id"`
-	Tool      string `json:"tool"`
-	Arguments string `json:"arguments"`
-	// Reason names why this needs asking about, when it is more than the tool
-	// simply being one that writes.
-	Reason    string    `json:"reason,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-
-	decided chan bool
-}
-
-type approvalDesk struct {
-	mu      sync.Mutex
-	pending map[string]*ApprovalRequest
-}
-
-var approvals = approvalDesk{pending: map[string]*ApprovalRequest{}}
+// ApprovalRequest preserves the public agent API while the gate itself lives
+// in the approval package.
+type ApprovalRequest = approval.Request
 
 // PendingApprovals lists what is waiting, oldest first.
 func (a *Agent) PendingApprovals() []ApprovalRequest {
-	approvals.mu.Lock()
-	defer approvals.mu.Unlock()
-	out := make([]ApprovalRequest, 0, len(approvals.pending))
-	for _, r := range approvals.pending {
-		out = append(out, ApprovalRequest{
-			ID: r.ID, SessionID: r.SessionID, Tool: r.Tool,
-			Arguments: r.Arguments, Reason: r.Reason, CreatedAt: r.CreatedAt,
-		})
-	}
-	return out
+	return a.approvalGate().Pending()
 }
 
 // ResolveApproval answers a pending request. It reports false when the id is
 // unknown, which usually means it already timed out.
 func (a *Agent) ResolveApproval(id string, allow bool) bool {
-	approvals.mu.Lock()
-	r, ok := approvals.pending[id]
-	if ok {
-		delete(approvals.pending, id)
+	return a.approvalGate().Resolve(id, allow)
+}
+
+func (a *Agent) approvalGate() *approval.Gate {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.approvals == nil {
+		a.approvals = approval.NewGate(approvalTimeout)
 	}
-	approvals.mu.Unlock()
-	if !ok {
-		return false
-	}
-	// Buffered, so answering never blocks even if the waiter has given up.
-	r.decided <- allow
-	return true
+	return a.approvals
 }
 
 // approvalTimeout is how long a request waits before being refused.
@@ -79,6 +52,18 @@ const approvalTimeout = 5 * time.Minute
 // checkApproval decides whether a call may proceed. It returns an error result
 // to hand back to the model when it may not.
 func (a *Agent) checkApproval(ctx context.Context, call llm.ToolCall, tool tools.Tool, sessionID string, emit Emit) *tools.Result {
+	if explicit, ok := tool.(tools.OperationApproval); ok {
+		op, err := explicit.ApprovalOperation(json.RawMessage(call.Arguments), sessionID)
+		if err != nil {
+			res := tools.Errorf("%v", err)
+			return &res
+		}
+		if op.Message == "" {
+			op.Message = approvalMessage(op)
+		}
+		return a.awaitApproval(ctx, op, emit)
+	}
+
 	mode := strings.ToLower(strings.TrimSpace(a.config().Tools.ApprovalMode))
 	if mode == "" {
 		mode = "auto"
@@ -116,61 +101,57 @@ func (a *Agent) checkApproval(ctx context.Context, call llm.ToolCall, tool tools
 		}
 	}
 
-	req := &ApprovalRequest{
-		ID:        newID("apr"),
+	op := approval.Operation{
 		SessionID: sessionID,
 		Tool:      call.Name,
 		Arguments: call.Arguments,
 		Reason:    danger,
-		CreatedAt: time.Now(),
-		decided:   make(chan bool, 1),
 	}
-	approvals.mu.Lock()
-	approvals.pending[req.ID] = req
-	approvals.mu.Unlock()
+	op.Message = approvalMessage(op)
+	return a.awaitApproval(ctx, op, emit)
+}
 
-	payload, _ := json.Marshal(req)
-	_ = emit(Event{
-		Type:      EventApproval,
-		ID:        req.ID,
-		Name:      call.Name,
-		Arguments: call.Arguments,
-		Message:   approvalMessage(req),
-		Content:   string(payload),
+func (a *Agent) awaitApproval(ctx context.Context, op approval.Operation, emit Emit) *tools.Result {
+	allow, err := a.approvalGate().Await(ctx, op, func(req approval.Request) error {
+		payload, marshalErr := json.Marshal(req)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		return emit(Event{
+			Type:      EventApproval,
+			ID:        req.ID,
+			Name:      req.Tool,
+			Arguments: req.Arguments,
+			Message:   req.Message,
+			Content:   string(payload),
+		})
 	})
-
-	defer func() {
-		approvals.mu.Lock()
-		delete(approvals.pending, req.ID)
-		approvals.mu.Unlock()
-	}()
-
-	select {
-	case allow := <-req.decided:
+	if err == nil {
 		if allow {
-			_ = emit(Event{Type: EventNotice, Message: "approved " + call.Name})
+			_ = emit(Event{Type: EventNotice, Message: "approved " + op.Tool})
 			return nil
 		}
 		res := tools.Errorf("the user refused this %s call. Do not retry it; "+
-			"ask what to do instead, or continue without it.", call.Name)
-		return &res
-
-	case <-time.After(approvalTimeout):
-		res := tools.Errorf("no one approved this %s call within %s, so it did not run. "+
-			"Say what you were about to do and stop.", call.Name, approvalTimeout)
-		return &res
-
-	case <-ctx.Done():
-		res := tools.Errorf("interrupted before %s was approved", call.Name)
+			"ask what to do instead, or continue without it.", op.Tool)
 		return &res
 	}
+	if errors.Is(err, approval.ErrTimeout) {
+		res := tools.Errorf("no one approved this %s call within %s, so it did not run. "+
+			"Say what you were about to do and stop.", op.Tool, approvalTimeout)
+		return &res
+	}
+	res := tools.Errorf("interrupted before %s was approved", op.Tool)
+	return &res
 }
 
-func approvalMessage(r *ApprovalRequest) string {
-	if r.Reason != "" {
-		return fmt.Sprintf("%s wants to run, and %s", r.Tool, r.Reason)
+func approvalMessage(op approval.Operation) string {
+	if op.Message != "" {
+		return op.Message
 	}
-	return r.Tool + " wants to change something"
+	if op.Reason != "" {
+		return fmt.Sprintf("%s wants to run, and %s", op.Tool, op.Reason)
+	}
+	return op.Tool + " wants to change something"
 }
 
 // dangerous names commands that are worth stopping for even when approval is
