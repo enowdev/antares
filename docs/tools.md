@@ -161,8 +161,66 @@ busy-polling.
 `wait: false` and returns one snapshot; `wait: true` streams until terminal
 status. Cancelling local waiting does not cancel the remote Cursor run. Use the
 status tool to inspect an agent/run returned by `cursor_agent`, rather than
-repeatedly starting new work. Both tools are available when the Cursor agent
-integration has a `CURSOR_API_KEY`; see [Configuration](configuration.md).
+repeatedly starting new work. Both tools need the Cursor provider enabled and a
+resolved key; it ships disabled, so see [Configuration](configuration.md).
+
+`cursor_agent` also takes an optional `model_params` — the exact parameter array
+of one variant from Cursor's catalogue. Omit it and Cursor's own default for
+that model applies; supply it and it must match a real variant exactly.
+
+### Direct Cursor mode
+
+The dashboard composer can send a turn straight to a Cursor Cloud Agent instead
+of asking an Antares model to manufacture a `cursor_agent` call. Cursor models
+appear in the composer's model search under **Cursor Cloud Agents**, alongside
+(and clearly separated from) chat models. Picking one changes only where the
+next message goes — the active Antares chat model is untouched.
+
+**Exact variants.** Antares uses Cursor's live catalogue as the sole authority.
+Selecting a model picks its `isDefault` variant, and the options popover
+(reasoning/effort/thinking, Context, Fast, and whatever else that model
+publishes) *filters* the concrete variants Cursor returned. A choice commits
+only when exactly one real variant matches. Antares never assembles a
+combination Cursor did not list, and it copies the whole parameter array —
+including parameters Cursor does not show as user-facing, such as
+`cyber=false`. A selection that has gone stale triggers one catalogue refresh
+and then an actionable reselect error, never a guess.
+
+**Approval.** Every paid or state-changing Cursor operation — start, follow-up,
+and cancel — needs an explicit human decision, in `auto` as much as in `prompt`.
+No request reaches Cursor before you approve. The card shows the operation,
+whether it creates a new agent or follows up, the model and every parameter,
+repository and starting ref, mode, auto-create-PR, a bounded prompt preview,
+and the attachment count. What executes is the request the server retained, not
+the card's contents: editing the composer after the card appears cannot change
+what you are approving.
+
+**Stop and Cancel are different.** Local **Stop** detaches your view — it stops
+the local stream and tells you the remote run may still be active. It never
+cancels remote work, and once the non-idempotent create request is in flight
+Stop can only record the detachment. **Cancel** is a separate, approval-gated
+action that asks Cursor to stop the run. Closing the tab or losing the network
+likewise only detaches; reattaching replays from the live run, and after a
+daemon restart Antares recovers from the persisted agent and run IDs.
+
+**Follow-up reuse identity.** A consecutive Cursor turn reuses the same Cursor
+agent — so the remote conversation keeps its context — as long as the model,
+variant parameters, repository, starting ref, and auto-create-PR setting are
+unchanged. Change any of them and the next approved turn starts a *new* agent.
+Cursor mode (Agent or Plan) may change per follow-up, because Create Run
+accepts a mode override. Starting a new Antares chat, or switching to a chat
+model and back, also starts a new agent: the intervening messages were never
+part of the remote conversation.
+
+**Attachments.** Cursor mode accepts up to **five images**, each at most
+**15 MiB decoded**, as `image/png`, `image/jpeg`, `image/gif`, or `image/webp`.
+The declared MIME type must match the file's actual signature. Anything over
+the limit or of an unsupported type fails *before* approval, so a rejected
+attachment never costs a run. Non-image attachments are refused with an
+explanation rather than silently dropped — a local file path means nothing to a
+cloud VM that cannot read your disk.
+
+Only one direct Cursor turn runs per session at a time.
 
 ## Limits
 

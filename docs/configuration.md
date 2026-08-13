@@ -43,7 +43,7 @@ model:
   temperature: 0.7
   max_tokens: 8192
   context_window: 0        # 0 asks the provider
-  reasoning_effort: medium
+  reasoning_effort: ""     # Auto — see Reasoning below
 
 providers:
   openrouter:
@@ -99,17 +99,35 @@ providers:
     kind: cursor-agent
     base_url: https://api.cursor.com
     api_key_env: CURSOR_API_KEY
-    enabled: true
+    enabled: false
     timeout_seconds: 900
 ```
 
 Cursor is a built-in cloud-only agent integration. Existing configuration and
-providers need no migration and retain their current LLM behavior. The default
-Cursor entry is enabled but disconnected; it becomes usable only when Antares
-resolves its key. `CURSOR_API_KEY` works with that entry without writing a key
-to YAML. One deployment key and its quota are shared by every user who can
-invoke the Cursor tools. Repository-backed runs use the repository state
-available to Cursor, so unpushed local changes are not included.
+providers need no migration and retain their current LLM behavior. It ships
+**disabled**, like every other provider you must bring a key for: Cursor runs
+cost money, so having `CURSOR_API_KEY` in the environment must not by itself be
+enough to spend it. Turn it on from the Providers page, or set `enabled: true`.
+`CURSOR_API_KEY` then supplies the key without writing one to YAML. One
+deployment key and its quota are shared by every user who can reach it.
+
+Cursor never becomes an active chat provider. `model.provider`,
+`model.default`, `/api/model/set`, the `/model` and `/provider` commands, the
+TUI picker, and `llm.New` all refuse it — it is reachable only through the
+Cursor tools and the composer's direct Cursor target.
+
+**Repository state.** A repository-backed run uses what Cursor's cloud VM can
+fetch from the remote, so **uncommitted changes and local-only commits are not
+part of the run**. Antares reads your project's `origin`, normalises SSH forms
+like `git@github.com:owner/repo.git` to `https://github.com/owner/repo`,
+proposes the current branch as the starting ref, and warns on the approval card
+when the worktree is dirty or ahead of that ref. You can edit the repository and
+ref before sending; the server normalises and validates them again. Local
+paths, credentials embedded in remote URLs, non-GitHub repositories, and
+non-HTTPS destinations are rejected. A chat with no project bound runs with no
+repository.
+
+See [Tools](tools.md) for direct Cursor mode, approval, and attachment limits.
 
 `model.auxiliary` is worth setting. Titles, compaction summaries, verification,
 and goal judging all use it, and a small model does those as well as a large one
@@ -125,6 +143,50 @@ OPENCODE_API_KEY=…
 GEMINI_API_KEY=…
 CURSOR_API_KEY=…
 ```
+
+## Reasoning
+
+```yaml
+model:
+  reasoning_effort: ""      # Auto
+agent:
+  reasoning_effort: ""      # Auto
+```
+
+Reasoning is **model-aware**. There is no global `none|low|medium|high` ladder
+any more: Antares asks the selected provider and model what it actually
+supports and offers exactly those values.
+
+**Auto** is the default and is always available. Auto sends *no* reasoning
+field at all, so the model applies its own default — which for the adaptive
+families is better than any fixed value Antares could pick. It is also the only
+safe default for OpenRouter, where one model name can route to backends with
+completely different ladders.
+
+The values themselves are **opaque provider strings**, passed through
+unchanged. `extra-high` is not rewritten to `xhigh`, and two providers that
+happen to share a label do not necessarily share a wire format.
+
+| Provider | Semantics |
+|---|---|
+| Anthropic | Adaptive-thinking models send `thinking: {type: adaptive}` with `output_config.effort`; legacy models keep fixed token budgets |
+| Gemini | Published `thinkingLevel` values. `minimal` means Minimal, not Off — models that cannot disable dynamic thinking show no Off |
+| OpenAI / Codex | Documented effort ladder per family; chat requests use the effort field, Responses/Codex the nested reasoning object |
+| OpenRouter | `supported_efforts`, `default_effort`, `mandatory` from model metadata are authoritative; a chosen Off sends an explicit disable rather than omitting the field |
+| Other OpenAI-compatible | Auto only, unless the provider publishes reasoning metadata |
+
+**Off** appears only where reasoning can genuinely be disabled. A model with
+mandatory reasoning offers no Off, and a provider that merely lowers its budget
+does not get to call it Off.
+
+The dashboard stores your choice per `provider/model`, so switching models
+restores that model's own last valid value rather than carrying a stale one
+across. A value the newly selected model does not support falls back to Auto.
+
+`reasoning_effort` stays a string, so existing YAML and automation keep working.
+An unsupported value in a **stored config** resolves to Auto with a one-time
+notice; an unsupported value in a **new API request** is rejected outright
+rather than silently rewritten.
 
 ## Storage
 
