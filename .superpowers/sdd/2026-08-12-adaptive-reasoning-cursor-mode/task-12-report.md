@@ -544,3 +544,186 @@ ok  	github.com/enowdev/antares/internal/agent	2.624s
   reconcile any remote Cursor work separately.
 - No live API calls or credentials were used. No remaining functional or
   race-detector failures are known.
+
+## Fix Round 2 (2026-08-13)
+
+### Status
+
+Closed the recovery-log cursor reset gap and protected the two remaining
+session cleanup escape paths. Ambiguous cancellation failures now return one
+bounded non-retryable response, and the deletion predicate no longer performs
+durable reconciliation as a side effect.
+
+### Implementation
+
+1. Every attach whose selected live log is `liveRunCursorRecovery` starts at
+   cursor zero. This applies to sequential followers and followers of an
+   already-reserved concurrent recovery winner. Ordinary and direct live logs
+   continue from the caller cursor.
+2. `handleDeleteEmpty` and `handlePruneSessions` now enumerate all candidate
+   sessions in 500-entry pages, acquire the sorted keyed session locks, and
+   precheck every candidate before any cleanup mutation. Existing active remote
+   state returns HTTP 409.
+3. Store cleanup SQL now excludes Cursor states in `awaiting_approval`,
+   `create_in_flight`, and ordinary `run_in_flight` states at mutation time.
+   This closes the enumeration-to-delete race with foreign keys both enabled
+   and disabled.
+4. Explicitly deletable states remain deletable: create-ambiguous,
+   cancel-requested, cancel-ambiguous, and stale cancel-in-flight markers.
+   Counts remain the number of sessions actually deleted.
+5. `cursorSessionHasActiveRemoteState` is now read-only. A process-local cancel
+   reservation makes a current cancel-in-flight marker active; the same durable
+   marker without that reservation is a stale local-reconciliation candidate.
+   Durable crash-marker reconciliation remains in direct-turn preparation,
+   explicit cancellation, and recovery.
+6. Context/transport uncertainty, HTTP 408, and 5xx cancellation failures now
+   always return HTTP 502 with a fixed bounded message stating that the outcome
+   is ambiguous and will not be retried. No upstream error body or retry hint is
+   forwarded. Definitive 4xx and 404 behavior is unchanged.
+7. Removed the write-only `cursorLivePhase` type and `phase` field. The live
+   state machine is represented only by `done`, `detached`, and the currently
+   installed local stop function.
+
+CAS backoff and full-accumulator persistence remain deferred.
+
+### Files
+
+New:
+
+- `internal/server/handlers_cursor_cleanup_test.go`
+
+Modified:
+
+- `internal/server/cursor_events.go`
+- `internal/server/handlers_chat.go`
+- `internal/server/handlers_cursor_fix_test.go`
+- `internal/server/handlers_cursor_test.go`
+- `internal/server/livechat.go`
+- `internal/store/cursor_sessions_test.go`
+- `internal/store/sessions.go`
+- `.superpowers/sdd/2026-08-12-adaptive-reasoning-cursor-mode/task-12-report.md`
+
+Explicitly excluded:
+
+- `web/tsconfig.tsbuildinfo`
+- pre-existing untracked controller plan/design documents
+
+### Focused TDD evidence
+
+Recovery-log reset RED:
+
+```text
+$ go test ./internal/server -run 'TestCursorAttach(EverySequentialRecoveryFollowerStartsAtZero|ConcurrentFollowersResetToRecoveryWinner|CursorResetTargetsFreshRecoveryLogOnly)' -count=1 -v
+existing_recovery_reconnect: cursor reset=false, want true
+TestCursorAttachEverySequentialRecoveryFollowerStartsAtZero:
+  SSE stream ended before the next event
+TestCursorAttachConcurrentFollowersResetToRecoveryWinner:
+  SSE stream ended before the next event
+FAIL
+```
+
+Cleanup/predicate RED:
+
+```text
+$ go test ./internal/server -run 'TestCursor(CleanupHandlersPrecheckActiveStateAcrossPagination|ActiveRemotePredicateIsPureForCancelCrashMarker)' -count=1 -v
+empty cleanup status=200, want 409
+prune cleanup status=200, want 409
+predicate mutated crash marker to "ANTARES_CANCEL_OUTCOME_AMBIGUOUS"
+FAIL
+
+$ go test ./internal/store -run TestCursorCleanupSkipsActiveStatesWithAndWithoutForeignKeys -count=1 -v
+foreign_keys_on/delete_empty: deleted=9, want 5
+foreign_keys_on/prune: deleted=9, want 5
+foreign_keys_off/delete_empty: deleted=9, want 5
+foreign_keys_off/prune: deleted=9, want 5
+FAIL
+```
+
+Ambiguous cancellation response RED:
+
+```text
+$ go test ./internal/server -run TestCursorCancelAmbiguousResponseIsBoundedAndNonRetryable -count=1 -v
+request_timeout: status=408, want 502
+server: status=503, want 502
+context: response did not state ambiguous/non-retryable
+transport: response forwarded the bounded upstream error instead of a fixed message
+FAIL
+```
+
+Final focused GREEN:
+
+```text
+$ go test ./internal/server -run 'TestCursor(AttachEverySequentialRecoveryFollowerStartsAtZero|AttachConcurrentFollowersResetToRecoveryWinner|CleanupHandlersPrecheckActiveStateAcrossPagination|ActiveRemotePredicateIsPureForCancelCrashMarker|CancelAmbiguousResponseIsBoundedAndNonRetryable)' -count=1 && \
+  go test ./internal/store -run 'TestCursor(CleanupSkipsActiveStatesWithAndWithoutForeignKeys|SessionDeleteEmptySessionsRemovesStateWithoutForeignKeys|SessionBulkDeleteRollsBackOnChildFailure|SessionPruneSessionsRemovesStateWithoutForeignKeys)' -count=1
+ok  	github.com/enowdev/antares/internal/server	0.162s
+ok  	github.com/enowdev/antares/internal/store	0.097s
+```
+
+### Affected and race verification
+
+Fresh affected-package suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u AZURE_OPENAI_ENDPOINT \
+  -u AZURE_OPENAI_KEY -u AZURE_OPENAI_DEPLOYMENT \
+  -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN \
+  go test ./internal/server ./internal/store ./internal/cursorrun \
+    ./internal/approval ./internal/agent -count=1
+ok  	github.com/enowdev/antares/internal/server	2.951s
+ok  	github.com/enowdev/antares/internal/store	1.069s
+ok  	github.com/enowdev/antares/internal/cursorrun	1.186s
+ok  	github.com/enowdev/antares/internal/approval	0.031s
+ok  	github.com/enowdev/antares/internal/agent	0.332s
+```
+
+Fresh affected-package race suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u AZURE_OPENAI_ENDPOINT \
+  -u AZURE_OPENAI_KEY -u AZURE_OPENAI_DEPLOYMENT \
+  -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN \
+  go test -race ./internal/server ./internal/store ./internal/cursorrun \
+    ./internal/approval ./internal/agent -count=1
+ok  	github.com/enowdev/antares/internal/server	25.524s
+ok  	github.com/enowdev/antares/internal/store	9.513s
+ok  	github.com/enowdev/antares/internal/cursorrun	4.227s
+ok  	github.com/enowdev/antares/internal/approval	1.049s
+ok  	github.com/enowdev/antares/internal/agent	3.004s
+```
+
+### Safety self-review
+
+1. Recovery-log cursor zero is derived solely from immutable live-log kind.
+   Replaying its leading reset and durable snapshots is idempotent for every
+   follower; a stale cursor from the pre-crash process cannot skip them.
+2. Cleanup prechecks hold every enumerated session lock through mutation.
+   Direct/ordinary reservation, recovery, terminal finalization, edit, and
+   explicit deletion therefore cannot cross the check/mutation boundary for
+   those sessions.
+3. The store-side `NOT EXISTS` predicate independently skips newly visible
+   active Cursor states at the delete statement, including states inserted
+   after server enumeration. FK-off child cleanup remains transactional.
+4. Cleanup prechecking is all-or-nothing and read-only. Encountering a later
+   active candidate cannot mutate an earlier stale cancel marker.
+5. A current cancel POST is protected by the process-local reservation. After a
+   restart, the same marker is locally deletable without a write during
+   precheck; recovery/direct/cancel paths still reconcile it durably before
+   remote lifecycle work.
+6. Ambiguous cancellation never exposes the upstream error, never returns its
+   408/5xx status, and retains the durable no-resubmit marker.
+
+### Concerns
+
+- The requested affected and race suites pass.
+- A parallel full-repository attempt stalled for more than four minutes while
+  entering the pre-existing MCP test region and was terminated; the known
+  `internal/mcp.TestStdioRoundTrip` passed immediately in isolation.
+- A serial full-repository attempt passed MCP but hit the unrelated flaky
+  `TestModelSetConcurrentWithConfigReads` async-save assertion; that test passed
+  immediately in isolation.
+- No live API calls or credentials were used. CAS backoff and full-accumulator
+  persistence remain intentionally deferred.

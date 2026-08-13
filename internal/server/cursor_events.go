@@ -855,8 +855,9 @@ func (s *Server) handleCursorCancel(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		ambiguous := cursorCancelCouldBeAmbiguous(err)
 		nextStatus := priorStatus
-		if cursorCancelCouldBeAmbiguous(err) {
+		if ambiguous {
 			nextStatus = cursorCancelAmbiguous
 		}
 		_, updateErr := s.mutateCursorState(context.Background(), state.SessionID,
@@ -870,6 +871,12 @@ func (s *Server) handleCursorCancel(w http.ResponseWriter, r *http.Request) {
 			})
 		if updateErr != nil && !errors.Is(updateErr, errCursorStateChanged) {
 			writeError(w, http.StatusInternalServerError, s.cursorSafeError(updateErr))
+			return
+		}
+		if ambiguous {
+			writeError(w, http.StatusBadGateway, errors.New(
+				"Cursor cancellation outcome is ambiguous and will not be retried automatically; delete this local session to discard it without another remote request",
+			))
 			return
 		}
 		s.writeCursorUpstreamError(w, err, http.StatusBadGateway)
@@ -933,6 +940,13 @@ func (s *Server) releaseCursorCancel(sessionID, runID string) {
 	s.cursorCancelMu.Unlock()
 }
 
+func (s *Server) cursorCancelReserved(sessionID string) bool {
+	s.cursorCancelMu.Lock()
+	_, reserved := s.cursorCancels[sessionID]
+	s.cursorCancelMu.Unlock()
+	return reserved
+}
+
 func (s *Server) cursorSessionHasActiveRemoteState(
 	ctx context.Context,
 	sessionID string,
@@ -944,10 +958,6 @@ func (s *Server) cursorSessionHasActiveRemoteState(
 	if err != nil {
 		return false, err
 	}
-	state, err = s.reconcileCursorCancelCrashMarker(ctx, state)
-	if err != nil {
-		return false, err
-	}
 	if state.OperationState == store.CursorOperationAmbiguous {
 		return false, nil
 	}
@@ -955,6 +965,8 @@ func (s *Server) cursorSessionHasActiveRemoteState(
 		switch state.RemoteStatus {
 		case cursorCancelRequested, cursorCancelAmbiguous:
 			return false, nil
+		case cursorCancelInFlight:
+			return s.cursorCancelReserved(sessionID), nil
 		}
 	}
 	if state.OperationState == store.CursorOperationTerminal {

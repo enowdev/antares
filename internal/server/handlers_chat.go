@@ -296,7 +296,6 @@ func (s *Server) handleChatAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	unlock()
 
-	initiallyMissing := lr == nil
 	if (lr != nil && lr.isCursor()) || needsCursorRecovery {
 		if s.requireDashboardPassword(w, r) {
 			return
@@ -305,9 +304,9 @@ func (s *Server) handleChatAttach(w http.ResponseWriter, r *http.Request) {
 	if lr == nil && needsCursorRecovery {
 		lr = s.cursorRecoveryRun(session)
 	}
-	if cursorAttachShouldReset(initiallyMissing, lr) {
-		// The browser cursor indexes the lost process's in-memory log. Only a
-		// newly selected recovery log starts over and replays durable partials.
+	if cursorAttachShouldReset(lr) {
+		// Every recovery log starts with reset plus durable replay. The caller's
+		// cursor may belong to the lost process, so it is never valid here.
 		cursor = 0
 	}
 
@@ -347,9 +346,8 @@ func (s *Server) handleChatAttach(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func cursorAttachShouldReset(initiallyMissing bool, live *liveRun) bool {
-	return initiallyMissing && live != nil &&
-		live.runKind() == liveRunCursorRecovery
+func cursorAttachShouldReset(live *liveRun) bool {
+	return live != nil && live.runKind() == liveRunCursorRecovery
 }
 
 // decodeImages accepts data URLs and bare base64 payloads.
@@ -689,6 +687,31 @@ func (s *Server) handleEmptyCount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteEmpty(w http.ResponseWriter, r *http.Request) {
+	ids, err := s.cursorCleanupSessionIDs(r.Context(), func(session store.Session) bool {
+		return session.MessageCount == 0
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if len(ids) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": int64(0)})
+		return
+	}
+	unlock, active, err := s.lockCursorCleanupSessions(r.Context(), ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if active {
+		writeError(w, http.StatusConflict, errors.New(
+			"cannot delete empty sessions while a remote Cursor operation is active",
+		))
+		return
+	}
+	defer unlock()
+	s.stopCursorCleanupWatchers(ids)
+
 	n, err := s.db.DeleteEmptySessions(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -706,10 +729,84 @@ func (s *Server) handlePruneSessions(w http.ResponseWriter, r *http.Request) {
 		body.OlderThanDays = 30
 	}
 	cutoff := time.Now().AddDate(0, 0, -body.OlderThanDays)
+	ids, err := s.cursorCleanupSessionIDs(r.Context(), func(session store.Session) bool {
+		return !session.Pinned && session.UpdatedAt.Before(cutoff)
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if len(ids) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": int64(0)})
+		return
+	}
+	unlock, active, err := s.lockCursorCleanupSessions(r.Context(), ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if active {
+		writeError(w, http.StatusConflict, errors.New(
+			"cannot prune sessions while a remote Cursor operation is active",
+		))
+		return
+	}
+	defer unlock()
+	s.stopCursorCleanupWatchers(ids)
+
 	n, err := s.db.PruneSessions(r.Context(), cutoff)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": n})
+}
+
+const cursorCleanupPageSize = 500
+
+func (s *Server) cursorCleanupSessionIDs(
+	ctx context.Context,
+	include func(store.Session) bool,
+) ([]string, error) {
+	var ids []string
+	for offset := 0; ; {
+		sessions, total, err := s.db.ListSessions(ctx, store.SessionFilter{
+			Limit: cursorCleanupPageSize, Offset: offset,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, session := range sessions {
+			if include(session) {
+				ids = append(ids, session.ID)
+			}
+		}
+		offset += len(sessions)
+		if len(sessions) == 0 || int64(offset) >= total {
+			return ids, nil
+		}
+	}
+}
+
+func (s *Server) lockCursorCleanupSessions(
+	ctx context.Context,
+	sessionIDs []string,
+) (unlock func(), active bool, err error) {
+	unlock = s.cursorLifecycles.LockMany(sessionIDs)
+	for _, sessionID := range sessionIDs {
+		active, err = s.cursorSessionHasActiveRemoteState(ctx, sessionID)
+		if err != nil || active {
+			unlock()
+			return nil, active, err
+		}
+	}
+	return unlock, false, nil
+}
+
+func (s *Server) stopCursorCleanupWatchers(sessionIDs []string) {
+	for _, sessionID := range sessionIDs {
+		if live := s.hub.get(sessionID); live != nil {
+			live.stopWatching()
+		}
+	}
 }

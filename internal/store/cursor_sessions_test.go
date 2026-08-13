@@ -357,7 +357,7 @@ func newCursorForeignKeyOffStore(t *testing.T) *sqlStore {
 func TestCursorSessionDeleteEmptySessionsRemovesStateWithoutForeignKeys(t *testing.T) {
 	ctx := context.Background()
 	s := newCursorForeignKeyOffStore(t)
-	removed := putCursorTestState(t, s, "cursor-empty-remove", CursorOperationRunInFlight)
+	removed := putCursorTestState(t, s, "cursor-empty-remove", CursorOperationIdle)
 	kept := putCursorTestState(t, s, "cursor-empty-keep", CursorOperationRunInFlight)
 	if err := s.AppendMessage(ctx, &Message{
 		ID:        "keep-message",
@@ -389,7 +389,7 @@ func TestCursorSessionDeleteEmptySessionsRemovesStateWithoutForeignKeys(t *testi
 func TestCursorSessionBulkDeleteRollsBackOnChildFailure(t *testing.T) {
 	ctx := context.Background()
 	s := newCursorForeignKeyOffStore(t)
-	state := putCursorTestState(t, s, "cursor-bulk-rollback", CursorOperationRunInFlight)
+	state := putCursorTestState(t, s, "cursor-bulk-rollback", CursorOperationIdle)
 	if _, err := s.exec(ctx, `INSERT INTO messages (id,session_id,seq,role,created_at)
 		VALUES (?,?,?,?,?)`, "rollback-message", state.SessionID, 1, RoleUser, ms(time.Now())); err != nil {
 		t.Fatalf("insert rollback message: %v", err)
@@ -428,7 +428,7 @@ func TestCursorSessionBulkDeleteRollsBackOnChildFailure(t *testing.T) {
 func TestCursorSessionPruneSessionsRemovesStateWithoutForeignKeys(t *testing.T) {
 	ctx := context.Background()
 	s := newCursorForeignKeyOffStore(t)
-	removed := putCursorTestState(t, s, "cursor-prune-remove", CursorOperationRunInFlight)
+	removed := putCursorTestState(t, s, "cursor-prune-remove", CursorOperationIdle)
 	kept := putCursorTestState(t, s, "cursor-prune-keep", CursorOperationRunInFlight)
 	if err := s.AppendMessage(ctx, &Message{
 		ID:        "prune-message",
@@ -465,6 +465,136 @@ func TestCursorSessionPruneSessionsRemovesStateWithoutForeignKeys(t *testing.T) 
 	}
 	if _, err := s.GetCursorSessionState(ctx, kept.SessionID); err != nil {
 		t.Fatalf("fresh cursor state was deleted: %v", err)
+	}
+}
+
+func TestCursorCleanupSkipsActiveStatesWithAndWithoutForeignKeys(t *testing.T) {
+	const (
+		cancelInFlight  = "ANTARES_CANCEL_IN_FLIGHT"
+		cancelRequested = "ANTARES_CANCEL_REQUESTED"
+		cancelAmbiguous = "ANTARES_CANCEL_OUTCOME_AMBIGUOUS"
+	)
+	stores := []struct {
+		name string
+		open func(*testing.T) *sqlStore
+	}{
+		{
+			name: "foreign keys on",
+			open: func(t *testing.T) *sqlStore {
+				return newTestStore(t).(*sqlStore)
+			},
+		},
+		{name: "foreign keys off", open: newCursorForeignKeyOffStore},
+	}
+	cleanups := []struct {
+		name string
+		run  func(context.Context, *sqlStore) (int64, error)
+	}{
+		{
+			name: "delete empty",
+			run: func(ctx context.Context, s *sqlStore) (int64, error) {
+				return s.DeleteEmptySessions(ctx)
+			},
+		},
+		{
+			name: "prune",
+			run: func(ctx context.Context, s *sqlStore) (int64, error) {
+				return s.PruneSessions(ctx, time.Now().Add(-time.Hour))
+			},
+		},
+	}
+
+	for _, storeCase := range stores {
+		for _, cleanup := range cleanups {
+			t.Run(storeCase.name+"/"+cleanup.name, func(t *testing.T) {
+				ctx := context.Background()
+				s := storeCase.open(t)
+				ordinaryID := "cleanup-ordinary"
+				if err := s.CreateSession(ctx, &Session{ID: ordinaryID}); err != nil {
+					t.Fatal(err)
+				}
+
+				activeIDs := []string{
+					putCursorTestState(t, s, "cleanup-awaiting", CursorOperationAwaitingApproval).SessionID,
+					putCursorTestState(t, s, "cleanup-create", CursorOperationCreateInFlight).SessionID,
+					putCursorTestState(t, s, "cleanup-run", CursorOperationRunInFlight).SessionID,
+				}
+				deletableIDs := []string{
+					ordinaryID,
+					putCursorTestState(t, s, "cleanup-ambiguous", CursorOperationAmbiguous).SessionID,
+				}
+				for name, status := range map[string]string{
+					"requested": cancelRequested,
+					"ambiguous": cancelAmbiguous,
+					"stale":     cancelInFlight,
+				} {
+					state := putCursorTestState(
+						t, s, "cleanup-cancel-"+name, CursorOperationRunInFlight,
+					)
+					state.RemoteStatus = status
+					if err := s.PutCursorSessionState(ctx, state); err != nil {
+						t.Fatal(err)
+					}
+					deletableIDs = append(deletableIDs, state.SessionID)
+				}
+
+				// This state appears after the cleanup caller's enumeration.
+				// The store-side predicate must still preserve it.
+				racedID := "cleanup-raced-run"
+				if err := s.CreateSession(ctx, &Session{ID: racedID}); err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := s.ListSessions(ctx, SessionFilter{Limit: 500}); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.PutCursorSessionState(ctx, &CursorSessionState{
+					SessionID:      racedID,
+					ModelParams:    `[]`,
+					AgentID:        "bc-" + racedID,
+					RunID:          "run-" + racedID,
+					RemoteStatus:   "RUNNING",
+					OperationState: CursorOperationRunInFlight,
+				}); err != nil {
+					t.Fatal(err)
+				}
+				activeIDs = append(activeIDs, racedID)
+
+				if cleanup.name == "prune" {
+					if _, err := s.exec(ctx,
+						`UPDATE sessions SET updated_at=?`,
+						ms(time.Now().Add(-2*time.Hour)),
+					); err != nil {
+						t.Fatal(err)
+					}
+				}
+
+				count, err := cleanup.run(ctx, s)
+				if err != nil {
+					t.Fatalf("cleanup: %v", err)
+				}
+				if count != int64(len(deletableIDs)) {
+					t.Fatalf("deleted=%d, want %d", count, len(deletableIDs))
+				}
+				for _, id := range activeIDs {
+					if _, err := s.GetSession(ctx, id); err != nil {
+						t.Fatalf("active session %q was deleted: %v", id, err)
+					}
+					if _, err := s.GetCursorSessionState(ctx, id); err != nil {
+						t.Fatalf("active cursor state %q was deleted: %v", id, err)
+					}
+				}
+				for _, id := range deletableIDs {
+					if _, err := s.GetSession(ctx, id); !errors.Is(err, ErrNotFound) {
+						t.Fatalf("deletable session %q survived: %v", id, err)
+					}
+					if id != ordinaryID {
+						if _, err := s.GetCursorSessionState(ctx, id); !errors.Is(err, ErrNotFound) {
+							t.Fatalf("deletable cursor state %q survived: %v", id, err)
+						}
+					}
+				}
+			})
+		}
 	}
 }
 

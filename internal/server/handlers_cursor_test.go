@@ -1550,6 +1550,16 @@ func TestCursorChatApprovedCancelCallsUpstreamExactlyOnce(t *testing.T) {
 
 func postCursorCancel(t *testing.T, fixture *cursorDirectFixture, sessionID string) int {
 	t.Helper()
+	status, _ := postCursorCancelResponse(t, fixture, sessionID)
+	return status
+}
+
+func postCursorCancelResponse(
+	t *testing.T,
+	fixture *cursorDirectFixture,
+	sessionID string,
+) (int, string) {
+	t.Helper()
 	request, err := http.NewRequest(
 		http.MethodPost,
 		fixture.http.URL+"/api/chat/cursor/cancel",
@@ -1565,7 +1575,11 @@ func postCursorCancel(t *testing.T, fixture *cursorDirectFixture, sessionID stri
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	return response.StatusCode
+	raw, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response.StatusCode, string(raw)
 }
 
 func TestCursorChatDeleteRejectsActiveRemoteStateBeforeAnyMutation(t *testing.T) {

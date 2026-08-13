@@ -28,22 +28,12 @@ const (
 	liveRunCursorRecovery
 )
 
-type cursorLivePhase uint8
-
-const (
-	cursorPhaseNone cursorLivePhase = iota
-	cursorPhaseApproval
-	cursorPhaseCreate
-	cursorPhaseWatch
-)
-
 type liveRun struct {
 	mu       sync.Mutex
 	events   []agent.Event
 	base     int // absolute index of events[0] (count of events already trimmed)
 	done     bool
 	kind     liveRunKind
-	phase    cursorLivePhase
 	detached bool
 	stop     context.CancelFunc
 	updated  chan struct{} // closed on every change; replaced under the lock
@@ -79,7 +69,6 @@ func (lr *liveRun) finish() {
 	lr.mu.Lock()
 	if !lr.done {
 		lr.done = true
-		lr.phase = cursorPhaseNone
 		lr.stop = nil
 		lr.signal()
 	}
@@ -95,7 +84,6 @@ func (lr *liveRun) beginCursorApproval(stop context.CancelFunc) {
 		}
 		return
 	}
-	lr.phase = cursorPhaseApproval
 	lr.stop = stop
 	lr.mu.Unlock()
 }
@@ -108,7 +96,6 @@ func (lr *liveRun) beginCursorCreate() bool {
 	if lr.done || lr.detached {
 		return false
 	}
-	lr.phase = cursorPhaseCreate
 	lr.stop = nil
 	return true
 }
@@ -125,7 +112,6 @@ func (lr *liveRun) beginCursorWatch(stop context.CancelFunc) bool {
 		}
 		return false
 	}
-	lr.phase = cursorPhaseWatch
 	lr.stop = stop
 	lr.mu.Unlock()
 	return true

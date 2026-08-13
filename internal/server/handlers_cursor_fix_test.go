@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -214,6 +215,56 @@ func TestCursorCancelUncertainFailuresRemainAmbiguousAndDeletable(t *testing.T) 
 	}
 }
 
+func TestCursorCancelAmbiguousResponseIsBoundedAndNonRetryable(t *testing.T) {
+	secret := "round2-cancel-upstream-secret"
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "request timeout",
+			err: &cursor.APIError{
+				Status:  http.StatusRequestTimeout,
+				Message: secret + strings.Repeat("x", 8<<10),
+			},
+		},
+		{
+			name: "server",
+			err: &cursor.APIError{
+				Status:  http.StatusServiceUnavailable,
+				Message: secret + strings.Repeat("x", 8<<10),
+			},
+		},
+		{name: "context", err: fmt.Errorf("%s: %w", secret, context.DeadlineExceeded)},
+		{name: "transport", err: errors.New(secret + strings.Repeat("x", 8<<10))},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newCursorDirectTestServer(t)
+			sessionID := seedRecoverableCursorSession(t, fixture)
+			fixture.runner.holdStream()
+			fixture.runner.mu.Lock()
+			fixture.runner.cancelErr = test.err
+			fixture.runner.mu.Unlock()
+
+			result := approveCursorCancelResponse(t, fixture, sessionID)
+			if result.status != http.StatusBadGateway {
+				t.Fatalf("ambiguous response status=%d, want 502", result.status)
+			}
+			lower := strings.ToLower(result.body)
+			if !strings.Contains(lower, "ambiguous") ||
+				!strings.Contains(lower, "will not be retried") {
+				t.Fatalf("ambiguous response is not explicit: %q", result.body)
+			}
+			if strings.Contains(result.body, secret) || len(result.body) > 1024 {
+				t.Fatalf("ambiguous response leaked or exceeded bound: bytes=%d body=%q",
+					len(result.body), result.body)
+			}
+			fixture.runner.releaseStream()
+		})
+	}
+}
+
 func TestCursorCancelInFlightRecoveryBecomesAmbiguousWithoutResubmission(t *testing.T) {
 	fixture := newCursorDirectTestServer(t)
 	sessionID := seedRecoverableCursorSession(t, fixture)
@@ -391,38 +442,93 @@ func TestCursorAttachProtectionPreservesOrdinaryLiveAndDone(t *testing.T) {
 
 func TestCursorAttachCursorResetTargetsFreshRecoveryLogOnly(t *testing.T) {
 	tests := []struct {
-		name             string
-		initiallyMissing bool
-		live             *liveRun
-		want             bool
+		name string
+		live *liveRun
+		want bool
 	}{
 		{
-			name: "own recovery", initiallyMissing: true,
+			name: "own recovery",
 			live: newCursorLiveRun(liveRunCursorRecovery), want: true,
 		},
 		{
-			name: "another recovery winner", initiallyMissing: true,
+			name: "another recovery winner",
 			live: newCursorLiveRun(liveRunCursorRecovery), want: true,
 		},
 		{
-			name: "concurrent direct run", initiallyMissing: true,
+			name: "concurrent direct run",
 			live: newCursorLiveRun(liveRunCursorDirect), want: false,
 		},
 		{
-			name: "concurrent ordinary run", initiallyMissing: true,
+			name: "concurrent ordinary run",
 			live: newLiveRun(), want: false,
 		},
 		{
-			name: "existing recovery reconnect", initiallyMissing: false,
-			live: newCursorLiveRun(liveRunCursorRecovery), want: false,
+			name: "existing recovery reconnect",
+			live: newCursorLiveRun(liveRunCursorRecovery), want: true,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := cursorAttachShouldReset(test.initiallyMissing, test.live); got != test.want {
+			if got := cursorAttachShouldReset(test.live); got != test.want {
 				t.Fatalf("cursor reset=%v, want %v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestCursorAttachEverySequentialRecoveryFollowerStartsAtZero(t *testing.T) {
+	fixture := newCursorDirectTestServer(t)
+	sessionID := "ses-sequential-recovery-log"
+	recovery := newCursorLiveRun(liveRunCursorRecovery)
+	recovery.publish(agent.Event{Type: agent.EventReset})
+	recovery.publish(agent.Event{Type: agent.EventText, Delta: "durable replay"})
+	recovery.publish(agent.Event{Type: agent.EventDone})
+	recovery.finish()
+	fixture.server.hub.put(sessionID, recovery)
+
+	for follower := 1; follower <= 2; follower++ {
+		stream := getCursorAttachAt(t, fixture, sessionID, 999)
+		stream.NextType(t, agent.EventReset)
+		if event := stream.NextType(t, agent.EventText); event.Delta != "durable replay" {
+			t.Fatalf("follower %d replay=%q", follower, event.Delta)
+		}
+		stream.NextType(t, agent.EventDone)
+		stream.Close()
+	}
+}
+
+func TestCursorAttachConcurrentFollowersResetToRecoveryWinner(t *testing.T) {
+	fixture := newCursorDirectTestServer(t)
+	sessionID := seedRecoverableCursorSession(t, fixture)
+	fixture.runner.holdGetRun()
+	defer fixture.runner.releaseGetRun()
+	winner := fixture.server.cursorRecoveryRun(sessionID)
+	if winner == nil || winner.runKind() != liveRunCursorRecovery {
+		t.Fatal("did not reserve a recovery winner")
+	}
+	select {
+	case <-fixture.runner.getRunStarted:
+	case <-time.After(time.Second):
+		t.Fatal("recovery winner did not reach GetRun")
+	}
+
+	streams := make(chan *sseTestStream, 2)
+	for range 2 {
+		go func() {
+			streams <- getCursorAttachAt(t, fixture, sessionID, 999)
+		}()
+	}
+	first, second := <-streams, <-streams
+	fixture.runner.releaseGetRun()
+	for follower, stream := range []*sseTestStream{first, second} {
+		stream.NextType(t, agent.EventReset)
+		if event := stream.NextType(t, agent.EventReasoning); event.Delta != "old reasoning" {
+			t.Fatalf("follower %d reasoning replay=%q", follower+1, event.Delta)
+		}
+		if event := stream.NextType(t, agent.EventText); event.Delta != "old text" {
+			t.Fatalf("follower %d text replay=%q", follower+1, event.Delta)
+		}
+		stream.Close()
 	}
 }
 
@@ -633,9 +739,24 @@ func approveCursorCancel(
 	sessionID string,
 ) int {
 	t.Helper()
-	result := make(chan int, 1)
+	return approveCursorCancelResponse(t, fixture, sessionID).status
+}
+
+type cursorCancelResponse struct {
+	status int
+	body   string
+}
+
+func approveCursorCancelResponse(
+	t *testing.T,
+	fixture *cursorDirectFixture,
+	sessionID string,
+) cursorCancelResponse {
+	t.Helper()
+	result := make(chan cursorCancelResponse, 1)
 	go func() {
-		result <- postCursorCancel(t, fixture, sessionID)
+		status, body := postCursorCancelResponse(t, fixture, sessionID)
+		result <- cursorCancelResponse{status: status, body: body}
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -645,8 +766,8 @@ func approveCursorCancel(
 					t.Fatal("could not resolve Cursor cancellation approval")
 				}
 				select {
-				case status := <-result:
-					return status
+				case response := <-result:
+					return response
 				case <-time.After(2 * time.Second):
 					t.Fatal("approved Cursor cancellation did not return")
 				}
@@ -655,7 +776,7 @@ func approveCursorCancel(
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("Cursor cancellation approval did not appear")
-	return 0
+	return cursorCancelResponse{}
 }
 
 func initCursorWarningRepository(t *testing.T) string {

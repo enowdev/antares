@@ -179,7 +179,37 @@ func (s *sqlStore) CountEmptySessions(ctx context.Context) (int64, error) {
 }
 
 func (s *sqlStore) DeleteEmptySessions(ctx context.Context) (int64, error) {
-	return s.deleteSessionsAndChildren(ctx, `DELETE FROM sessions WHERE message_count=0 RETURNING id`)
+	return s.deleteSessionsAndChildren(ctx,
+		`DELETE FROM sessions WHERE message_count=0`+cursorCleanupInactivePredicate+` RETURNING id`,
+		cursorCleanupInactiveArgs()...,
+	)
+}
+
+const cursorCleanupInactivePredicate = `
+	AND NOT EXISTS (
+		SELECT 1 FROM cursor_session_states AS cursor_cleanup
+		WHERE cursor_cleanup.session_id=sessions.id
+		  AND (
+			cursor_cleanup.operation_state IN (?,?)
+			OR (
+				cursor_cleanup.operation_state=?
+				AND COALESCE(cursor_cleanup.remote_status,'') NOT IN (?,?,?)
+			)
+		  )
+	)`
+
+func cursorCleanupInactiveArgs() []any {
+	// Cancellation markers are local-reconciliation states. The server blocks a
+	// currently executing CancelRun with its process-local reservation; without
+	// that reservation these durable markers must remain locally deletable.
+	return []any{
+		CursorOperationAwaitingApproval,
+		CursorOperationCreateInFlight,
+		CursorOperationRunInFlight,
+		"ANTARES_CANCEL_REQUESTED",
+		"ANTARES_CANCEL_OUTCOME_AMBIGUOUS",
+		"ANTARES_CANCEL_IN_FLIGHT",
+	}
 }
 
 func (s *sqlStore) deleteSessionsAndChildren(ctx context.Context, deleteQuery string, args ...any) (int64, error) {
@@ -230,9 +260,11 @@ func (s *sqlStore) deleteSessionsAndChildren(ctx context.Context, deleteQuery st
 
 func (s *sqlStore) PruneSessions(ctx context.Context, olderThan time.Time) (int64, error) {
 	cutoff := ms(olderThan)
+	args := append([]any{cutoff}, cursorCleanupInactiveArgs()...)
 	return s.deleteSessionsAndChildren(ctx,
-		`DELETE FROM sessions WHERE updated_at < ? AND pinned = FALSE RETURNING id`,
-		cutoff,
+		`DELETE FROM sessions WHERE updated_at < ? AND pinned = FALSE`+
+			cursorCleanupInactivePredicate+` RETURNING id`,
+		args...,
 	)
 }
 
