@@ -4,13 +4,15 @@ import { get } from '@/lib/api'
 import type { CursorMode, CursorOptionsValue, CursorRunBaseline } from '@/lib/composerTargets'
 import { startsNewCursorAgent } from '@/lib/composerTargets'
 import {
-  applyCursorDimension,
-  cursorDimensionAvailability,
+  cursorFilterCommit,
+  cursorFilterFromVariant,
+  cursorFilterMatches,
   cursorOtherDimensions,
   cursorReasoningDimension,
   cursorVariantSummary,
-  variantParamValue,
+  withCursorFilter,
   type CursorDimension,
+  type CursorFilterEntry,
 } from '@/lib/cursorModels'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -48,10 +50,20 @@ export function CursorOptions({
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [preflight, setPreflight] = useState<RepositoryPreflight>()
-  // Set when a control could not commit: the catalogue has no single variant
-  // for that combination, and guessing one would change something else.
-  const [unavailable, setUnavailable] = useState(false)
+  // The controls narrow the catalogue rather than editing a selection: what
+  // runs only changes once the filter leaves exactly one upstream variant.
+  const [filter, setFilter] = useState<CursorFilterEntry[]>(() =>
+    cursorFilterFromVariant(value.model, value.variant),
+  )
   const ref = useRef<HTMLDivElement>(null)
+
+  // A newly committed variant, a different model, and opening or closing the
+  // popover all restart the filter from what is actually selected. Staging an
+  // ambiguous filter changes none of those, so work in progress survives until
+  // it either commits or is abandoned.
+  useEffect(() => {
+    setFilter(cursorFilterFromVariant(value.model, value.variant))
+  }, [open, value.model, value.variant])
 
   useEffect(() => {
     if (!open) return
@@ -89,21 +101,16 @@ export function CursorOptions({
   const summary = cursorVariantSummary(value.model, value.variant)
   const newAgent = startsNewCursorAgent(lastStarted, value)
 
+  const selected = filterSelectionOf(filter)
+  const remaining = cursorFilterMatches(value.model, filter)
+
   const pickDimension = (dimension: CursorDimension, option: string) => {
-    const variant = applyCursorDimension(
-      value.model,
-      value.variant,
-      dimension.id,
-      option,
-    )
-    // Only a combination that identifies one upstream variant is committed;
-    // anything else leaves the current selection exactly as it was.
-    if (!variant) {
-      setUnavailable(true)
-      return
-    }
-    setUnavailable(false)
-    onChange({ ...value, variant })
+    const next = withCursorFilter(value.model, filter, dimension.id, option)
+    setFilter(next)
+    // Only a filter that leaves one upstream variant changes what will run;
+    // while several remain, the current selection stands untouched.
+    const variant = cursorFilterCommit(value.model, next)
+    if (variant && variant !== value.variant) onChange({ ...value, variant })
   }
 
   const discoveredRepo = preflight?.repository ? (preflight.url ?? '') : ''
@@ -154,17 +161,19 @@ export function CursorOptions({
             <DimensionRow
               key={dimension.id}
               dimension={dimension}
-              selected={variantParamValue(value.variant, dimension.id)}
-              available={cursorDimensionAvailability(
-                value.model,
-                value.variant,
-                dimension.id,
-              )}
+              selected={selected[dimension.id]}
               onPick={(option) => pickDimension(dimension, option)}
               disabled={disabled}
             />
           ))}
-          {unavailable ? (
+          {remaining.length > 1 ? (
+            <p
+              role="status"
+              className="rounded-[var(--radius-sm)] border border-border bg-muted/50 px-2.5 py-2 text-[10.5px] leading-snug text-muted-foreground"
+            >
+              {t('cursor.variantPending', { n: remaining.length })}
+            </p>
+          ) : remaining.length === 0 ? (
             <p
               role="alert"
               className="rounded-[var(--radius-sm)] border border-[var(--warning)]/40 bg-[color-mix(in_oklch,var(--warning)_8%,transparent)] px-2.5 py-2 text-[10.5px] leading-snug text-muted-foreground"
@@ -277,40 +286,37 @@ export function CursorOptions({
   )
 }
 
+/** The dimensions a filter currently pins, as an id → value map. */
+function filterSelectionOf(filter: CursorFilterEntry[]): Record<string, string> {
+  const selection: Record<string, string> = {}
+  for (const entry of filter) selection[entry.id] = entry.value
+  return selection
+}
+
 function DimensionRow({
   dimension,
   selected,
-  available,
   onPick,
   disabled,
 }: {
   dimension: CursorDimension
   selected?: string
-  /** Values that resolve to exactly one variant from the current selection. */
-  available: string[]
   onPick: (value: string) => void
   disabled?: boolean
 }) {
-  const { t } = useI18n()
   return (
     <div role="group" aria-label={dimension.label} className="space-y-1.5">
       <Label className="text-[11px]">{dimension.label}</Label>
       <div className="flex flex-wrap gap-1">
-        {dimension.values.map((option) => {
-          const reachable = available.includes(option.value)
-          return (
-            <OptionChip
-              key={option.value}
-              active={selected === option.value}
-              // Unreachable here means another dimension has to move first, so
-              // it is shown as unavailable instead of silently moving it.
-              disabled={disabled || (!reachable && selected !== option.value)}
-              title={reachable ? undefined : t('cursor.variantUnavailable')}
-              onClick={() => onPick(option.value)}
-              label={option.label}
-            />
-          )
-        })}
+        {dimension.values.map((option) => (
+          <OptionChip
+            key={option.value}
+            active={selected === option.value}
+            disabled={disabled}
+            onClick={() => onPick(option.value)}
+            label={option.label}
+          />
+        ))}
       </div>
     </div>
   )

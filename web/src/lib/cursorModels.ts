@@ -146,60 +146,84 @@ export function resolveCursorVariant(
   return null
 }
 
-/** The current variant's values for the dimensions a control can show. */
-function visibleSelection(
-  model: CursorModel,
-  variant: CursorVariant,
-): Record<string, string> {
-  const params = variantSelection(variant)
+/**
+ * One dimension the controls have narrowed, in the order it was chosen. The
+ * filter is a view over the catalogue, never a selection in its own right: only
+ * a filter that leaves exactly one upstream variant changes what will run.
+ */
+export interface CursorFilterEntry {
+  id: string
+  value: string
+}
+
+function filterSelection(filter: CursorFilterEntry[]): Record<string, string> {
   const selection: Record<string, string> = {}
-  for (const dimension of cursorVariantDimensions(model)) {
-    const value = params[dimension.id]
-    if (value !== undefined) selection[dimension.id] = value
-  }
+  for (const entry of filter ?? []) selection[entry.id] = entry.value
   return selection
 }
 
-/**
- * Move one dimension and keep every other visible one exactly as it was. The
- * move commits only when that combination identifies a single upstream variant:
- * picking the nearest candidate instead would silently change a dimension the
- * user did not touch, or pick between variants that differ only in params the
- * catalogue never shows.
- */
-export function applyCursorDimension(
+/** The upstream variants a filter still allows. */
+export function cursorFilterMatches(
   model: CursorModel,
-  current: CursorVariant,
-  dimensionId: string,
-  value: string,
-): CursorVariant | null {
-  const matches = matchingCursorVariants(model, {
-    ...visibleSelection(model, current),
-    [dimensionId]: value,
-  })
-  return matches.length === 1 ? matches[0] : null
+  filter: CursorFilterEntry[],
+): CursorVariant[] {
+  return matchingCursorVariants(model, filterSelection(filter))
 }
 
 /**
- * The values of one dimension a control may commit from the current variant.
- * Anything else would need another dimension to move first, so the UI shows it
- * as unavailable rather than silently rewriting the rest of the selection.
+ * The one variant a filter identifies, or null while it still allows several
+ * (or none). Variants that differ only in params the catalogue does not show
+ * therefore never get chosen for the user.
  */
-export function cursorDimensionAvailability(
+export function cursorFilterCommit(
   model: CursorModel,
-  current: CursorVariant,
+  filter: CursorFilterEntry[],
+): CursorVariant | null {
+  const matches = cursorFilterMatches(model, filter)
+  return matches.length === 1 ? matches[0] : null
+}
+
+/** The filter a committed variant corresponds to: its visible dimensions. */
+export function cursorFilterFromVariant(
+  model: CursorModel,
+  variant: CursorVariant,
+): CursorFilterEntry[] {
+  const params = variantSelection(variant)
+  const filter: CursorFilterEntry[] = []
+  for (const dimension of cursorVariantDimensions(model)) {
+    const value = params[dimension.id]
+    if (value !== undefined) filter.push({ id: dimension.id, value })
+  }
+  return filter
+}
+
+/**
+ * Narrow a filter with one more choice. The newest choice always survives;
+ * older ones give way to it when they cannot hold together, which is what makes
+ * a variant that shares no value with the current one reachable without ever
+ * inventing a combination the catalogue does not offer. A value no variant
+ * carries at all changes nothing.
+ */
+export function withCursorFilter(
+  model: CursorModel,
+  filter: CursorFilterEntry[],
   dimensionId: string,
-): string[] {
-  const dimension = cursorVariantDimensions(model).find(
-    (candidate) => candidate.id === dimensionId,
-  )
-  if (!dimension) return []
-  return dimension.values
-    .filter(
-      (option) =>
-        applyCursorDimension(model, current, dimensionId, option.value) !== null,
-    )
-    .map((option) => option.value)
+  value: string,
+): CursorFilterEntry[] {
+  if (cursorFilterMatches(model, [{ id: dimensionId, value }]).length === 0) {
+    return filter
+  }
+  // Oldest first, with the new choice last and any older take on the same
+  // dimension removed.
+  let staged = [
+    ...(filter ?? []).filter((entry) => entry.id !== dimensionId),
+    { id: dimensionId, value },
+  ]
+  // Drop the least recent choices until the catalogue can satisfy the rest.
+  while (staged.length > 1 && cursorFilterMatches(model, staged).length === 0) {
+    staged = staged.slice(1)
+  }
+  return staged
 }
 
 /**

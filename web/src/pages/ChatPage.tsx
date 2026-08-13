@@ -58,6 +58,7 @@ import {
 } from '@/lib/composerTargets'
 import {
   baselineAfterSend,
+  composerCanSend,
   restoreIsCurrent,
   shouldAdoptDefaultTarget,
   stopStreamKind,
@@ -443,9 +444,17 @@ export default function ChatPage() {
   const cursorMode = isCursorTarget(target)
   // Who may set the target right now. A session's own durable state outranks
   // the picker's automatic active-model default, which is stashed until the
-  // session turns out not to own the target.
+  // session turns out not to own the target. The state mirror drives the
+  // composer, which must not accept a message while the answer is unknown.
+  const [targetOwner, setTargetOwnerState] = useState<TargetOwner>('free')
   const targetOwnerRef = useRef<TargetOwner>('free')
+  const setTargetOwner = useCallback((owner: TargetOwner) => {
+    targetOwnerRef.current = owner
+    setTargetOwnerState(owner)
+  }, [])
   const pendingDefaultRef = useRef<ChatTarget | null>(null)
+  // Whether the target was chosen deliberately since this session opened.
+  const userChoseRef = useRef(false)
   // Bumped for every session hydration, so an answer for the session that was
   // open a moment ago can never apply to the one open now.
   const hydrationRef = useRef(0)
@@ -523,7 +532,11 @@ export default function ChatPage() {
           return
         }
       }
-      if (origin === 'user' && !targetChangeAllowed(streamingRef.current)) return
+      if (origin === 'user') {
+        if (!targetChangeAllowed(streamingRef.current)) return
+        // A deliberate choice outranks whatever this session would restore.
+        userChoseRef.current = true
+      }
       commitTarget(selection)
       if (selection.kind !== 'chat') return
       const capability = selection.reasoningCapability
@@ -540,6 +553,7 @@ export default function ChatPage() {
   )
   const changeCursorOptions = useCallback((next: CursorOptionsValue) => {
     if (!targetChangeAllowed(streamingRef.current)) return
+    userChoseRef.current = true
     commitTarget({ kind: 'cursor', model: next.model, variant: next.variant })
     setCursorSettings({
       mode: next.mode,
@@ -647,17 +661,20 @@ export default function ChatPage() {
         startingRef: hydration.startingRef ?? null,
         autoCreatePR: hydration.autoCreatePR === true,
       }
+      const userChose = userChoseRef.current
       if (restoreComposer) {
         // Whatever this session is, the composer must stop pointing at another
-        // conversation's Cursor agent before the next message can be sent.
+        // conversation's Cursor agent — and must end up with somewhere to send
+        // — before the next message can go out.
         const decision = targetAfterCursorHydration({
           active: hydration.active,
           modelId: hydration.modelId,
           current: targetRef.current,
           pendingDefault: pendingDefaultRef.current,
           lastChat: composerReasoningRef.current?.selection ?? null,
+          userChose,
         })
-        targetOwnerRef.current = decision.owner
+        setTargetOwner(decision.owner)
         if (decision.action === 'set') {
           if (decision.target) selectTarget(decision.target, 'restore')
           else commitTarget(null)
@@ -674,7 +691,9 @@ export default function ChatPage() {
       // exact one must be matched exactly.
       const params = hydration.params ?? null
       const reuseValid = hydration.reuseValid === true
-      if (!restoreComposer) {
+      // A deliberate choice keeps the composer; only the follow-up baseline is
+      // still worth taking from durable state.
+      if (!restoreComposer || userChose) {
         if (!params || !applyCursorBaseline(hydration.modelId, params, settings, reuseValid)) {
           setLastCursorRun(null)
         }
@@ -683,7 +702,7 @@ export default function ChatPage() {
       setCursorSettings(settings)
       restoreCursorTarget(hydration.modelId, params, settings, reuseValid)
     },
-    [applyCursorBaseline, commitTarget, restoreCursorTarget, selectTarget],
+    [applyCursorBaseline, commitTarget, restoreCursorTarget, selectTarget, setTargetOwner],
   )
   const pickReasoning = useCallback((value: string) => {
     const current = composerReasoningRef.current
@@ -1308,7 +1327,9 @@ export default function ChatPage() {
     // session's own state says otherwise, the composer holds no Cursor target,
     // so a message sent meanwhile cannot reach another session's agent.
     if (isCursorTarget(targetRef.current)) commitTarget(null)
-    targetOwnerRef.current = sessionId ? 'pending' : 'free'
+    userChoseRef.current = false
+    // Until this session says where its messages go, the composer accepts none.
+    setTargetOwner(sessionId ? 'pending' : 'free')
     if (!sessionId) {
       // A new chat is owned by nobody, so the picker's default may fill it.
       const stashed = pendingDefaultRef.current
@@ -1373,7 +1394,7 @@ export default function ChatPage() {
         // Nothing will claim the target now, so the composer must not stay
         // waiting on a session state that never arrived.
         if (restoreIsCurrent(generation, hydrationRef.current)) {
-          targetOwnerRef.current = 'free'
+          setTargetOwner('free')
           const stashed = pendingDefaultRef.current
           if (stashed && !targetRef.current) selectTarget(stashed, 'default')
         }
@@ -1399,6 +1420,7 @@ export default function ChatPage() {
     applyCursorHydration,
     commitTarget,
     selectTarget,
+    setTargetOwner,
   ])
 
   /** Append a locally-produced message without touching the server. */
@@ -1480,7 +1502,11 @@ export default function ChatPage() {
   const sendText = useCallback(
     (raw: string, attached: string[] = [], attachedDocs: { path: string; name: string }[] = []) => {
       const text = raw.trim()
-      if ((!text && attached.length === 0 && attachedDocs.length === 0) || streaming) return
+      if (!text && attached.length === 0 && attachedDocs.length === 0) return
+      // Nothing may be sent before this session's execution target is known:
+      // a Cursor conversation must not fall through to the chat model while
+      // its exact selection is still loading.
+      if (!composerCanSend({ owner: targetOwnerRef.current, streaming })) return
       if (text.startsWith('/') && text.length > 1) {
         // Still record slash commands so ↑ recalls them.
         if (text) {
@@ -1710,9 +1736,13 @@ export default function ChatPage() {
     ],
   )
 
+  // Both composer routes — the send button and Enter — go through here, so the
+  // hydration gate covers each of them.
+  const canSend = composerCanSend({ owner: targetOwner, streaming })
   const send = useCallback(() => {
     const text = input.trim()
-    if ((!text && images.length === 0 && docs.length === 0) || streaming) return
+    if (!text && images.length === 0 && docs.length === 0) return
+    if (!composerCanSend({ owner: targetOwnerRef.current, streaming })) return
     sendText(text, images, docs)
   }, [input, images, docs, streaming, sendText])
 
@@ -1994,6 +2024,8 @@ export default function ChatPage() {
         onSend={send}
         onStop={stop}
         streaming={streaming}
+        canSend={canSend}
+        pendingLabel={t('target.resolving')}
         placeholder={t('chat.placeholder')}
         sendLabel={t('chat.send')}
         stopLabel={t('chat.stop')}
@@ -2319,6 +2351,9 @@ interface ComposerProps {
   onSend: () => void
   onStop: () => void
   streaming: boolean
+  /** False while this session's execution target is still being resolved. */
+  canSend: boolean
+  pendingLabel: string
   placeholder: string
   sendLabel: string
   stopLabel: string
@@ -2348,6 +2383,8 @@ const Composer = ({
   onSend,
   onStop,
   streaming,
+  canSend,
+  pendingLabel,
   placeholder,
   sendLabel,
   stopLabel,
@@ -2469,8 +2506,9 @@ const Composer = ({
               <Button
                 size="icon"
                 onClick={onSend}
-                disabled={!value.trim() && images.length === 0}
+                disabled={!canSend || (!value.trim() && images.length === 0)}
                 aria-label={sendLabel}
+                title={canSend ? sendLabel : pendingLabel}
                 className="shrink-0 rounded-full"
               >
                 <ArrowUp weight="bold" />

@@ -34,6 +34,18 @@ export function shouldAdoptDefaultTarget(state: {
   return state.owner === 'free' && !state.hasTarget
 }
 
+/**
+ * Whether the composer may submit. A session whose target is still being
+ * resolved has no answer to "where does this go?", and guessing would post a
+ * Cursor conversation's turn to the chat model instead.
+ */
+export function composerCanSend(state: {
+  owner: TargetOwner
+  streaming: boolean
+}): boolean {
+  return state.owner !== 'pending' && !state.streaming
+}
+
 export interface HydrationTargetInput {
   /** Whether durable state still points this session at Cursor. */
   active: boolean
@@ -44,6 +56,8 @@ export interface HydrationTargetInput {
   pendingDefault: ChatTarget | null
   /** The last chat target this tab used, if any. */
   lastChat: ChatTarget | null
+  /** Whether the user picked the current target after hydration began. */
+  userChose?: boolean
 }
 
 export type HydrationTargetDecision =
@@ -59,7 +73,10 @@ export type HydrationTargetDecision =
 export function targetAfterCursorHydration(
   input: HydrationTargetInput,
 ): HydrationTargetDecision {
-  const { active, modelId, current, pendingDefault, lastChat } = input
+  const { active, modelId, current, pendingDefault, lastChat, userChose } = input
+  // Someone chose deliberately while the session was loading; that outranks
+  // anything the session itself would have restored.
+  if (userChose) return { owner: 'free', action: 'keep' }
   if (active && modelId) {
     // A restore is on its way for this session's own model.
     if (current?.kind === 'cursor' && current.model.id !== modelId) {
@@ -68,8 +85,14 @@ export function targetAfterCursorHydration(
     return { owner: 'restored', action: 'keep' }
   }
   // This session does not run on Cursor, or names nothing exact enough to run.
+  // Its Cursor target goes, and the composer needs a chat target to fall back
+  // to — including when the session switch already emptied it.
+  const fallback = pendingDefault ?? lastChat ?? null
   if (current?.kind === 'cursor') {
-    return { owner: 'free', action: 'set', target: pendingDefault ?? lastChat ?? null }
+    return { owner: 'free', action: 'set', target: fallback }
+  }
+  if (current === null && fallback) {
+    return { owner: 'free', action: 'set', target: fallback }
   }
   return { owner: 'free', action: 'keep' }
 }

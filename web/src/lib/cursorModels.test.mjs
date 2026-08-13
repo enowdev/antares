@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  applyCursorDimension,
-  cursorDimensionAvailability,
+  cursorFilterCommit,
+  cursorFilterFromVariant,
+  cursorFilterMatches,
   cursorModelMatches,
   cursorModelSelectable,
   cursorReasoningDimension,
@@ -12,6 +13,7 @@ import {
   resolveCursorVariant,
   selectExactVariant,
   variantSelection,
+  withCursorFilter,
 } from './cursorModels.ts'
 
 const modelFixture = {
@@ -171,79 +173,145 @@ describe('exact Cursor variants', () => {
     expect(selectExactVariant(multiVariantFixture, { context: '272k' })).toBeNull()
   })
 
-  test('changing one dimension keeps the others and carries the hidden params', () => {
-    const from = multiVariantFixture.variants[0]
-    const next = applyCursorDimension(multiVariantFixture, from, 'reasoning', 'max')
-    expect(next).toBe(multiVariantFixture.variants[1])
-    expect(variantSelection(next)).toEqual({
-      context: '272k',
-      reasoning: 'max',
-      internal: 'off',
-    })
+})
 
-    const wider = applyCursorDimension(
-      multiVariantFixture,
-      multiVariantFixture.variants[1],
-      'context',
-      '1m',
-    )
-    expect(wider).toBe(multiVariantFixture.variants[2])
-  })
-
-  test('a value that would silently change another dimension commits nothing', () => {
-    // Only 1M + max exists upstream, so moving context while reasoning is low
-    // must not quietly raise reasoning too.
-    expect(
-      applyCursorDimension(multiVariantFixture, multiVariantFixture.variants[0], 'context', '1m'),
-    ).toBeNull()
-  })
-
-  test('an unreachable dimension value commits nothing', () => {
-    expect(
-      applyCursorDimension(modelFixture, modelFixture.variants[0], 'context', '1m'),
-    ).toBeNull()
-  })
-
-  test('a tie between variants commits nothing', () => {
-    // Two variants share every visible dimension and differ only in a hidden
-    // one, so "fast on" cannot identify a single upstream variant.
-    const tied = {
-      id: 'tied',
-      name: 'Tied',
-      aliases: [],
-      parameters: [{ id: 'fast', values: [{ value: 'off' }, { value: 'on' }] }],
-      variants: [
-        { params: [{ id: 'fast', value: 'off' }], displayName: 'off', isDefault: true },
-        {
-          params: [
-            { id: 'fast', value: 'on' },
-            { id: 'internal', value: 'a' },
-          ],
-          displayName: 'on a',
-        },
-        {
-          params: [
-            { id: 'fast', value: 'on' },
-            { id: 'internal', value: 'b' },
-          ],
-          displayName: 'on b',
-        },
+// Two variants that share no axis value: reaching one from the other means
+// moving both dimensions, which one-axis-at-a-time filtering cannot express.
+const diagonalFixture = {
+  id: 'diagonal',
+  name: 'Diagonal',
+  aliases: [],
+  parameters: [
+    { id: 'context', values: [{ value: 'short' }, { value: 'long' }] },
+    { id: 'reasoning', values: [{ value: 'low' }, { value: 'max' }] },
+  ],
+  variants: [
+    {
+      params: [
+        { id: 'context', value: 'short' },
+        { id: 'reasoning', value: 'low' },
+        { id: 'internal', value: 'cheap' },
       ],
-    }
-    expect(applyCursorDimension(tied, tied.variants[0], 'fast', 'on')).toBeNull()
-    expect(cursorDimensionAvailability(tied, tied.variants[0], 'fast')).toEqual(['off'])
+      displayName: 'Short · low',
+      isDefault: true,
+    },
+    {
+      params: [
+        { id: 'context', value: 'long' },
+        { id: 'reasoning', value: 'max' },
+        { id: 'internal', value: 'rich' },
+      ],
+      displayName: 'Long · max',
+    },
+  ],
+}
+
+const tiedFixture = {
+  id: 'tied',
+  name: 'Tied',
+  aliases: [],
+  parameters: [{ id: 'fast', values: [{ value: 'off' }, { value: 'on' }] }],
+  variants: [
+    { params: [{ id: 'fast', value: 'off' }], displayName: 'off', isDefault: true },
+    {
+      params: [
+        { id: 'fast', value: 'on' },
+        { id: 'internal', value: 'a' },
+      ],
+      displayName: 'on a',
+    },
+    {
+      params: [
+        { id: 'fast', value: 'on' },
+        { id: 'internal', value: 'b' },
+      ],
+      displayName: 'on b',
+    },
+  ],
+}
+
+describe('filtering variants with staged controls', () => {
+  test('a filter starts as the committed variant, hidden params excluded', () => {
+    expect(
+      cursorFilterFromVariant(multiVariantFixture, multiVariantFixture.variants[2]),
+    ).toEqual([
+      { id: 'context', value: '1m' },
+      { id: 'reasoning', value: 'max' },
+    ])
   })
 
-  test('availability marks exactly the values a control may commit', () => {
-    expect(
-      cursorDimensionAvailability(multiVariantFixture, multiVariantFixture.variants[0], 'context'),
-    ).toEqual(['272k'])
-    expect(
-      cursorDimensionAvailability(multiVariantFixture, multiVariantFixture.variants[1], 'context'),
-    ).toEqual(['272k', '1m'])
-    expect(
-      cursorDimensionAvailability(multiVariantFixture, multiVariantFixture.variants[0], 'reasoning'),
-    ).toEqual(['low', 'max'])
+  test('a diagonal variant is reachable, and keeps its hidden params exactly', () => {
+    const from = cursorFilterFromVariant(diagonalFixture, diagonalFixture.variants[0])
+    // The older filter entry gives way to the choice just made, rather than
+    // making the only other configuration unreachable.
+    const next = withCursorFilter(diagonalFixture, from, 'context', 'long')
+    expect(next).toEqual([{ id: 'context', value: 'long' }])
+    const committed = cursorFilterCommit(diagonalFixture, next)
+    expect(committed).toBe(diagonalFixture.variants[1])
+    expect(variantSelection(committed)).toEqual({
+      context: 'long',
+      reasoning: 'max',
+      internal: 'rich',
+    })
+  })
+
+  test('the other axis is reachable from the same starting point', () => {
+    const from = cursorFilterFromVariant(diagonalFixture, diagonalFixture.variants[0])
+    const next = withCursorFilter(diagonalFixture, from, 'reasoning', 'max')
+    expect(cursorFilterCommit(diagonalFixture, next)).toBe(diagonalFixture.variants[1])
+  })
+
+  test('a filter that still matches several variants commits nothing yet', () => {
+    const partial = [{ id: 'context', value: '272k' }]
+    expect(cursorFilterMatches(multiVariantFixture, partial)).toHaveLength(2)
+    expect(cursorFilterCommit(multiVariantFixture, partial)).toBeNull()
+
+    const narrowed = withCursorFilter(multiVariantFixture, partial, 'reasoning', 'max')
+    expect(narrowed).toEqual([
+      { id: 'context', value: '272k' },
+      { id: 'reasoning', value: 'max' },
+    ])
+    expect(cursorFilterCommit(multiVariantFixture, narrowed)).toBe(
+      multiVariantFixture.variants[1],
+    )
+  })
+
+  test('variants that differ only in a hidden param are never broken by a guess', () => {
+    const filter = withCursorFilter(tiedFixture, [], 'fast', 'on')
+    expect(cursorFilterMatches(tiedFixture, filter)).toHaveLength(2)
+    expect(cursorFilterCommit(tiedFixture, filter)).toBeNull()
+  })
+
+  test('a filter no variant satisfies matches nothing and commits nothing', () => {
+    const impossible = [
+      { id: 'context', value: '1m' },
+      { id: 'reasoning', value: 'low' },
+    ]
+    expect(cursorFilterMatches(multiVariantFixture, impossible)).toEqual([])
+    expect(cursorFilterCommit(multiVariantFixture, impossible)).toBeNull()
+  })
+
+  test('staging never produces a filter that matches nothing', () => {
+    const from = cursorFilterFromVariant(multiVariantFixture, multiVariantFixture.variants[0])
+    for (const dimension of ['context', 'reasoning']) {
+      for (const value of ['272k', '1m', 'low', 'max']) {
+        const next = withCursorFilter(multiVariantFixture, from, dimension, value)
+        if (next.some((entry) => entry.id === dimension && entry.value === value)) {
+          expect(cursorFilterMatches(multiVariantFixture, next).length).toBeGreaterThan(0)
+        }
+      }
+    }
+  })
+
+  test('choosing the same dimension twice replaces rather than repeats it', () => {
+    const first = withCursorFilter(multiVariantFixture, [], 'reasoning', 'low')
+    const second = withCursorFilter(multiVariantFixture, first, 'reasoning', 'max')
+    expect(second).toEqual([{ id: 'reasoning', value: 'max' }])
+  })
+
+  test('a value no variant offers is refused instead of emptying the filter', () => {
+    const from = cursorFilterFromVariant(modelFixture, modelFixture.variants[0])
+    expect(withCursorFilter(modelFixture, from, 'context', '1m')).toEqual(from)
   })
 })
 

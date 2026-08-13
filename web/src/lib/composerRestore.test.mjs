@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   baselineAfterSend,
+  composerCanSend,
   restoreIsCurrent,
   shouldAdoptDefaultTarget,
   stopStreamKind,
@@ -48,6 +49,24 @@ describe('automatic chat defaults', () => {
 
   test('a default never overwrites a target that is already chosen', () => {
     expect(shouldAdoptDefaultTarget({ owner: 'free', hasTarget: true })).toBe(false)
+  })
+})
+
+describe('sending while a session is still hydrating', () => {
+  test('a session whose target is not yet known cannot submit at all', () => {
+    // Both the send button and Enter go through this gate, so neither route
+    // can post a Cursor conversation's turn to /chat.
+    expect(composerCanSend({ owner: 'pending', streaming: false })).toBe(false)
+  })
+
+  test('a resolved session may submit', () => {
+    expect(composerCanSend({ owner: 'free', streaming: false })).toBe(true)
+    expect(composerCanSend({ owner: 'restored', streaming: false })).toBe(true)
+  })
+
+  test('a streaming turn still blocks a second submit', () => {
+    expect(composerCanSend({ owner: 'free', streaming: true })).toBe(false)
+    expect(composerCanSend({ owner: 'restored', streaming: true })).toBe(false)
   })
 })
 
@@ -132,6 +151,77 @@ describe('the target a hydrated session should hold', () => {
         current: chatTarget,
         pendingDefault: otherChatTarget,
         lastChat: otherChatTarget,
+      }),
+    ).toEqual({ owner: 'free', action: 'keep' })
+  })
+
+  test('an ordinary session installs a chat target when the composer holds none', () => {
+    // The session switch already cleared the previous Cursor target, so there
+    // is nothing left to replace — the fallback still has to be installed.
+    expect(
+      targetAfterCursorHydration({
+        active: false,
+        modelId: undefined,
+        current: null,
+        pendingDefault: chatTarget,
+        lastChat: otherChatTarget,
+      }),
+    ).toEqual({ owner: 'free', action: 'set', target: chatTarget })
+    expect(
+      targetAfterCursorHydration({
+        active: false,
+        modelId: undefined,
+        current: null,
+        pendingDefault: null,
+        lastChat: otherChatTarget,
+      }),
+    ).toEqual({ owner: 'free', action: 'set', target: otherChatTarget })
+  })
+
+  test('an undecodable selection installs a chat target over an empty composer', () => {
+    expect(
+      targetAfterCursorHydration({
+        active: true,
+        modelId: '',
+        current: null,
+        pendingDefault: chatTarget,
+        lastChat: null,
+      }),
+    ).toEqual({ owner: 'free', action: 'set', target: chatTarget })
+  })
+
+  test('an empty composer with nothing to fall back on stays empty', () => {
+    expect(
+      targetAfterCursorHydration({
+        active: false,
+        modelId: undefined,
+        current: null,
+        pendingDefault: null,
+        lastChat: null,
+      }),
+    ).toEqual({ owner: 'free', action: 'keep' })
+  })
+
+  test('a choice made after hydration began is never overwritten', () => {
+    const chosen = cursorTarget('claude-opus-5')
+    expect(
+      targetAfterCursorHydration({
+        active: false,
+        modelId: undefined,
+        current: chosen,
+        pendingDefault: chatTarget,
+        lastChat: chatTarget,
+        userChose: true,
+      }),
+    ).toEqual({ owner: 'free', action: 'keep' })
+    expect(
+      targetAfterCursorHydration({
+        active: true,
+        modelId: 'gpt-5.6-sol',
+        current: chatTarget,
+        pendingDefault: null,
+        lastChat: chatTarget,
+        userChose: true,
       }),
     ).toEqual({ owner: 'free', action: 'keep' })
   })
