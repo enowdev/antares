@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import {
   baselineAfterSend,
   composerCanSend,
+  ownershipResolutionAfterCompletion,
   restoreIsCurrent,
+  sessionOpenIsCurrent,
   sessionTargetOwner,
   shouldAdoptDefaultTarget,
   stopStreamKind,
@@ -53,58 +55,127 @@ describe('automatic chat defaults', () => {
   })
 })
 
-describe('ownership derived from the open session', () => {
-  const unresolved = { sessionId: null, owner: 'free' }
+describe('ownership derived from the exact route-open occurrence', () => {
+  const opened = (sessionId, routerKey) => ({
+    sessionId,
+    // The object identity is the epoch. routerKey is diagnostic only: browser
+    // POP may emit a fresh open occurrence for the same history entry/key.
+    epoch: { routerKey },
+  })
+  const unresolved = { open: null, owner: 'free' }
 
-  test('an existing session is pending from its very first render', () => {
-    // Nothing has run for this id yet, so the answer cannot be "free" even
-    // though that is what a fresh composer starts as.
-    expect(sessionTargetOwner({ sessionId: 'A', resolved: unresolved })).toBe('pending')
+  test('an existing session is pending on initial load before effects run', () => {
+    const initialA = opened('A', 'default')
+    const owner = sessionTargetOwner({ open: initialA, resolved: unresolved })
+    expect(owner).toBe('pending')
+    expect(composerCanSend({ owner, streaming: false })).toBe(false)
   })
 
-  test('a route change is pending before anything runs for the new session', () => {
+  test('a normal A to B navigation is pending before B hydration runs', () => {
+    const openA = opened('A', 'a-entry')
+    const openB = opened('B', 'b-entry')
     expect(
       sessionTargetOwner({
-        sessionId: 'B',
-        resolved: { sessionId: 'A', owner: 'restored' },
+        open: openB,
+        resolved: { open: openA, owner: 'restored' },
       }),
     ).toBe('pending')
+    expect(sessionOpenIsCurrent(openA, openB)).toBe(false)
   })
 
-  test('a result for the previous session never resolves the open one', () => {
+  test('B1 to A to B2 stays pending even though both B visits have the same id', () => {
+    const openB1 = opened('B', 'b-entry')
+    const openA = opened('A', 'a-entry')
+    // A POP can reopen the same router entry, so even the diagnostic key may
+    // repeat; the emitted location object still gives B2 a distinct epoch.
+    const openB2 = opened('B', 'b-entry')
+    const resolvedB1 = { open: openB1, owner: 'restored' }
+
+    expect(sessionTargetOwner({ open: openA, resolved: resolvedB1 })).toBe('pending')
+    expect(sessionTargetOwner({ open: openB2, resolved: resolvedB1 })).toBe('pending')
+  })
+
+  test('stale B1 and intervening A completions cannot resolve or mutate B2', () => {
+    const openB1 = opened('B', 'b-entry')
+    const openA = opened('A', 'a-entry')
+    const openB2 = opened('B', 'b-entry')
+    const resolvedB2 = { open: openB2, owner: 'restored' }
+
+    expect(sessionOpenIsCurrent(openB1, openB2)).toBe(false)
+    expect(sessionOpenIsCurrent(openA, openB2)).toBe(false)
     expect(
-      sessionTargetOwner({ sessionId: 'B', resolved: { sessionId: 'A', owner: 'free' } }),
-    ).toBe('pending')
+      ownershipResolutionAfterCompletion({
+        current: openB2,
+        previous: resolvedB2,
+        completed: openB1,
+        owner: 'free',
+      }),
+    ).toBe(resolvedB2)
+    expect(
+      ownershipResolutionAfterCompletion({
+        current: openB2,
+        previous: resolvedB2,
+        completed: openA,
+        owner: 'free',
+      }),
+    ).toBe(resolvedB2)
   })
 
-  test('the open session is resolved only by its own result', () => {
+  test('only the current B2 completion resolves B2', () => {
+    const openB2 = opened('B', 'b-entry')
+    const resolvedB2 = ownershipResolutionAfterCompletion({
+      current: openB2,
+      previous: unresolved,
+      completed: openB2,
+      owner: 'restored',
+    })
+    expect(sessionOpenIsCurrent(openB2, openB2)).toBe(true)
+    expect(resolvedB2).toEqual({ open: openB2, owner: 'restored' })
     expect(
       sessionTargetOwner({
-        sessionId: 'B',
-        resolved: { sessionId: 'B', owner: 'restored' },
+        open: openB2,
+        resolved: resolvedB2,
       }),
     ).toBe('restored')
     expect(
-      sessionTargetOwner({ sessionId: 'B', resolved: { sessionId: 'B', owner: 'free' } }),
+      sessionTargetOwner({
+        open: openB2,
+        resolved: { open: openB2, owner: 'free' },
+      }),
     ).toBe('free')
   })
 
-  test('a new chat owns itself and stays sendable', () => {
-    expect(sessionTargetOwner({ resolved: unresolved })).toBe('free')
-    expect(sessionTargetOwner({ sessionId: '', resolved: unresolved })).toBe('free')
+  test('a no-session new chat remains free despite a stale resolution', () => {
+    const newChat = opened('', 'new-chat')
+    const staleA = opened('A', 'a-entry')
+    expect(sessionTargetOwner({ open: newChat, resolved: unresolved })).toBe('free')
     expect(
-      sessionTargetOwner({ resolved: { sessionId: 'A', owner: 'restored' } }),
+      sessionTargetOwner({
+        open: newChat,
+        resolved: { open: staleA, owner: 'restored' },
+      }),
     ).toBe('free')
   })
 
-  test('the composer is closed to both submit routes in that first window', () => {
-    const owner = sessionTargetOwner({ sessionId: 'A', resolved: unresolved })
-    expect(composerCanSend({ owner, streaming: false })).toBe(false)
-    const resolved = sessionTargetOwner({
-      sessionId: 'A',
-      resolved: { sessionId: 'A', owner: 'free' },
-    })
-    expect(composerCanSend({ owner: resolved, streaming: false })).toBe(true)
+  test('mid-stream server-id adoption waits for the adopted route occurrence', () => {
+    const newChat = opened('', 'draft-entry')
+    const preNavigationAdoption = {
+      open: { sessionId: 'B', epoch: newChat.epoch },
+      owner: 'restored',
+    }
+    const adoptedB = opened('B', 'assigned-entry')
+
+    expect(sessionTargetOwner({ open: newChat, resolved: unresolved })).toBe('free')
+    expect(
+      sessionTargetOwner({ open: adoptedB, resolved: preNavigationAdoption }),
+    ).toBe('pending')
+    expect(sessionOpenIsCurrent(preNavigationAdoption.open, adoptedB)).toBe(false)
+    expect(
+      sessionTargetOwner({
+        open: adoptedB,
+        resolved: { open: adoptedB, owner: 'restored' },
+      }),
+    ).toBe('restored')
   })
 })
 

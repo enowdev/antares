@@ -23,26 +23,65 @@ export function restoreIsCurrent(captured: number, current: number): boolean {
   return captured === current
 }
 
-/** The session ownership was last resolved for, and what it resolved to. */
+/**
+ * One activation of a chat route. The epoch is an opaque identity token, not a
+ * textual router key: browser POP can activate the same history entry twice.
+ */
+export interface SessionOpenOccurrence {
+  sessionId: string
+  epoch: object
+}
+
+/** Whether a completion still belongs to the route-open occurrence on screen. */
+export function sessionOpenIsCurrent(
+  captured: SessionOpenOccurrence,
+  current: SessionOpenOccurrence,
+): boolean {
+  return captured.sessionId === current.sessionId && captured.epoch === current.epoch
+}
+
+/** The exact route-open occurrence ownership was last resolved for. */
 export interface SessionOwnershipResolution {
-  sessionId: string | null
+  open: SessionOpenOccurrence | null
   owner: TargetOwner
 }
 
 /**
- * Who owns the target for the session currently open, derived rather than
- * remembered. An existing conversation is pending until something has resolved
- * ownership *for that exact id*, which is true on its first render, across a
- * route change, and while a slower answer for the previous session is still in
- * flight. A new chat owns itself, so it is never blocked.
+ * Record a completion only when it belongs to the occurrence currently open.
+ * Returning the previous object for stale work also prevents a harmless-looking
+ * stale write from closing a newer occurrence that has already resolved.
+ */
+export function ownershipResolutionAfterCompletion(input: {
+  current: SessionOpenOccurrence
+  previous: SessionOwnershipResolution
+  completed: SessionOpenOccurrence
+  owner: TargetOwner
+}): SessionOwnershipResolution {
+  if (!sessionOpenIsCurrent(input.completed, input.current)) return input.previous
+  if (
+    input.previous.open &&
+    sessionOpenIsCurrent(input.previous.open, input.completed) &&
+    input.previous.owner === input.owner
+  ) {
+    return input.previous
+  }
+  return { open: input.completed, owner: input.owner }
+}
+
+/**
+ * Who owns the target for the route occurrence currently open, derived rather
+ * than remembered. An existing conversation is pending until something has
+ * resolved ownership for that exact occurrence, including when the same
+ * session id is revisited. A new chat owns itself, so it is never blocked.
  */
 export function sessionTargetOwner(input: {
-  sessionId?: string
+  open: SessionOpenOccurrence
   resolved: SessionOwnershipResolution
 }): TargetOwner {
-  const sessionId = input.sessionId ?? ''
-  if (!sessionId) return 'free'
-  if (input.resolved.sessionId !== sessionId) return 'pending'
+  if (!input.open.sessionId) return 'free'
+  if (!input.resolved.open || !sessionOpenIsCurrent(input.resolved.open, input.open)) {
+    return 'pending'
+  }
   return input.resolved.owner
 }
 

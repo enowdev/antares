@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
@@ -59,12 +59,15 @@ import {
 import {
   baselineAfterSend,
   composerCanSend,
+  ownershipResolutionAfterCompletion,
   restoreIsCurrent,
+  sessionOpenIsCurrent,
   sessionTargetOwner,
   shouldAdoptDefaultTarget,
   stopStreamKind,
   targetAfterCursorHydration,
   targetChangeAllowed,
+  type SessionOpenOccurrence,
   type SessionOwnershipResolution,
   type TargetOwner,
 } from '@/lib/composerRestore'
@@ -452,19 +455,40 @@ export default function ChatPage() {
   // recorded by an effect: an effect runs after the first paint, which would
   // leave the composer of a just-opened conversation briefly claiming it knows
   // where a message should go.
+  // React Router emits a stable Location object for the current navigation and
+  // a new object for every subsequent navigation, including POP back to a
+  // history entry whose textual location.key is reused. Its identity is the
+  // synchronous route-open epoch; no ref or effect has to mint one.
+  const openSession: SessionOpenOccurrence = {
+    sessionId: sessionId ?? '',
+    epoch: location,
+  }
   const [ownershipResolution, setOwnershipResolution] =
-    useState<SessionOwnershipResolution>({ sessionId: null, owner: 'free' })
-  const targetOwner = sessionTargetOwner({ sessionId, resolved: ownershipResolution })
+    useState<SessionOwnershipResolution>({ open: null, owner: 'free' })
+  const targetOwner = sessionTargetOwner({ open: openSession, resolved: ownershipResolution })
   const targetOwnerRef = useRef<TargetOwner>(targetOwner)
   targetOwnerRef.current = targetOwner
-  /** Record what ownership resolved to, for the session it was resolved for. */
-  const resolveTargetOwner = useCallback((forSession: string, owner: TargetOwner) => {
-    setOwnershipResolution((prev) =>
-      prev.sessionId === forSession && prev.owner === owner
-        ? prev
-        : { sessionId: forSession, owner },
-    )
-  }, [])
+  // Effects and their promise callbacks can outlive the render that created
+  // them. Effect Events read the latest committed route without mutating a ref
+  // during render, so a stale occurrence can be rejected before any state write.
+  const isCurrentSessionOpen = useEffectEvent((captured: SessionOpenOccurrence) =>
+    sessionOpenIsCurrent(captured, {
+      sessionId: sessionId ?? '',
+      epoch: location,
+    }),
+  )
+  /** Record ownership only if this exact route occurrence is still current. */
+  const resolveTargetOwner = useEffectEvent(
+    (completed: SessionOpenOccurrence, owner: TargetOwner) => {
+      const current: SessionOpenOccurrence = {
+        sessionId: sessionId ?? '',
+        epoch: location,
+      }
+      setOwnershipResolution((previous) =>
+        ownershipResolutionAfterCompletion({ current, previous, completed, owner }),
+      )
+    },
+  )
   const pendingDefaultRef = useRef<ChatTarget | null>(null)
   // Whether the target was chosen deliberately since this session opened.
   const userChoseRef = useRef(false)
@@ -615,6 +639,7 @@ export default function ChatPage() {
       params: Array<{ id: string; value: string }> | null,
       settings: CursorTurnSettings,
       reuseValid: boolean,
+      open: SessionOpenOccurrence,
     ) => {
       // The composer already holds this exact selection; no catalogue lookup
       // can tell us anything new.
@@ -623,8 +648,9 @@ export default function ChatPage() {
       const current = targetRef.current
       void get<{ models?: CursorModel[]; needs_key?: boolean }>('/providers/cursor/models')
         .then((d) => {
-          // Another session opened, or the user chose something, while this
-          // catalogue request was in flight.
+          // Another route occurrence opened, or the user chose something,
+          // while this catalogue request was in flight.
+          if (!isCurrentSessionOpen(open)) return
           if (!restoreIsCurrent(generation, hydrationRef.current)) return
           if (targetRef.current !== current) return
           if (d.needs_key) {
@@ -666,7 +692,15 @@ export default function ChatPage() {
    * session it hydrated — a slower answer must never resolve a different one.
    */
   const applyCursorHydration = useCallback(
-    (hydration: CursorHydration, restoreComposer: boolean): TargetOwner | null => {
+    (
+      hydration: CursorHydration,
+      restoreComposer: boolean,
+      open?: SessionOpenOccurrence,
+    ): TargetOwner | null => {
+      // A session-open hydration is allowed to mutate composer state only while
+      // that exact route occurrence is still committed. Refreshes after a live
+      // turn do not restore the composer and keep their generation guard.
+      if (restoreComposer && (!open || !isCurrentSessionOpen(open))) return null
       const worthShowing =
         hydration.active || Boolean(hydration.remoteStatus) || hydration.branches.length > 0
       setCursorState(worthShowing ? hydration : null)
@@ -717,7 +751,8 @@ export default function ChatPage() {
         return owner
       }
       setCursorSettings(settings)
-      restoreCursorTarget(hydration.modelId, params, settings, reuseValid)
+      if (!open) return owner
+      restoreCursorTarget(hydration.modelId, params, settings, reuseValid, open)
       return owner
     },
     [applyCursorBaseline, commitTarget, restoreCursorTarget, selectTarget],
@@ -1322,13 +1357,18 @@ export default function ChatPage() {
   )
 
   useEffect(() => {
+    const opened = openSession
+    // A passive effect from an intervening route may be flushed after a newer
+    // navigation commits. It must perform no cleanup or completion writes for
+    // the occurrence now on screen.
+    if (!isCurrentSessionOpen(opened)) return
     // A brand-new chat navigates to its own url mid-stream. The live messages
     // are already on screen; re-fetching now would find the turn not yet
     // persisted and wipe them, and adopting an id is not a session switch — the
     // running turn keeps its target, approvals, and Cursor state.
     if (sessionId && sessionId === localSessionRef.current) {
       // The running turn already knows where it goes, so this id is resolved.
-      resolveTargetOwner(sessionId, targetRef.current ? 'restored' : 'free')
+      resolveTargetOwner(opened, targetRef.current ? 'restored' : 'free')
       setLoading(false)
       return
     }
@@ -1364,7 +1404,13 @@ export default function ChatPage() {
     let closeAttach: (() => void) | undefined
     get<SessionDetail>(`/sessions/${sessionId}`)
       .then((d) => {
-        if (cancelled || !restoreIsCurrent(generation, hydrationRef.current)) return
+        if (
+          cancelled ||
+          !isCurrentSessionOpen(opened) ||
+          !restoreIsCurrent(generation, hydrationRef.current)
+        ) {
+          return
+        }
         const restored = hydrate(d)
         // Open a restored transcript at its newest message. Set before the list
         // mounts (it is still `loading`), so Virtuoso reads the final value once.
@@ -1387,8 +1433,8 @@ export default function ChatPage() {
         // Cursor, and with exactly which model, variant, repository, and mode.
         // Only that answer, for this exact id, opens the composer.
         resolveTargetOwner(
-          sessionId,
-          applyCursorHydration(cursorHydrationFromDetail(d), true) ?? 'free',
+          opened,
+          applyCursorHydration(cursorHydrationFromDetail(d), true, opened) ?? 'free',
         )
         // A decision published before this page attached is still blocking the
         // run; the pending list is the only place left to find it.
@@ -1398,7 +1444,7 @@ export default function ChatPage() {
         closeAttach = attachLive(sessionId)
       })
       .catch((e: unknown) => {
-        if (cancelled) return
+        if (cancelled || !isCurrentSessionOpen(opened)) return
         // The session does not exist (e.g. a stale "last conversation" pointer
         // to a session that was deleted). Forget it and drop to a fresh chat
         // instead of getting stuck on a blank, dead url.
@@ -1415,8 +1461,11 @@ export default function ChatPage() {
         setError(e instanceof Error ? e.message : String(e))
         // Nothing will claim the target now, so the composer must not stay
         // waiting on a session state that never arrived.
-        if (restoreIsCurrent(generation, hydrationRef.current)) {
-          resolveTargetOwner(sessionId, 'free')
+        if (
+          isCurrentSessionOpen(opened) &&
+          restoreIsCurrent(generation, hydrationRef.current)
+        ) {
+          resolveTargetOwner(opened, 'free')
           const stashed = pendingDefaultRef.current
           if (stashed && !targetRef.current) selectTarget(stashed, 'default')
         }
@@ -1425,10 +1474,12 @@ export default function ChatPage() {
       .then((r) => {
         // The session's own role wins; if it has none, keep the remembered
         // last-used role rather than snapping back to the default.
-        if (r.role) pickRole(r.role)
+        if (isCurrentSessionOpen(opened) && r.role) pickRole(r.role)
       })
       .catch(() => {})
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (isCurrentSessionOpen(opened)) setLoading(false)
+      })
     // t is stable per language; refetching on language change is harmless.
     return () => {
       cancelled = true
@@ -1436,13 +1487,13 @@ export default function ChatPage() {
     }
   }, [
     sessionId,
+    location,
     t,
     attachLive,
     refreshApprovals,
     applyCursorHydration,
     commitTarget,
     selectTarget,
-    resolveTargetOwner,
   ])
 
   /** Append a locally-produced message without touching the server. */
@@ -1700,9 +1751,6 @@ export default function ChatPage() {
               // the navigation triggers does not overwrite the live messages).
               localSessionRef.current = id
               lastSession.set(id)
-              // This turn already decided where it runs, so the id it was just
-              // given is resolved rather than waiting on a hydration.
-              resolveTargetOwner(id, targetRef.current ? 'restored' : 'free')
               navigate(`/c/${id}`, { replace: true })
             }
           }
@@ -1757,7 +1805,6 @@ export default function ChatPage() {
       applyEvent,
       applyCursorHydration,
       drainPatches,
-      resolveTargetOwner,
       t,
     ],
   )
