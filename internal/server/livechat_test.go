@@ -233,6 +233,100 @@ func TestLiveRun_CompactedCheckpointMemoryIsBounded(t *testing.T) {
 	}
 }
 
+func TestLiveRun_CompactedCheckpointNoticesTrimmedToolActivity(t *testing.T) {
+	const secret = "raw-tool-secret-must-not-survive"
+	lr := newCursorLiveRun(liveRunCursorRecovery)
+	for _, event := range []agent.Event{
+		{Type: agent.EventReset},
+		{Type: agent.EventToolCall, Name: "shell", Arguments: `{"token":"` + secret + `"}`},
+		{
+			Type: agent.EventToolProgress, Name: "shell",
+			Message: "using " + secret, Chunk: secret,
+		},
+		{Type: agent.EventToolResult, Name: "shell", Content: secret},
+		{Type: agent.EventReasoning, Delta: "complete reasoning"},
+		{Type: agent.EventText, Delta: "complete text"},
+	} {
+		lr.publish(event)
+	}
+	for range maxLiveEvents {
+		lr.publish(agent.Event{Type: agent.EventUsage, InputTokens: 1})
+	}
+	lr.finish()
+
+	for reconnect := 1; reconnect <= 2; reconnect++ {
+		events, _ := collectLiveReplay(t, lr, 0)
+		if len(events) < 2 || events[0].Type != agent.EventReset ||
+			events[1].Type != agent.EventNotice {
+			t.Fatalf("reconnect %d anchor prefix=%+v, want reset then notice",
+				reconnect, events[:min(2, len(events))])
+		}
+		noticeCount := 0
+		for _, event := range events {
+			switch event.Type {
+			case agent.EventNotice:
+				noticeCount++
+				lower := strings.ToLower(event.Message)
+				if !strings.Contains(lower, "tool") || !strings.Contains(lower, "trimmed") {
+					t.Fatalf("reconnect %d notice is not explanatory: %q",
+						reconnect, event.Message)
+				}
+				if utf8.RuneCountInString(event.Message) > 256 {
+					t.Fatalf("reconnect %d notice is unbounded: %d runes",
+						reconnect, utf8.RuneCountInString(event.Message))
+				}
+			case agent.EventToolCall, agent.EventToolProgress, agent.EventToolResult:
+				t.Fatalf("reconnect %d retained raw live-only tool event: %+v",
+					reconnect, event)
+			}
+		}
+		if noticeCount != 1 {
+			t.Fatalf("reconnect %d notices=%d, want one", reconnect, noticeCount)
+		}
+		if strings.Contains(fmt.Sprintf("%+v", events), secret) {
+			t.Fatalf("reconnect %d replay leaked evicted tool content", reconnect)
+		}
+		text, reasoning := renderCanonicalLiveEvents(events)
+		if text != "complete text" || reasoning != "complete reasoning" {
+			t.Fatalf("reconnect %d canonical text=%q reasoning=%q",
+				reconnect, text, reasoning)
+		}
+	}
+}
+
+func TestLiveRun_CompactedCheckpointWithoutToolActivityHasNoTrimNotice(t *testing.T) {
+	lr := newLiveRun()
+	lr.publish(agent.Event{Type: agent.EventReset})
+	lr.publish(agent.Event{Type: agent.EventText, Delta: "complete text"})
+	for range maxLiveEvents {
+		lr.publish(agent.Event{Type: agent.EventUsage, InputTokens: 1})
+	}
+	lr.finish()
+
+	events, _ := collectLiveReplay(t, lr, 0)
+	for _, event := range events {
+		if event.Type == agent.EventNotice {
+			t.Fatalf("tool-free checkpoint added notice: %+v", event)
+		}
+	}
+}
+
+func TestLiveRun_ShortToolLogKeepsOriginalOrderingWithoutTrimNotice(t *testing.T) {
+	lr := newLiveRun()
+	lr.publish(agent.Event{
+		Type: agent.EventToolProgress, Name: "shell", Message: "working",
+	})
+	lr.publish(agent.Event{Type: agent.EventDone})
+	lr.finish()
+
+	events, _ := collectLiveReplay(t, lr, 0)
+	if len(events) != 2 ||
+		events[0].Type != agent.EventToolProgress ||
+		events[1].Type != agent.EventDone {
+		t.Fatalf("short tool replay=%+v, want original tool progress then done", events)
+	}
+}
+
 func collectLiveReplay(t *testing.T, lr *liveRun, cursor int) ([]agent.Event, []int) {
 	t.Helper()
 	var events []agent.Event

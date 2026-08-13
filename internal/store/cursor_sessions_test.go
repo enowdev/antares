@@ -425,6 +425,105 @@ func TestCursorSessionBulkDeleteRollsBackOnChildFailure(t *testing.T) {
 	}
 }
 
+func TestCursorDeleteSessionsRollsBackEveryIDOnLaterFailure(t *testing.T) {
+	ctx := context.Background()
+	s := newCursorForeignKeyOffStore(t)
+	sessionIDs := []string{"cursor-delete-many-first", "cursor-delete-many-second"}
+	for _, sessionID := range sessionIDs {
+		seedCursorSessionDeleteGraph(t, s, sessionID)
+	}
+	if _, err := s.exec(ctx, `CREATE TRIGGER fail_later_exact_bulk_message_delete
+		BEFORE DELETE ON messages
+		WHEN OLD.session_id = 'cursor-delete-many-second'
+		BEGIN
+			SELECT RAISE(ABORT, 'blocked later child delete');
+		END`); err != nil {
+		t.Fatalf("create failing later delete trigger: %v", err)
+	}
+
+	count, err := s.DeleteSessions(ctx, sessionIDs)
+	if err == nil {
+		t.Fatal("multi-session deletion unexpectedly succeeded")
+	}
+	if count != 0 {
+		t.Fatalf("failed atomic deletion count=%d, want 0", count)
+	}
+	for _, sessionID := range sessionIDs {
+		assertCursorSessionDeleteGraphPresent(t, s, sessionID)
+	}
+}
+
+func TestCursorDeleteSessionsDeletesExactSetAndReturnsCount(t *testing.T) {
+	ctx := context.Background()
+	s := newCursorForeignKeyOffStore(t)
+	deleted := []string{"cursor-delete-exact-first", "cursor-delete-exact-second"}
+	for _, sessionID := range append(deleted, "cursor-delete-exact-kept") {
+		seedCursorSessionDeleteGraph(t, s, sessionID)
+	}
+
+	count, err := s.DeleteSessions(ctx, deleted)
+	if err != nil {
+		t.Fatalf("delete exact session set: %v", err)
+	}
+	if count != int64(len(deleted)) {
+		t.Fatalf("deleted=%d, want %d", count, len(deleted))
+	}
+	for _, sessionID := range deleted {
+		if _, err := s.GetSession(ctx, sessionID); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("deleted session %q survived: %v", sessionID, err)
+		}
+		if _, err := s.GetCursorSessionState(ctx, sessionID); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("deleted cursor state %q survived: %v", sessionID, err)
+		}
+		messages, err := s.ListMessages(ctx, sessionID, 0, 0)
+		if err != nil || len(messages) != 0 {
+			t.Fatalf("deleted messages for %q=%+v err=%v", sessionID, messages, err)
+		}
+		memories, err := s.ListMemories(ctx, "session", sessionID, 10)
+		if err != nil || len(memories) != 0 {
+			t.Fatalf("deleted memories for %q=%+v err=%v", sessionID, memories, err)
+		}
+	}
+	assertCursorSessionDeleteGraphPresent(t, s, "cursor-delete-exact-kept")
+}
+
+func seedCursorSessionDeleteGraph(t *testing.T, s *sqlStore, sessionID string) {
+	t.Helper()
+	ctx := context.Background()
+	putCursorTestState(t, s, sessionID, CursorOperationIdle)
+	if err := s.AppendMessage(ctx, &Message{
+		ID: "message-" + sessionID, SessionID: sessionID,
+		Role: RoleUser, Content: "keep",
+	}); err != nil {
+		t.Fatalf("append message for %q: %v", sessionID, err)
+	}
+	if err := s.PutMemory(ctx, &Memory{
+		ID: "memory-" + sessionID, Scope: "session", ScopeKey: sessionID,
+		Content: "keep",
+	}); err != nil {
+		t.Fatalf("put memory for %q: %v", sessionID, err)
+	}
+}
+
+func assertCursorSessionDeleteGraphPresent(t *testing.T, s *sqlStore, sessionID string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.GetSession(ctx, sessionID); err != nil {
+		t.Fatalf("session %q was not rolled back: %v", sessionID, err)
+	}
+	if _, err := s.GetCursorSessionState(ctx, sessionID); err != nil {
+		t.Fatalf("cursor state %q was not rolled back: %v", sessionID, err)
+	}
+	messages, err := s.ListMessages(ctx, sessionID, 0, 0)
+	if err != nil || len(messages) != 1 {
+		t.Fatalf("messages for %q=%+v err=%v, want one", sessionID, messages, err)
+	}
+	memories, err := s.ListMemories(ctx, "session", sessionID, 10)
+	if err != nil || len(memories) != 1 {
+		t.Fatalf("memories for %q=%+v err=%v, want one", sessionID, memories, err)
+	}
+}
+
 func TestCursorSessionPruneSessionsRemovesStateWithoutForeignKeys(t *testing.T) {
 	ctx := context.Background()
 	s := newCursorForeignKeyOffStore(t)

@@ -943,3 +943,191 @@ internal/mcp 1.353s)
 - CAS backoff and full persisted-accumulator persistence remain intentionally
   deferred as requested.
 - No functional, full-suite, or race-detector failures remain in this round.
+
+## Fix Round 4 (2026-08-13)
+
+### Status
+
+Closed the remaining local-configuration create ambiguity, made exact-set
+category deletion atomic across every requested session, and added a safe
+compacted-replay explanation for evicted live-only tool activity.
+
+### Implementation
+
+1. `cursorCreateCouldBeAmbiguous` now treats wrapped
+   `cursorrun.ErrNotConfigured` as definitive because runner option resolution
+   fails before `CreateAgent` or `CreateRun` submits a POST. The existing
+   failure transition restores the turn to `idle`, invalidates reuse, and emits
+   the actionable configuration error instead of the local-delete ambiguity
+   message.
+2. Create classification remains conservative for potentially accepted
+   requests: context and ordinary transport errors, API transport status zero,
+   HTTP 408, and 5xx remain ambiguous. Definitive API 4xx remains retryable
+   without local deletion.
+3. `Store.DeleteSessions` now opens one transaction for the complete exact ID
+   slice. For every ID it explicitly deletes Cursor state, messages,
+   session-scoped memories, and then the session. Any child/session statement
+   failure returns zero and rolls the whole set back; commit errors also return
+   zero.
+4. The exact-set transaction continues to run each query through dialect
+   rebinding, works with FK cascades enabled or disabled, preserves empty input
+   as zero/no-op, and returns the input ID count after a successful commit.
+5. A compacted `liveRun` checkpoint now stores one boolean when evicted history
+   contains `EventToolCall`, `EventToolProgress`, or `EventToolResult`. It never
+   copies tool names, arguments, chunks, messages, or results into the anchor.
+6. A stale follower receives one fixed bounded `EventNotice` immediately after
+   the synthetic reset when that boolean is set. The notice precedes canonical
+   reasoning/text snapshots and participates in the existing safe mid-anchor
+   cursor protocol. Tool-free checkpoints and short live logs are unchanged.
+
+CAS backoff, the full persisted-accumulator rewrite, and checkpoint memory
+sizing remain deferred.
+
+### Files
+
+Modified:
+
+- `internal/server/handlers_cursor.go`
+- `internal/server/handlers_cursor_fix_test.go`
+- `internal/server/livechat.go`
+- `internal/server/livechat_test.go`
+- `internal/store/cursor_sessions_test.go`
+- `internal/store/sessions.go`
+- `.superpowers/sdd/2026-08-12-adaptive-reasoning-cursor-mode/task-12-report.md`
+
+Explicitly excluded:
+
+- `web/tsconfig.tsbuildinfo`
+- pre-existing untracked controller plan/design documents
+
+### Focused TDD evidence
+
+Create configuration RED:
+
+```text
+$ go test ./internal/server -run 'TestCursor(CreateNotConfiguredRestoresIdleWithoutLocalDeletion|CreateAmbiguityClassification)$' -count=1
+CreateAgent:
+  configuration failure was not actionable:
+  "Cursor may have accepted the create request, but no run IDs were returned; it will not be retried automatically"
+CreateRun:
+  configuration failure was not actionable:
+  "Cursor may have accepted the create request, but no run IDs were returned; it will not be retried automatically"
+not_configured:
+  cursorCreateCouldBeAmbiguous(...)=true, want false
+API_transport:
+  cursorCreateCouldBeAmbiguous(cursor api error: 0)=false, want true
+FAIL
+```
+
+Exact-set transaction RED:
+
+```text
+$ go test ./internal/store -run 'TestCursorDeleteSessions(RollsBackEveryIDOnLaterFailure|DeletesExactSetAndReturnsCount)$' -count=1
+TestCursorDeleteSessionsRollsBackEveryIDOnLaterFailure:
+  failed atomic deletion count=1, want 0
+FAIL
+```
+
+Compacted tool-notice RED:
+
+```text
+$ go test ./internal/server -run 'TestLiveRun_(CompactedCheckpointNoticesTrimmedToolActivity|CompactedCheckpointWithoutToolActivityHasNoTrimNotice|ShortToolLogKeepsOriginalOrderingWithoutTrimNotice)$' -count=1
+TestLiveRun_CompactedCheckpointNoticesTrimmedToolActivity:
+  anchor prefix=[reset reasoning], want reset then notice
+FAIL
+```
+
+Final focused GREEN:
+
+```text
+$ go test ./internal/server -run 'Test(CursorCreateNotConfiguredRestoresIdleWithoutLocalDeletion|CursorCreateAmbiguityClassification|CursorCancelNotConfiguredRestoresStatusAndReturnsActionableError|LiveRun_)' -count=1
+ok  	github.com/enowdev/antares/internal/server	0.234s
+
+$ go test ./internal/store -run 'TestCursor(DeleteSessionsRollsBackEveryIDOnLaterFailure|DeleteSessionsDeletesExactSetAndReturnsCount|SessionBulkDeleteRollsBackOnChildFailure|CleanupSkipsActiveStatesWithAndWithoutForeignKeys)' -count=1
+ok  	github.com/enowdev/antares/internal/store	0.310s
+```
+
+### Affected, race, and full verification
+
+Fresh affected-package suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+  -u GEMINI_API_KEY -u AZURE_OPENAI_ENDPOINT -u AZURE_OPENAI_KEY \
+  -u AZURE_OPENAI_DEPLOYMENT -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN \
+  go test ./internal/server ./internal/store ./internal/cursorrun \
+    ./internal/approval ./internal/agent -count=1
+ok  	github.com/enowdev/antares/internal/server	2.173s
+ok  	github.com/enowdev/antares/internal/store	1.725s
+ok  	github.com/enowdev/antares/internal/cursorrun	1.085s
+ok  	github.com/enowdev/antares/internal/approval	0.034s
+ok  	github.com/enowdev/antares/internal/agent	0.327s
+```
+
+Fresh affected-package race suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+  -u GEMINI_API_KEY -u AZURE_OPENAI_ENDPOINT -u AZURE_OPENAI_KEY \
+  -u AZURE_OPENAI_DEPLOYMENT -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN \
+  go test -race ./internal/server ./internal/store ./internal/cursorrun \
+    ./internal/approval ./internal/agent -count=1
+ok  	github.com/enowdev/antares/internal/server	20.537s
+ok  	github.com/enowdev/antares/internal/store	6.750s
+ok  	github.com/enowdev/antares/internal/cursorrun	3.205s
+ok  	github.com/enowdev/antares/internal/approval	1.056s
+ok  	github.com/enowdev/antares/internal/agent	2.505s
+```
+
+Fresh full hermetic repository suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+  -u GEMINI_API_KEY -u AZURE_OPENAI_ENDPOINT -u AZURE_OPENAI_KEY \
+  -u AZURE_OPENAI_DEPLOYMENT -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN go test ./... -count=1
+PASS (all packages; internal/server 3.645s, internal/store 1.628s,
+internal/mcp 0.865s)
+```
+
+### Safety self-review
+
+1. The durable create marker is still written before entering the runner.
+   `ErrNotConfigured` can only arise from local option resolution before the
+   runner's HTTP call, so restoring idle does not risk duplicate remote work.
+2. The configuration error is redacted/bounded through the existing Cursor
+   event and durable-status paths. Both new-agent and reused-agent operations
+   become non-reusable and do not instruct the operator to delete local data.
+3. API status zero is explicitly transport uncertainty. Context, generic
+   transport, 408, and 5xx still retain the no-resubmit ambiguous state; the
+   configuration exception does not broaden definitive remote classification.
+4. Every exact-set child/session statement uses the same transaction and the
+   same context. A failure on a later ID rolls back earlier sessions and also
+   restores child rows already removed for the failing ID.
+5. Cursor state and messages are explicitly removed before each session;
+   session-scoped memories are also explicit and failure-significant. Session
+   deletion remains last, preserving behavior with and without FK cascades.
+6. Successful `DeleteSessions` returns the number of supplied IDs, matching
+   prior caller-visible behavior. A failed atomic operation returns zero because
+   no deletion committed.
+7. Replay compaction records only `replayToolsTrimmed`; no field from an evicted
+   tool event is retained or persisted. The fixed notice contains no dynamic
+   data and is well below the asserted 256-rune bound.
+8. The trim notice is synthesized only after a tool event crosses the retention
+   boundary. Retained short tool events preserve their original order, and
+   compacted histories without tool activity preserve the Round 3 anchor shape.
+
+### Concerns
+
+- No live API calls or credentials were used.
+- CAS backoff, full persisted-accumulator persistence, and checkpoint memory
+  sizing remain intentionally deferred as requested.
+- No focused, full-suite, or race-detector failures remain in this round.

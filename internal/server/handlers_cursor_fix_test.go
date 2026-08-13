@@ -180,6 +180,108 @@ func TestCursorCancelNotConfiguredRestoresStatusAndReturnsActionableError(t *tes
 	fixture.runner.releaseStream()
 }
 
+func TestCursorCreateNotConfiguredRestoresIdleWithoutLocalDeletion(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*testing.T, *cursorDirectFixture) cursorChatRequest
+	}{
+		{
+			name: "CreateAgent",
+			prepare: func(_ *testing.T, fixture *cursorDirectFixture) cursorChatRequest {
+				fixture.runner.mu.Lock()
+				fixture.runner.createAgentErr = fmt.Errorf(
+					"runner options: %w", cursorrun.ErrNotConfigured,
+				)
+				fixture.runner.mu.Unlock()
+				return defaultCursorChatRequest()
+			},
+		},
+		{
+			name: "CreateRun",
+			prepare: func(t *testing.T, fixture *cursorDirectFixture) cursorChatRequest {
+				first := defaultCursorChatRequest()
+				sessionID := approvedCursorTurn(t, fixture, first)
+				fixture.runner.mu.Lock()
+				fixture.runner.createRunErr = fmt.Errorf(
+					"runner options: %w", cursorrun.ErrNotConfigured,
+				)
+				fixture.runner.mu.Unlock()
+				first.SessionID = sessionID
+				first.Message = "continue after configuration was disabled"
+				return first
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newCursorDirectTestServer(t)
+			request := test.prepare(t, fixture)
+
+			stream := postCursorChat(t, fixture, request)
+			defer stream.Close()
+			session := stream.NextType(t, agent.EventSession)
+			approval := stream.NextType(t, agent.EventApproval)
+			resolveApproval(t, fixture, approval.ID, true)
+			failure := stream.NextType(t, agent.EventError)
+			stream.NextType(t, agent.EventDone)
+
+			if !strings.Contains(failure.Err, cursorrun.ErrNotConfigured.Error()) {
+				t.Fatalf("configuration failure was not actionable: %q", failure.Err)
+			}
+			lower := strings.ToLower(failure.Err)
+			if strings.Contains(lower, "may have accepted") ||
+				strings.Contains(lower, "delete") {
+				t.Fatalf("configuration failure was reported as remote ambiguity: %q", failure.Err)
+			}
+			state, err := fixture.db.GetCursorSessionState(
+				context.Background(), session.ID,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state.OperationState != store.CursorOperationIdle || state.ReuseValid {
+				t.Fatalf("configuration failure state=%+v, want idle and non-reusable", state)
+			}
+			if !strings.Contains(state.RemoteStatus, cursorrun.ErrNotConfigured.Error()) {
+				t.Fatalf("configuration failure status is not actionable: %q", state.RemoteStatus)
+			}
+		})
+	}
+}
+
+func TestCursorCreateAmbiguityClassification(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		ambiguous bool
+	}{
+		{
+			name: "not configured",
+			err:  fmt.Errorf("options: %w", cursorrun.ErrNotConfigured),
+		},
+		{name: "definitive client rejection", err: &cursor.APIError{Status: http.StatusBadRequest}},
+		{name: "context", err: context.DeadlineExceeded, ambiguous: true},
+		{name: "transport", err: errors.New("connection reset"), ambiguous: true},
+		{name: "API transport", err: &cursor.APIError{Status: 0}, ambiguous: true},
+		{
+			name: "request timeout",
+			err:  &cursor.APIError{Status: http.StatusRequestTimeout}, ambiguous: true,
+		},
+		{
+			name: "server",
+			err:  &cursor.APIError{Status: http.StatusServiceUnavailable}, ambiguous: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := cursorCreateCouldBeAmbiguous(test.err); got != test.ambiguous {
+				t.Fatalf("cursorCreateCouldBeAmbiguous(%v)=%v, want %v",
+					test.err, got, test.ambiguous)
+			}
+		})
+	}
+}
+
 func TestCursorCancelNotFoundReconcilesNoActiveRun(t *testing.T) {
 	fixture := newCursorDirectTestServer(t)
 	sessionID := seedRecoverableCursorSession(t, fixture)

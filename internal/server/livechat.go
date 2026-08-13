@@ -23,6 +23,8 @@ const (
 	// Cursor partials are bounded to the same limit before publication. Applying
 	// the limit generically keeps an ordinary run's replay checkpoint bounded too.
 	maxLiveReplaySnapshotRunes = maxCursorPartialRunes
+
+	liveReplayTrimmedToolsNotice = "Earlier live tool progress was trimmed from this replay."
 )
 
 type liveRunKind uint8
@@ -44,6 +46,7 @@ type liveRun struct {
 	replayTextRunes      int
 	replayReasoning      []byte
 	replayReasoningRunes int
+	replayToolsTrimmed   bool
 	done                 bool
 	kind                 liveRunKind
 	detached             bool
@@ -97,6 +100,10 @@ func (lr *liveRun) foldReplayEvent(event agent.Event) {
 		lr.replayReasoning, lr.replayReasoningRunes = appendLiveReplaySnapshot(
 			lr.replayReasoning, lr.replayReasoningRunes, event.Delta,
 		)
+	case agent.EventToolCall, agent.EventToolProgress, agent.EventToolResult:
+		// Tool payloads are live-only. Retain only the fact that an evicted card
+		// existed, never its arguments, chunks, or result.
+		lr.replayToolsTrimmed = true
 	}
 }
 
@@ -122,8 +129,13 @@ func appendLiveReplaySnapshot(snapshot []byte, runes int, delta string) ([]byte,
 }
 
 func (lr *liveRun) replayAnchor() []agent.Event {
-	anchor := make([]agent.Event, 0, 3)
+	anchor := make([]agent.Event, 0, 4)
 	anchor = append(anchor, agent.Event{Type: agent.EventReset})
+	if lr.replayToolsTrimmed {
+		anchor = append(anchor, agent.Event{
+			Type: agent.EventNotice, Message: liveReplayTrimmedToolsNotice,
+		})
+	}
 	if len(lr.replayReasoning) > 0 {
 		anchor = append(anchor, agent.Event{
 			Type: agent.EventReasoning, Delta: string(lr.replayReasoning),

@@ -910,11 +910,16 @@ func cursorCreateCouldBeAmbiguous(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, cursorrun.ErrNotConfigured) {
+		// Runner option resolution happens before either create POST.
+		return false
+	}
 	var apiError *cursor.APIError
 	if errors.As(err, &apiError) {
 		// A definitive client rejection cannot have created the run. Timeout
 		// and server/gateway responses can arrive after the mutation committed.
-		return apiError.Status == http.StatusRequestTimeout ||
+		return apiError.Status == 0 ||
+			apiError.Status == http.StatusRequestTimeout ||
 			apiError.Status >= http.StatusInternalServerError
 	}
 	return true

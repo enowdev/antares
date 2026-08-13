@@ -162,14 +162,32 @@ func (s *sqlStore) DeleteSession(ctx context.Context, id string) error {
 }
 
 func (s *sqlStore) DeleteSessions(ctx context.Context, ids []string) (int64, error) {
-	var n int64
-	for _, id := range ids {
-		if err := s.DeleteSession(ctx, id); err != nil {
-			return n, err
-		}
-		n++
+	if len(ids) == 0 {
+		return 0, nil
 	}
-	return n, nil
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	deletions := [...]string{
+		`DELETE FROM cursor_session_states WHERE session_id=?`,
+		`DELETE FROM messages WHERE session_id=?`,
+		`DELETE FROM memories WHERE scope='session' AND scope_key=?`,
+		`DELETE FROM sessions WHERE id=?`,
+	}
+	for _, id := range ids {
+		for _, deletion := range deletions {
+			if _, err := tx.ExecContext(ctx, s.rebind(deletion), id); err != nil {
+				return 0, err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int64(len(ids)), nil
 }
 
 func (s *sqlStore) CountEmptySessions(ctx context.Context) (int64, error) {
