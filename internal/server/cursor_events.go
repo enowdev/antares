@@ -14,6 +14,7 @@ import (
 	"github.com/enowdev/antares/internal/agent"
 	"github.com/enowdev/antares/internal/approval"
 	"github.com/enowdev/antares/internal/cursor"
+	"github.com/enowdev/antares/internal/cursorrun"
 	"github.com/enowdev/antares/internal/store"
 )
 
@@ -907,6 +908,9 @@ func cursorCancelCouldBeAmbiguous(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, cursorrun.ErrNotConfigured) {
+		return false
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
@@ -958,23 +962,50 @@ func (s *Server) cursorSessionHasActiveRemoteState(
 	if err != nil {
 		return false, err
 	}
-	if state.OperationState == store.CursorOperationAmbiguous {
+	return s.cursorStateHasActiveRemoteState(sessionID, state), nil
+}
+
+func (s *Server) cursorSessionBlocksAutomaticCleanup(
+	ctx context.Context,
+	sessionID string,
+) (bool, error) {
+	state, err := s.db.GetCursorSessionState(ctx, sessionID)
+	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	// Terminal is a durable recovery checkpoint before the assistant message is
+	// committed. Explicit operator deletion may discard it, but automatic
+	// cleanup must preserve it even when this process has no recovery watcher.
+	if state.OperationState == store.CursorOperationTerminal {
+		return true, nil
+	}
+	return s.cursorStateHasActiveRemoteState(sessionID, state), nil
+}
+
+func (s *Server) cursorStateHasActiveRemoteState(
+	sessionID string,
+	state *store.CursorSessionState,
+) bool {
+	if state.OperationState == store.CursorOperationAmbiguous {
+		return false
 	}
 	if state.OperationState == store.CursorOperationRunInFlight {
 		switch state.RemoteStatus {
 		case cursorCancelRequested, cursorCancelAmbiguous:
-			return false, nil
+			return false
 		case cursorCancelInFlight:
-			return s.cursorCancelReserved(sessionID), nil
+			return s.cursorCancelReserved(sessionID)
 		}
 	}
 	if state.OperationState == store.CursorOperationTerminal {
 		if live := s.hub.get(sessionID); live != nil && live.isCursor() {
-			return true, nil
+			return true
 		}
 	}
-	return cursorOperationActive(state.OperationState), nil
+	return cursorOperationActive(state.OperationState)
 }
 
 func (s *Server) cursorSessionHasUnfinishedState(

@@ -130,7 +130,7 @@ func (s *sqlStore) ListSessions(ctx context.Context, f SessionFilter) ([]Session
 		limit = 50
 	}
 	rows, err := s.query(ctx, `SELECT `+sessionCols+` FROM sessions`+clause+
-		` ORDER BY pinned DESC, `+order+` LIMIT ? OFFSET ?`, append(args, limit, f.Offset)...)
+		` ORDER BY pinned DESC, `+order+`, id ASC LIMIT ? OFFSET ?`, append(args, limit, f.Offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -190,7 +190,7 @@ const cursorCleanupInactivePredicate = `
 		SELECT 1 FROM cursor_session_states AS cursor_cleanup
 		WHERE cursor_cleanup.session_id=sessions.id
 		  AND (
-			cursor_cleanup.operation_state IN (?,?)
+			cursor_cleanup.operation_state IN (?,?,?)
 			OR (
 				cursor_cleanup.operation_state=?
 				AND COALESCE(cursor_cleanup.remote_status,'') NOT IN (?,?,?)
@@ -205,6 +205,7 @@ func cursorCleanupInactiveArgs() []any {
 	return []any{
 		CursorOperationAwaitingApproval,
 		CursorOperationCreateInFlight,
+		CursorOperationTerminal,
 		CursorOperationRunInFlight,
 		"ANTARES_CANCEL_REQUESTED",
 		"ANTARES_CANCEL_OUTCOME_AMBIGUOUS",

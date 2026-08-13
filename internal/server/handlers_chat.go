@@ -582,34 +582,29 @@ func (s *Server) handleDeleteAllSessions(w http.ResponseWriter, r *http.Request)
 		category = "all"
 	}
 
-	sessions, _, err := s.db.ListSessions(r.Context(), store.SessionFilter{Limit: 100000})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	var ids []string
-	for _, sess := range sessions {
+	ids, err := s.cursorCleanupSessionIDs(r.Context(), func(sess store.Session) bool {
 		isProject := false
 		if sess.Meta != nil {
-			if v, ok := sess.Meta["project_dir"]; ok {
-				if s, ok := v.(string); ok && s != "" {
+			if value, ok := sess.Meta["project_dir"]; ok {
+				if projectDir, ok := value.(string); ok && projectDir != "" {
 					isProject = true
 				}
 			}
 		}
 		switch category {
 		case "chat":
-			if !isProject {
-				ids = append(ids, sess.ID)
-			}
+			return !isProject
 		case "project":
-			if isProject {
-				ids = append(ids, sess.ID)
-			}
+			return isProject
 		case "all":
-			ids = append(ids, sess.ID)
+			return true
+		default:
+			return false
 		}
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
 	}
 
 	if len(ids) == 0 {
@@ -794,7 +789,7 @@ func (s *Server) lockCursorCleanupSessions(
 ) (unlock func(), active bool, err error) {
 	unlock = s.cursorLifecycles.LockMany(sessionIDs)
 	for _, sessionID := range sessionIDs {
-		active, err = s.cursorSessionHasActiveRemoteState(ctx, sessionID)
+		active, err = s.cursorSessionBlocksAutomaticCleanup(ctx, sessionID)
 		if err != nil || active {
 			unlock()
 			return nil, active, err

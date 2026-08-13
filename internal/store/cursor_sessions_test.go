@@ -518,6 +518,7 @@ func TestCursorCleanupSkipsActiveStatesWithAndWithoutForeignKeys(t *testing.T) {
 					putCursorTestState(t, s, "cleanup-awaiting", CursorOperationAwaitingApproval).SessionID,
 					putCursorTestState(t, s, "cleanup-create", CursorOperationCreateInFlight).SessionID,
 					putCursorTestState(t, s, "cleanup-run", CursorOperationRunInFlight).SessionID,
+					putCursorTestState(t, s, "cleanup-terminal", CursorOperationTerminal).SessionID,
 				}
 				deletableIDs := []string{
 					ordinaryID,

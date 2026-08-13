@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,118 @@ func TestCursorCleanupHandlersPrecheckActiveStateAcrossPagination(t *testing.T) 
 			}
 		})
 	}
+}
+
+func TestCursorAutomaticCleanupBlocksTerminalWithoutLiveWatcher(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		body string
+		edit func(*store.Session)
+	}{
+		{
+			name: "empty", path: "/api/sessions/empty/delete",
+			edit: func(session *store.Session) { session.MessageCount = 0 },
+		},
+		{
+			name: "prune", path: "/api/sessions/prune",
+			body: `{"older_than_days":1}`,
+			edit: func(session *store.Session) {
+				session.MessageCount = 1
+				session.UpdatedAt = time.Now().Add(-48 * time.Hour)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newCursorDirectTestServer(t)
+			sessionID := "cleanup-terminal-" + test.name
+			seedCleanupCursorState(
+				t, fixture, sessionID, store.CursorOperationTerminal, "COMPLETED",
+			)
+			if live := fixture.server.hub.get(sessionID); live != nil {
+				t.Fatal("terminal cleanup regression requires no live watcher")
+			}
+
+			session := store.Session{ID: sessionID}
+			test.edit(&session)
+			paged := &pagedCleanupStore{
+				Store: fixture.db, sessions: []store.Session{session},
+			}
+			fixture.server.db = paged
+
+			status, _ := postCursorCleanup(t, fixture, test.path, test.body)
+			if status != http.StatusConflict {
+				t.Fatalf("terminal cleanup status=%d, want 409", status)
+			}
+			if paged.deleteEmptyCalls != 0 || paged.pruneCalls != 0 {
+				t.Fatal("automatic cleanup mutated terminal uncommitted work")
+			}
+		})
+	}
+}
+
+func TestDeleteAllSessionsPaginatesBeforeCategoryFiltering(t *testing.T) {
+	fixture := newCursorDirectTestServer(t)
+	sessions, selected := pagedCategorySessions(1103)
+	ambiguousID := sessions[1100].ID
+	seedCleanupCursorState(
+		t, fixture, ambiguousID, store.CursorOperationAmbiguous, "AMBIGUOUS_CREATE_OUTCOME",
+	)
+	paged := &pagedCleanupStore{Store: fixture.db, sessions: sessions}
+	fixture.server.db = paged
+
+	status, _ := postCursorCleanup(
+		t, fixture, "/api/sessions/delete-all", `{"category":"project"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("paginated category deletion status=%d, want 200", status)
+	}
+	if paged.listCalls < 3 {
+		t.Fatalf("category deletion listed %d page(s), want at least 3", paged.listCalls)
+	}
+	if len(selected) <= cursorCleanupPageSize {
+		t.Fatalf("test selected only %d sessions, need more than one page", len(selected))
+	}
+	if !slices.Equal(paged.deletedSessionIDs, selected) {
+		t.Fatalf("deleted %d category sessions, want all %d",
+			len(paged.deletedSessionIDs), len(selected))
+	}
+}
+
+func TestDeleteAllSessionsPrechecksActiveStateOnLaterPage(t *testing.T) {
+	fixture := newCursorDirectTestServer(t)
+	sessions, _ := pagedCategorySessions(1103)
+	activeID := sessions[1102].ID
+	seedCleanupCursorState(
+		t, fixture, activeID, store.CursorOperationRunInFlight, "RUNNING",
+	)
+	paged := &pagedCleanupStore{Store: fixture.db, sessions: sessions}
+	fixture.server.db = paged
+
+	status, _ := postCursorCleanup(
+		t, fixture, "/api/sessions/delete-all", `{"category":"project"}`,
+	)
+	if status != http.StatusConflict {
+		t.Fatalf("late-page active category deletion status=%d, want 409", status)
+	}
+	if len(paged.deletedSessionIDs) != 0 {
+		t.Fatal("category deletion mutated storage before completing active precheck")
+	}
+}
+
+func pagedCategorySessions(count int) ([]store.Session, []string) {
+	sessions := make([]store.Session, count)
+	var selected []string
+	for i := range sessions {
+		session := store.Session{ID: fmt.Sprintf("delete-all-page-%04d", i)}
+		if i%2 == 0 {
+			session.Meta = store.Meta{"project_dir": "/tmp/project"}
+			selected = append(selected, session.ID)
+		}
+		sessions[i] = session
+	}
+	return sessions, selected
 }
 
 func TestCursorActiveRemotePredicateIsPureForCancelCrashMarker(t *testing.T) {
@@ -128,10 +241,11 @@ func seedCleanupCursorState(
 
 type pagedCleanupStore struct {
 	store.Store
-	sessions         []store.Session
-	listCalls        int
-	deleteEmptyCalls int
-	pruneCalls       int
+	sessions          []store.Session
+	listCalls         int
+	deleteEmptyCalls  int
+	pruneCalls        int
+	deletedSessionIDs []string
 }
 
 func (s *pagedCleanupStore) ListSessions(
@@ -144,7 +258,7 @@ func (s *pagedCleanupStore) ListSessions(
 		start = len(s.sessions)
 	}
 	limit := filter.Limit
-	if limit <= 0 {
+	if limit <= 0 || limit > cursorCleanupPageSize {
 		limit = 50
 	}
 	end := min(start+limit, len(s.sessions))
@@ -160,6 +274,14 @@ func (s *pagedCleanupStore) DeleteEmptySessions(context.Context) (int64, error) 
 func (s *pagedCleanupStore) PruneSessions(context.Context, time.Time) (int64, error) {
 	s.pruneCalls++
 	return 0, nil
+}
+
+func (s *pagedCleanupStore) DeleteSessions(
+	_ context.Context,
+	sessionIDs []string,
+) (int64, error) {
+	s.deletedSessionIDs = append([]string(nil), sessionIDs...)
+	return int64(len(sessionIDs)), nil
 }
 
 func postCursorCleanup(

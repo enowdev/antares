@@ -17,6 +17,7 @@ import (
 
 	"github.com/enowdev/antares/internal/agent"
 	"github.com/enowdev/antares/internal/cursor"
+	"github.com/enowdev/antares/internal/cursorrun"
 	"github.com/enowdev/antares/internal/store"
 )
 
@@ -140,6 +141,43 @@ func TestCursorCancelDefinitiveFailuresRestoreStatusAndAllowRetry(t *testing.T) 
 			fixture.runner.releaseStream()
 		})
 	}
+}
+
+func TestCursorCancelNotConfiguredRestoresStatusAndReturnsActionableError(t *testing.T) {
+	fixture := newCursorDirectTestServer(t)
+	sessionID := seedRecoverableCursorSession(t, fixture)
+	fixture.runner.holdStream()
+	fixture.runner.mu.Lock()
+	fixture.runner.cancelErr = fmt.Errorf("runner options: %w", cursorrun.ErrNotConfigured)
+	fixture.runner.mu.Unlock()
+
+	result := approveCursorCancelResponse(t, fixture, sessionID)
+	if result.status != http.StatusPreconditionRequired {
+		t.Fatalf("not-configured cancellation status=%d, want 428", result.status)
+	}
+	if !strings.Contains(result.body, cursorrun.ErrNotConfigured.Error()) ||
+		strings.Contains(strings.ToLower(result.body), "ambiguous") {
+		t.Fatalf("not-configured cancellation response is not actionable: %q", result.body)
+	}
+	state, err := fixture.db.GetCursorSessionState(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.RemoteStatus != "RUNNING" {
+		t.Fatalf("not-configured cancellation left status=%q, want restored RUNNING",
+			state.RemoteStatus)
+	}
+
+	fixture.runner.mu.Lock()
+	fixture.runner.cancelErr = nil
+	fixture.runner.mu.Unlock()
+	if status := approveCursorCancel(t, fixture, sessionID); status != http.StatusOK {
+		t.Fatalf("configured cancellation retry status=%d, want 200", status)
+	}
+	if fixture.runner.CancelCalls() != 2 {
+		t.Fatalf("CancelRun calls=%d, want one definitive retry", fixture.runner.CancelCalls())
+	}
+	fixture.runner.releaseStream()
 }
 
 func TestCursorCancelNotFoundReconcilesNoActiveRun(t *testing.T) {

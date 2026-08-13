@@ -1006,7 +1006,9 @@ func (s *Server) writeCursorUpstreamError(
 ) {
 	status := defaultStatus
 	var apiError *cursor.APIError
-	if errors.As(err, &apiError) {
+	if errors.Is(err, cursorrun.ErrNotConfigured) {
+		status = http.StatusPreconditionRequired
+	} else if errors.As(err, &apiError) {
 		switch apiError.Status {
 		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden,
 			http.StatusNotFound, http.StatusConflict,

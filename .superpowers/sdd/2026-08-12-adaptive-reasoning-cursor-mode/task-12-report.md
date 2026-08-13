@@ -727,3 +727,219 @@ ok  	github.com/enowdev/antares/internal/agent	3.004s
   immediately in isolation.
 - No live API calls or credentials were used. CAS backoff and full-accumulator
   persistence remain intentionally deferred.
+
+## Fix Round 3 (2026-08-13)
+
+### Status
+
+Closed the compacted recovery replay gap, preserved terminal-but-uncommitted
+work from automatic cleanup, made category deletion enumerate the full stable
+session listing, and classified local missing Cursor configuration as a
+definitive cancellation failure.
+
+### Implementation
+
+1. `liveRun` now folds text and reasoning from evicted original events into a
+   bounded replay checkpoint. A follower whose absolute cursor is behind the
+   retained window receives `EventReset`, the complete checkpoint reasoning and
+   text snapshots, then the retained post-checkpoint events.
+2. The checkpoint does not consume original absolute cursor positions.
+   Followers already at or ahead of `base` continue without a reset. A
+   checkpoint advances the reconnect cursor to `base` only on its final frame;
+   a disconnect between reset/reasoning/text therefore repeats the full anchor
+   instead of skipping a partially delivered snapshot.
+3. The retained original-event window remains capped at `maxLiveEvents`.
+   Reasoning and text checkpoints are independently capped at
+   `maxCursorPartialRunes`, are UTF-8 safe, and reset with `EventReset`.
+   Existing short-run event ordering is unchanged. The generic implementation
+   also makes compacted ordinary and direct logs safer.
+4. Automatic empty/prune prechecks now treat
+   `CursorOperationTerminal` as protected unfinished work even without an
+   in-memory watcher. The store-side cleanup predicate independently excludes
+   terminal state at mutation time for both foreign-key modes.
+5. Explicit single and category deletion still use the operator policy:
+   terminal state without a live watcher, create ambiguity, cancel ambiguity,
+   and stale cancellation markers remain locally deletable. Active state and a
+   process-local cancellation reservation still return HTTP 409.
+6. Category delete-all now enumerates the complete session list in stable
+   500-entry pages before applying `chat`/`project`/`all` filtering. It acquires
+   sorted keyed locks, prechecks every selected session, and submits the full
+   selected ID set only after all prechecks succeed.
+7. `ListSessions` now adds `id ASC` as the final ordering key, making offset
+   pages deterministic when pinned and timestamp/order values tie.
+8. `cursorrun.ErrNotConfigured`, including wrapped instances, is definitive:
+   cancellation restores the exact prior remote status and returns HTTP 428
+   with the actionable configuration error. Context, transport, HTTP 408, 5xx,
+   definitive API 4xx, and 404 classifications are otherwise unchanged.
+
+CAS backoff and the full persisted-accumulator rewrite remain deferred.
+
+### Files
+
+Modified:
+
+- `internal/server/cursor_events.go`
+- `internal/server/handlers_chat.go`
+- `internal/server/handlers_cursor.go`
+- `internal/server/handlers_cursor_cleanup_test.go`
+- `internal/server/handlers_cursor_fix_test.go`
+- `internal/server/livechat.go`
+- `internal/server/livechat_test.go`
+- `internal/store/cursor_sessions_test.go`
+- `internal/store/sessions.go`
+- `.superpowers/sdd/2026-08-12-adaptive-reasoning-cursor-mode/task-12-report.md`
+
+Explicitly excluded:
+
+- `web/tsconfig.tsbuildinfo`
+- pre-existing untracked controller plan/design documents
+
+### Focused TDD evidence
+
+Compacted replay RED:
+
+```text
+$ go test ./internal/server -run 'TestLiveRun_(CoalescesBacklogAndReportsAbsoluteCursor|CompactionRetainsCanonicalReplayCheckpoint)$' -count=1
+TestLiveRun_CoalescesBacklogAndReportsAbsoluteCursor:
+  4001 backlog events produced 2 frames, want 4
+TestLiveRun_CompactionRetainsCanonicalReplayCheckpoint:
+  reconnect 1 canonical mismatch: text=11994/12408 reasoning=12000/12414
+FAIL
+```
+
+Mid-anchor reconnect RED found while verifying absolute cursor behavior:
+
+```text
+$ go test ./internal/server -run TestLiveRun_CompactedCheckpointSurvivesMidAnchorReconnect -count=1
+TestLiveRun_CompactedCheckpointSurvivesMidAnchorReconnect:
+  disconnect 1 lost checkpoint: text="" reasoning="" cursor=3
+FAIL
+```
+
+Terminal cleanup and category pagination RED:
+
+```text
+$ go test ./internal/store -run TestCursorCleanupSkipsActiveStatesWithAndWithoutForeignKeys -count=1
+foreign_keys_on/delete_empty: deleted=6, want 5
+foreign_keys_on/prune: deleted=6, want 5
+foreign_keys_off/delete_empty: deleted=6, want 5
+foreign_keys_off/prune: deleted=6, want 5
+FAIL
+
+$ go test ./internal/server -run 'Test(CursorAutomaticCleanupBlocksTerminalWithoutLiveWatcher|DeleteAllSessionsPaginatesBeforeCategoryFiltering|DeleteAllSessionsPrechecksActiveStateOnLaterPage)$' -count=1
+empty: terminal cleanup status=200, want 409
+prune: terminal cleanup status=200, want 409
+category deletion listed 1 page(s), want at least 3
+late-page active category deletion status=200, want 409
+FAIL
+```
+
+Missing-configuration cancellation RED:
+
+```text
+$ go test ./internal/server -run TestCursorCancelNotConfiguredRestoresStatusAndReturnsActionableError -count=1
+not-configured cancellation status=502, want 428
+FAIL
+```
+
+Final focused GREEN:
+
+```text
+$ go test ./internal/server -run 'Test(LiveRun_|CursorAutomaticCleanupBlocksTerminalWithoutLiveWatcher|DeleteAllSessionsPaginatesBeforeCategoryFiltering|DeleteAllSessionsPrechecksActiveStateOnLaterPage|CursorCancelNotConfiguredRestoresStatusAndReturnsActionableError|CursorChatAmbiguousStatesCanBeDeletedLocally|CursorChatDeleteRejectsActiveRemoteState)' -count=1
+ok  	github.com/enowdev/antares/internal/server	0.403s
+
+$ go test ./internal/store -run 'Test(CursorCleanupSkipsActiveStatesWithAndWithoutForeignKeys|ListSessions)' -count=1
+ok  	github.com/enowdev/antares/internal/store	0.184s
+
+$ go test ./internal/server -run 'TestLiveRun_' -count=1
+ok  	github.com/enowdev/antares/internal/server	0.185s
+```
+
+### Affected, race, and full verification
+
+Fresh affected-package suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+  -u GEMINI_API_KEY -u AZURE_OPENAI_ENDPOINT -u AZURE_OPENAI_KEY \
+  -u AZURE_OPENAI_DEPLOYMENT -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN \
+  go test ./internal/server ./internal/store ./internal/cursorrun \
+    ./internal/approval ./internal/agent -count=1
+ok  	github.com/enowdev/antares/internal/server	3.770s
+ok  	github.com/enowdev/antares/internal/store	3.127s
+ok  	github.com/enowdev/antares/internal/cursorrun	2.332s
+ok  	github.com/enowdev/antares/internal/approval	0.029s
+ok  	github.com/enowdev/antares/internal/agent	0.602s
+```
+
+Fresh affected-package race suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+  -u GEMINI_API_KEY -u AZURE_OPENAI_ENDPOINT -u AZURE_OPENAI_KEY \
+  -u AZURE_OPENAI_DEPLOYMENT -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN \
+  go test -race ./internal/server ./internal/store ./internal/cursorrun \
+    ./internal/approval ./internal/agent -count=1
+ok  	github.com/enowdev/antares/internal/server	34.366s
+ok  	github.com/enowdev/antares/internal/store	10.707s
+ok  	github.com/enowdev/antares/internal/cursorrun	5.174s
+ok  	github.com/enowdev/antares/internal/approval	1.062s
+ok  	github.com/enowdev/antares/internal/agent	3.570s
+```
+
+Fresh full hermetic repository suite:
+
+```text
+$ env -u CURSOR_API_KEY -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+  -u GEMINI_API_KEY -u AZURE_OPENAI_ENDPOINT -u AZURE_OPENAI_KEY \
+  -u AZURE_OPENAI_DEPLOYMENT -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  -u GOOGLE_APPLICATION_CREDENTIALS -u VERTEX_SA_JSON \
+  -u COPILOT_GITHUB_TOKEN go test ./... -count=1
+PASS (all packages; internal/server 6.540s, internal/store 5.173s,
+internal/mcp 1.353s)
+```
+
+### Safety self-review
+
+1. `base` counts only original published events. Folding an evicted event into
+   the checkpoint and incrementing `base` happen under the same live-run lock,
+   so retained indexes and checkpoint contents describe one boundary.
+2. A follower at `cursor >= base` never receives the synthetic anchor and
+   continues from its original absolute position. A follower behind `base`
+   receives reset/full snapshots before any event at `base`.
+3. Intermediate anchor frames report `base-1`; only the last snapshot frame
+   reports `base`. A reconnect after any proper prefix of the anchor is
+   therefore still behind the boundary and replays the entire idempotent
+   anchor. Concurrent compaction causes the outer loop to emit the newer
+   checkpoint instead of indexing a negative retained offset.
+4. Checkpoint snapshots and the original-event window are independently
+   bounded. Folded `EventReset` clears both snapshots before subsequent deltas
+   are accumulated.
+5. Automatic cleanup holds all selected session locks across the precheck and
+   mutation call. Terminal state is blocked in that server precheck and again
+   in store SQL, including state that appears after enumeration.
+6. Explicit deletion still calls the original active-remote predicate, so the
+   new automatic terminal rule does not remove the operator reconciliation
+   escape. Ambiguous and stale cancellation states remain non-mutating during
+   all-or-nothing precheck.
+7. Category filtering occurs while consuming every deterministic 500-entry
+   page. `LockMany` sorts and deduplicates the complete selected ID set before
+   any active-state query; `DeleteSessions` receives that same complete set.
+8. A local configuration failure cannot represent an accepted remote request.
+   Its durable in-flight marker is restored to the captured prior status before
+   the actionable 428 response. Potentially accepted context/transport/API
+   failures retain their existing conservative classification.
+
+### Concerns
+
+- No live API calls or credentials were used.
+- CAS backoff and full persisted-accumulator persistence remain intentionally
+  deferred as requested.
+- No functional, full-suite, or race-detector failures remain in this round.
