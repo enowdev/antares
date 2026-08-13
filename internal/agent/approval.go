@@ -51,33 +51,78 @@ func (a *Agent) approvalGate() *approval.Gate {
 // approvalTimeout is how long a request waits before being refused.
 const approvalTimeout = 5 * time.Minute
 
-// checkApproval decides whether a call may proceed. It returns an error result
-// to hand back to the model when it may not.
-func (a *Agent) checkApproval(ctx context.Context, call llm.ToolCall, tool tools.Tool, sessionID string, emit Emit) *tools.Result {
+const explicitOperationUnavailableArguments = `{"operation":"unavailable"}`
+
+func (a *Agent) approvalMode() string {
 	mode := strings.ToLower(strings.TrimSpace(a.config().Tools.ApprovalMode))
 	if mode == "" {
-		mode = "auto"
+		return "auto"
 	}
-	danger := dangerIn(call.Name, call.Arguments)
-	explicit, explicitApproval := tool.(tools.OperationApproval)
+	return mode
+}
 
-	if mode == "deny" {
-		if explicitApproval || tools.NeedsApproval(tool) || danger != "" {
-			return denyApproval(call.Name)
-		}
-		return nil
+// checkOperationApproval owns the complete explicit-operation policy. It
+// dispatches pre-tool plugins unless deny mode forbids the call outright,
+// announces only the operation's safe display projection, and is the only
+// place that chooses between immediate denial and the explicit approval gate.
+func (a *Agent) checkOperationApproval(
+	ctx context.Context,
+	call llm.ToolCall,
+	explicit tools.OperationApproval,
+	sessionID string,
+	platform string,
+	emit Emit,
+) (llm.ToolCall, *tools.Result) {
+	mode := a.approvalMode()
+
+	var pluginRefusal *tools.Result
+	if mode != "deny" {
+		call, pluginRefusal = a.applyPreToolPlugin(ctx, call, sessionID, platform, emit)
 	}
 
-	if explicitApproval {
-		op, err := explicit.ApprovalOperation(json.RawMessage(call.Arguments), sessionID)
-		if err != nil {
-			res := tools.Errorf("%v", err)
-			return &res
-		}
+	op, operationErr := explicit.ApprovalOperation(json.RawMessage(call.Arguments), sessionID)
+	announcementArguments := explicitOperationUnavailableArguments
+	if operationErr == nil {
 		if op.Message == "" {
 			op.Message = approvalMessage(op)
 		}
-		return a.awaitApproval(ctx, op, emit)
+		if op.Arguments != "" {
+			announcementArguments = op.Arguments
+		}
+	}
+	_ = emit(Event{
+		Type:      EventToolCall,
+		ID:        call.ID,
+		Name:      call.Name,
+		Arguments: announcementArguments,
+	})
+
+	if pluginRefusal != nil {
+		return call, pluginRefusal
+	}
+	if mode == "deny" {
+		return call, denyApproval(call.Name)
+	}
+	if operationErr != nil {
+		result := tools.Errorf("%v", operationErr)
+		return call, &result
+	}
+	return call, a.awaitApproval(ctx, op, emit)
+}
+
+// checkApproval decides whether a call may proceed. It returns an error result
+// to hand back to the model when it may not. Explicit operations use
+// checkOperationApproval so plugin rewrites and safe announcements are part of
+// the same policy decision.
+func (a *Agent) checkApproval(ctx context.Context, call llm.ToolCall, tool tools.Tool, sessionID string, emit Emit) *tools.Result {
+	mode := a.approvalMode()
+	danger := dangerIn(call.Name, call.Arguments)
+
+	if mode == "deny" {
+		if tools.NeedsApproval(tool) || danger != "" {
+			return denyApproval(call.Name)
+		}
+		return nil
 	}
 
 	switch mode {

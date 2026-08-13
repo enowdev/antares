@@ -160,6 +160,15 @@ func TestCursorAgentApprovalProjectionIsBoundedAndRedacted(t *testing.T) {
 	}
 }
 
+func TestCursorApprovalFieldNormalizesBeforeWholeFieldTokenRedaction(t *testing.T) {
+	value := "visible-prefix-" + string([]byte{0xff}) +
+		"-crsr_synthetic_key_123.tail-must-not-leak"
+
+	if got := boundCursorApprovalField(value); got != "[REDACTED]" {
+		t.Fatalf("key-like approval field = %q, want whole-field redaction", got)
+	}
+}
+
 func TestCursorAgentApprovalProjectionIncludesFollowUpAndCancelIDs(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -414,85 +414,127 @@ func TestCursorOperationApprovalOverridesAutoAndPromptModes(t *testing.T) {
 	if !ok {
 		t.Fatal("cursor_agent is not registered")
 	}
-	call := llm.ToolCall{
-		ID:        "call-one",
-		Name:      "cursor_agent",
-		Arguments: `{"action":"cancel","agent_id":"bc-one","run_id":"run-one"}`,
-	}
 
 	for _, mode := range []string{"auto", "prompt", "unknown"} {
 		t.Run(mode, func(t *testing.T) {
 			a := agentWithMode(mode)
 			emitted := make(chan Event, 1)
-			done := make(chan *tools.Result, 1)
+			done := make(chan []toolOutcome, 1)
+			workspace := t.TempDir()
 			go func() {
-				done <- a.checkApproval(context.Background(), call, cursorTool, "ses-one", func(e Event) error {
-					if e.Type == EventApproval {
-						emitted <- e
-					}
-					return nil
-				})
+				done <- a.executeTools(
+					context.Background(),
+					[]llm.ToolCall{{
+						ID:        "call-one",
+						Name:      "cursor_agent",
+						Arguments: `{"action":"cancel","agent_id":"bc-one","run_id":"run-one"}`,
+					}},
+					map[string]tools.Tool{"cursor_agent": cursorTool},
+					Request{},
+					&store.Session{ID: "ses-one", Workspace: workspace},
+					func(e Event) error {
+						if e.Type == EventApproval {
+							emitted <- e
+						}
+						return nil
+					},
+				)
 			}()
 
 			var event Event
 			select {
 			case event = <-emitted:
-			case result := <-done:
-				t.Fatalf("mode %q bypassed explicit approval with result %+v", mode, result)
+			case outcomes := <-done:
+				t.Fatalf("mode %q bypassed explicit approval with outcome %+v", mode, outcomes)
 			case <-time.After(3 * time.Second):
 				t.Fatalf("mode %q did not request explicit approval", mode)
 			}
 			if !a.ResolveApproval(event.ID, false) {
 				t.Fatal("explicit approval could not be denied")
 			}
-			if result := <-done; result == nil || !result.IsError ||
-				!strings.Contains(result.Content, "refused") {
-				t.Fatalf("denied explicit approval result = %+v", result)
+			if outcomes := <-done; len(outcomes) != 1 || !outcomes[0].isError ||
+				!strings.Contains(outcomes[0].message.Content, "refused") {
+				t.Fatalf("denied explicit approval outcome = %+v", outcomes)
 			}
 		})
 	}
 }
 
 func TestCursorOperationApprovalDenyModeRefusesImmediately(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		http.Error(w, "deny mode must prevent upstream requests", http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+
 	cursorTool, ok := tools.Default().Get("cursor_agent")
 	if !ok {
 		t.Fatal("cursor_agent is not registered")
 	}
-	a := agentWithMode("deny")
-	emitted := make(chan Event, 1)
-	done := make(chan *tools.Result, 1)
-	go func() {
-		done <- a.checkApproval(
-			context.Background(),
-			llm.ToolCall{
-				ID:        "call-one",
-				Name:      "cursor_agent",
-				Arguments: `{"action":"start","prompt":"do not run"}`,
-			},
-			cursorTool,
-			"ses-one",
-			func(e Event) error {
-				emitted <- e
-				return nil
-			},
-		)
-	}()
+	a := cursorApprovalTestAgent("deny", upstream.URL)
+	a.plugins = cursorApprovalTestPlugin(t, `{"deny":true,"reason":"plugin must not run"}`)
+	events := make(chan Event, 16)
+	outcomes := a.executeTools(
+		context.Background(),
+		[]llm.ToolCall{{
+			ID:   "call-one",
+			Name: "cursor_agent",
+			Arguments: `{
+				"action":"start",
+				"prompt":"deny-private-prompt",
+				"model":"composer-2",
+				"images":["deny-private-image"],
+				"api_key":"deny-private-key",
+				"unknown":"deny-private-unknown"
+			}`,
+		}},
+		map[string]tools.Tool{"cursor_agent": cursorTool},
+		Request{},
+		&store.Session{ID: "ses-one", Workspace: t.TempDir()},
+		func(e Event) error {
+			events <- e
+			return nil
+		},
+	)
 
-	select {
-	case event := <-emitted:
-		a.ResolveApproval(event.ID, false)
-		<-done
-		t.Fatalf("deny mode emitted a pending approval: %+v", event)
-	case result := <-done:
-		if result == nil || !result.IsError ||
-			!strings.Contains(result.Content, `approval_mode is "deny"`) {
-			t.Fatalf("deny result = %+v", result)
+	if len(outcomes) != 1 || !outcomes[0].isError ||
+		!strings.Contains(outcomes[0].message.Content, `approval_mode is "deny"`) ||
+		strings.Contains(outcomes[0].message.Content, "plugin must not run") {
+		t.Fatalf("deny outcome = %+v", outcomes)
+	}
+	var emitted []Event
+	for {
+		select {
+		case event := <-events:
+			emitted = append(emitted, event)
+		default:
+			goto drained
 		}
-	case <-time.After(time.Second):
-		t.Fatal("deny mode blocked instead of refusing immediately")
+	}
+
+drained:
+	if len(emitted) != 2 ||
+		emitted[0].Type != EventToolCall ||
+		emitted[1].Type != EventToolResult ||
+		emitted[0].ID != "call-one" ||
+		emitted[1].ID != "call-one" {
+		t.Fatalf("deny events = %+v, want safe tool_call then tool_result", emitted)
+	}
+	if !strings.Contains(emitted[0].Arguments, `"action":"start"`) ||
+		!strings.Contains(emitted[0].Arguments, `"model":"composer-2"`) {
+		t.Errorf("deny tool-call projection = %s", emitted[0].Arguments)
+	}
+	for _, forbidden := range []string{"deny-private-prompt", "prompt", "images", "api_key", "unknown", "deny-private-key"} {
+		if strings.Contains(emitted[0].Arguments, forbidden) {
+			t.Errorf("deny tool-call projection leaked %q: %s", forbidden, emitted[0].Arguments)
+		}
 	}
 	if pending := a.PendingApprovals(); len(pending) != 0 {
 		t.Fatalf("deny mode left pending approvals: %+v", pending)
+	}
+	if got := upstreamCalls.Load(); got != 0 {
+		t.Fatalf("deny mode made %d upstream request(s)", got)
 	}
 }
 
@@ -533,9 +575,11 @@ func TestCursorOperationPluginDenyPrecedesApproval(t *testing.T) {
 	}()
 
 	var outcomes []toolOutcome
+	var emitted []Event
 	for outcomes == nil {
 		select {
 		case event := <-events:
+			emitted = append(emitted, event)
 			if event.Type == EventApproval {
 				a.ResolveApproval(event.ID, false)
 				<-done
@@ -559,10 +603,26 @@ func TestCursorOperationPluginDenyPrecedesApproval(t *testing.T) {
 	for {
 		select {
 		case event := <-events:
+			emitted = append(emitted, event)
 			if event.Type == EventApproval {
 				t.Fatalf("plugin denial emitted approval: %+v", event)
 			}
 		default:
+			if len(emitted) != 2 ||
+				emitted[0].Type != EventToolCall ||
+				emitted[1].Type != EventToolResult ||
+				emitted[0].ID != "call-one" ||
+				emitted[1].ID != "call-one" {
+				t.Fatalf("plugin-deny events = %+v, want safe tool_call then tool_result", emitted)
+			}
+			if !strings.Contains(emitted[0].Arguments, `"action":"start"`) {
+				t.Errorf("plugin-deny tool-call projection = %s", emitted[0].Arguments)
+			}
+			for _, forbidden := range []string{"must not run", "prompt", "images", "api_key", "unknown"} {
+				if strings.Contains(emitted[0].Arguments, forbidden) {
+					t.Errorf("plugin-deny projection leaked %q: %s", forbidden, emitted[0].Arguments)
+				}
+			}
 			return
 		}
 	}
@@ -735,8 +795,8 @@ func TestCursorOperationToolCallUsesApprovalProjection(t *testing.T) {
 
 func TestCursorApprovalSurfacesRedactKeyLikeTokensButExecutionRetainsThem(t *testing.T) {
 	const (
-		modelToken  = "crsr_model_secret_123456789"
-		refToken    = "feature/crsr_ref_secret_123456789"
+		modelToken  = "prefix-crsr_model_secret_123456789.tail-model"
+		refToken    = "feature/crsr_ref_secret_123456789/tail-ref"
 		promptToken = "crsr_prompt_secret_123456789"
 	)
 	bodyCh := make(chan map[string]any, 1)
@@ -811,15 +871,24 @@ func TestCursorApprovalSurfacesRedactKeyLikeTokensButExecutionRetainsThem(t *tes
 	pendingJSON, _ := json.Marshal(pending)
 	outward := toolCall.Arguments + approvalEvent.Arguments + approvalEvent.Content + string(pendingJSON)
 	leaked := ""
-	for _, token := range []string{modelToken, "crsr_ref_secret_123456789", promptToken, "crsr_unknown_secret_123456789"} {
+	for _, token := range []string{
+		"prefix-", "tail-model", "feature/", "tail-ref",
+		"crsr_model_secret_123456789", "crsr_ref_secret_123456789",
+		promptToken, "crsr_unknown_secret_123456789",
+	} {
 		if strings.Contains(outward, token) {
 			leaked = token
 			break
 		}
 	}
-	redacted := strings.Contains(toolCall.Arguments, "[REDACTED]") &&
-		strings.Contains(approvalEvent.Arguments, "[REDACTED]") &&
-		len(pending) == 1 && strings.Contains(pending[0].Arguments, "[REDACTED]")
+	var projection map[string]any
+	if err := json.Unmarshal([]byte(toolCall.Arguments), &projection); err != nil {
+		t.Fatalf("decode tool-call projection: %v", err)
+	}
+	redacted := projection["model"] == "[REDACTED]" &&
+		projection["starting_ref"] == "[REDACTED]" &&
+		approvalEvent.Arguments == toolCall.Arguments &&
+		len(pending) == 1 && pending[0].Arguments == toolCall.Arguments
 
 	if !a.ResolveApproval(approvalEvent.ID, true) {
 		t.Fatal("approval could not be resolved")
@@ -884,13 +953,11 @@ func TestInvalidCursorOperationDoesNotEchoRawToolCall(t *testing.T) {
 		!strings.Contains(outcomes[0].message.Content, "prompt is required") {
 		t.Fatalf("invalid operation outcome = %+v", outcomes)
 	}
-	var toolCalls int
+	var emitted []Event
 	for {
 		select {
 		case event := <-events:
-			if event.Type == EventToolCall {
-				toolCalls++
-			}
+			emitted = append(emitted, event)
 			if event.Type == EventApproval {
 				t.Fatalf("invalid operation requested approval: %+v", event)
 			}
@@ -900,8 +967,15 @@ func TestInvalidCursorOperationDoesNotEchoRawToolCall(t *testing.T) {
 				}
 			}
 		default:
-			if toolCalls != 0 {
-				t.Fatalf("invalid operation emitted %d tool-call event(s)", toolCalls)
+			if len(emitted) != 2 ||
+				emitted[0].Type != EventToolCall ||
+				emitted[1].Type != EventToolResult ||
+				emitted[0].ID != "call-one" ||
+				emitted[1].ID != "call-one" {
+				t.Fatalf("invalid operation events = %+v, want safe tool_call then tool_result", emitted)
+			}
+			if emitted[0].Arguments != `{"operation":"unavailable"}` {
+				t.Fatalf("invalid operation placeholder = %q", emitted[0].Arguments)
 			}
 			if pending := a.PendingApprovals(); len(pending) != 0 {
 				t.Fatalf("invalid operation left pending approvals: %+v", pending)

@@ -131,8 +131,10 @@ func cursorApprovalMessage(action string) string {
 
 func boundCursorApprovalField(value string) string {
 	const maxRunes = 128
-	value = cursorKeyLikeToken.ReplaceAllString(value, "[REDACTED]")
 	value = strings.ToValidUTF8(value, "\uFFFD")
+	if cursorKeyLikeToken.MatchString(value) {
+		return "[REDACTED]"
+	}
 	runes := []rune(value)
 	if len(runes) > maxRunes {
 		return string(runes[:maxRunes]) + "…"

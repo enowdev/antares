@@ -772,6 +772,36 @@ type toolOutcome struct {
 	isError bool
 }
 
+func (a *Agent) applyPreToolPlugin(
+	ctx context.Context,
+	call llm.ToolCall,
+	sessionID string,
+	platform string,
+	emit Emit,
+) (llm.ToolCall, *tools.Result) {
+	if a.plugins == nil {
+		return call, nil
+	}
+	hook := a.plugins.Dispatch(ctx, plugin.Payload{
+		Event:     plugin.PreToolCall,
+		SessionID: sessionID,
+		Platform:  platform,
+		Tool:      call.Name,
+		Arguments: call.Arguments,
+	})
+	if hook.Notice != "" {
+		_ = emit(Event{Type: EventNotice, Message: hook.Notice})
+	}
+	if hook.Deny {
+		result := tools.Errorf("refused by policy: %s", hook.Reason)
+		return call, &result
+	}
+	if hook.Arguments != "" {
+		call.Arguments = hook.Arguments
+	}
+	return call, nil
+}
+
 // executeTools runs the requested calls, in parallel when the config allows.
 func (a *Agent) executeTools(
 	ctx context.Context,
@@ -819,72 +849,20 @@ func (a *Agent) executeTools(
 			return
 		}
 
-		applyPreToolPlugin := func() bool {
-			if a.plugins == nil {
-				return true
-			}
-			hook := a.plugins.Dispatch(ctx, plugin.Payload{
-				Event: plugin.PreToolCall, SessionID: sess.ID, Platform: req.Platform,
-				Tool: call.Name, Arguments: call.Arguments,
-			})
-			if hook.Notice != "" {
-				_ = safeEmit(Event{Type: EventNotice, Message: hook.Notice})
-			}
-			if hook.Deny {
-				content := "refused by policy: " + hook.Reason
-				outcomes[i] = toolOutcome{
-					message: llm.Message{
-						Role: llm.RoleTool, ToolCallID: call.ID, Name: call.Name,
-						Content: content,
-					},
-					isError: true,
-				}
-				_ = safeEmit(Event{
-					Type: EventToolResult, ID: call.ID, Name: call.Name,
-					Content: content, IsError: true,
-				})
-				return false
-			}
-			if hook.Arguments != "" {
-				call.Arguments = hook.Arguments
-			}
-			return true
-		}
-
 		explicitTool, explicitApproval := tool.(tools.OperationApproval)
-		mode := strings.ToLower(strings.TrimSpace(a.config().Tools.ApprovalMode))
-		if mode == "" {
-			mode = "auto"
-		}
-		// Explicit operations are approved from the plugin's final arguments.
-		// Deny mode remains an immediate refusal and does not invoke plugins.
-		if explicitApproval && mode != "deny" && !applyPreToolPlugin() {
-			return
-		}
-
 		var refusal *tools.Result
 		if explicitApproval {
-			if mode == "deny" {
-				refusal = denyApproval(call.Name)
-			} else {
-				op, err := explicitTool.ApprovalOperation(json.RawMessage(call.Arguments), sess.ID)
-				if err != nil {
-					result := tools.Errorf("%v", err)
-					refusal = &result
-				} else {
-					if op.Message == "" {
-						op.Message = approvalMessage(op)
-					}
-					_ = safeEmit(Event{
-						Type: EventToolCall, ID: call.ID, Name: call.Name,
-						Arguments: op.Arguments,
-					})
-					refusal = a.awaitApproval(ctx, op, safeEmit)
-				}
-			}
+			call, refusal = a.checkOperationApproval(
+				ctx, call, explicitTool, sess.ID, req.Platform, safeEmit,
+			)
 		} else {
 			// Ordinary tools keep the established approval-before-plugin order.
 			refusal = a.checkApproval(ctx, call, tool, sess.ID, safeEmit)
+			if refusal == nil {
+				call, refusal = a.applyPreToolPlugin(
+					ctx, call, sess.ID, req.Platform, safeEmit,
+				)
+			}
 		}
 
 		if refusal != nil {
@@ -899,13 +877,6 @@ func (a *Agent) executeTools(
 				Type: EventToolResult, ID: call.ID, Name: call.Name,
 				Content: refusal.Content, IsError: true,
 			})
-			return
-		}
-
-		// Plugins see the call before it runs, and may refuse it or change
-		// its arguments. Explicit operations already ran this hook so the
-		// approved projection and executed call cannot diverge.
-		if !explicitApproval && !applyPreToolPlugin() {
 			return
 		}
 
