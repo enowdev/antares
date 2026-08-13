@@ -28,6 +28,8 @@ var errInvalidGitHubRepository = errors.New(
 	"cursor repository must be an HTTPS or git SSH URL for exactly one github.com owner/repository",
 )
 
+const unsupportedOriginWarning = "origin remote is not a supported credential-free GitHub repository"
+
 // NormalizeGitHubRepository accepts the common GitHub HTTPS and git SSH remote
 // forms and returns the credential-free HTTPS repository URL Cursor expects.
 func NormalizeGitHubRepository(raw string) (string, error) {
@@ -169,14 +171,18 @@ func InspectRepository(ctx context.Context, dir string) (RepositoryInfo, error) 
 	if err != nil {
 		return info, fmt.Errorf("inspect cursor repository origin: %w", err)
 	}
-	if hasOrigin && origin != "" {
-		info.URL, err = NormalizeGitHubRepository(origin)
-		if err != nil {
-			return info, fmt.Errorf("inspect cursor repository origin: %w", err)
+	originPresent := hasOrigin && origin != ""
+	unsupportedOrigin := false
+	if originPresent {
+		normalized, normalizeErr := NormalizeGitHubRepository(origin)
+		if normalizeErr != nil {
+			unsupportedOrigin = true
+		} else {
+			info.URL = normalized
 		}
 	}
 
-	if info.URL != "" {
+	if originPresent {
 		if onBranch && branch != "" {
 			info.RemoteRefKnown, info.LocalOnlyCommits, err =
 				inspectBranchRemoteState(ctx, dir, branch)
@@ -190,9 +196,13 @@ func InspectRepository(ctx context.Context, dir string) (RepositoryInfo, error) 
 	}
 
 	var warnings []string
-	if info.URL == "" {
+	switch {
+	case !originPresent:
 		warnings = append(warnings, "origin remote is not configured")
-	} else if !info.RemoteRefKnown {
+	case unsupportedOrigin:
+		warnings = append(warnings, unsupportedOriginWarning)
+	}
+	if originPresent && !info.RemoteRefKnown {
 		warnings = append(warnings, "origin remote-tracking ref is not available locally")
 	}
 	if info.Dirty {

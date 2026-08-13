@@ -260,7 +260,7 @@ func TestCursorRepositoryRouteUsesProjectPathGuardAndReturnsRepositoryInfo(t *te
 	}
 }
 
-func TestCursorRepositoryRouteRejectsUnsafeOrigin(t *testing.T) {
+func TestCursorRepositoryRouteReturnsDegradedPreflightForUnsafeOrigin(t *testing.T) {
 	requireServerGit(t)
 	t.Setenv("ANTARES_HOME", t.TempDir())
 	repo := initServerTestRepository(t)
@@ -275,11 +275,20 @@ func TestCursorRepositoryRouteRejectsUnsafeOrigin(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer test-token")
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "secret") {
-		t.Fatalf("credential-bearing origin leaked in response: %s", rec.Body.String())
+	var info cursorrun.RepositoryInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if !info.Repository || info.StartingRef != "main" || info.URL != "" ||
+		info.Warning == "" {
+		t.Fatalf("degraded repository info = %+v", info)
+	}
+	if len(info.Warning) > 512 || strings.Contains(rec.Body.String(), "secret") ||
+		strings.Contains(rec.Body.String(), "user") {
+		t.Fatalf("unsafe origin leaked in response: %s", rec.Body.String())
 	}
 }
 

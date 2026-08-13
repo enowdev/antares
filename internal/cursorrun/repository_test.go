@@ -169,18 +169,86 @@ func TestInspectRepositoryReturnsNonRepositoryWithoutError(t *testing.T) {
 	}
 }
 
-func TestInspectRepositoryRejectsUnsafeOrigin(t *testing.T) {
+func TestInspectRepositoryDegradesUnsupportedOriginAndPreservesLocalState(t *testing.T) {
 	requireGit(t)
-	tests := []string{
-		"https://gitlab.com/owner/repo.git",
-		"https://user:secret@github.com/owner/repo.git",
+	tests := []struct {
+		name      string
+		remote    string
+		forbidden []string
+	}{
+		{
+			name:      "non-GitHub",
+			remote:    "https://gitlab.com/owner/repo.git",
+			forbidden: []string{"gitlab.com"},
+		},
+		{
+			name:      "self-hosted",
+			remote:    "ssh://git@git.example.test/owner/repo.git",
+			forbidden: []string{"git.example.test"},
+		},
+		{
+			name:      "local",
+			remote:    "/tmp/task8-local-origin.git",
+			forbidden: []string{"task8-local-origin"},
+		},
+		{
+			name:      "credential-bearing",
+			remote:    "https://user:review-secret@github.com/owner/repo.git",
+			forbidden: []string{"user", "review-secret"},
+		},
+		{
+			name:      "malformed",
+			remote:    "::not a valid remote::",
+			forbidden: []string{"not a valid remote"},
+		},
 	}
-	for _, remote := range tests {
-		t.Run(remote, func(t *testing.T) {
+	var fixedWarning string
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			repo := initTestRepository(t)
-			runGit(t, repo, "remote", "add", "origin", remote)
-			if info, err := InspectRepository(context.Background(), repo); err == nil {
-				t.Fatalf("unsafe origin accepted: %+v", info)
+			bare := filepath.Join(t.TempDir(), "remote.git")
+			runCommand(t, filepath.Dir(bare), "git", "init", "--bare", "--initial-branch=main", bare)
+			runGit(t, repo, "remote", "add", "origin", bare)
+			runGit(t, repo, "push", "-u", "origin", "main")
+			runGit(t, repo, "remote", "set-url", "origin", tc.remote)
+
+			writeTestFile(t, filepath.Join(repo, "tracked.txt"), "local-only\n")
+			runGit(t, repo, "add", "tracked.txt")
+			runGit(t, repo, "commit", "-m", "local only")
+			writeTestFile(t, filepath.Join(repo, "dirty.txt"), "dirty\n")
+
+			if normalized, err := NormalizeGitHubRepository(tc.remote); err == nil {
+				t.Fatalf("strict normalization accepted %q as %q", tc.remote, normalized)
+			}
+			info, err := InspectRepository(context.Background(), repo)
+			if err != nil {
+				t.Fatalf("degraded preflight returned an error: %v", err)
+			}
+			if !info.Repository || info.StartingRef != "main" || !info.Dirty {
+				t.Fatalf("local repository state was lost: %+v", info)
+			}
+			if info.URL != "" {
+				t.Fatalf("unsupported origin became a repository URL: %q", info.URL)
+			}
+			if !info.RemoteRefKnown || info.LocalOnlyCommits != 1 {
+				t.Fatalf("locally known ahead state was lost: %+v", info)
+			}
+			if info.Warning == "" || len(info.Warning) > 512 {
+				t.Fatalf("warning is empty or unbounded: %q", info.Warning)
+			}
+			if strings.Contains(info.Warning, tc.remote) {
+				t.Fatalf("warning echoed remote %q: %q", tc.remote, info.Warning)
+			}
+			for _, forbidden := range tc.forbidden {
+				if strings.Contains(info.Warning, forbidden) {
+					t.Fatalf("warning leaked %q: %q", forbidden, info.Warning)
+				}
+			}
+			if fixedWarning == "" {
+				fixedWarning = info.Warning
+			} else if info.Warning != fixedWarning {
+				t.Fatalf("warning depends on unsupported remote:\ngot  %q\nwant %q",
+					info.Warning, fixedWarning)
 			}
 		})
 	}
