@@ -783,8 +783,16 @@ func (a *Agent) executeTools(
 ) []toolOutcome {
 	outcomes := make([]toolOutcome, len(calls))
 
-	// Emit all call announcements up front so the UI can render them in order.
+	// Emit ordinary call announcements up front so their established ordering
+	// is unchanged. Explicit operations are announced later from their
+	// validated, post-plugin approval projection; raw arguments must never be
+	// exposed before approval.
 	for _, call := range calls {
+		if tool, ok := byName[call.Name]; ok {
+			if _, explicit := tool.(tools.OperationApproval); explicit {
+				continue
+			}
+		}
 		_ = emit(Event{Type: EventToolCall, ID: call.ID, Name: call.Name, Arguments: call.Arguments})
 	}
 
@@ -811,25 +819,10 @@ func (a *Agent) executeTools(
 			return
 		}
 
-		// A tool that changes something may need a person to say yes first.
-		if refusal := a.checkApproval(ctx, call, tool, sess.ID, safeEmit); refusal != nil {
-			outcomes[i] = toolOutcome{
-				message: llm.Message{
-					Role: llm.RoleTool, ToolCallID: call.ID, Name: call.Name,
-					Content: refusal.Content,
-				},
-				isError: true,
+		applyPreToolPlugin := func() bool {
+			if a.plugins == nil {
+				return true
 			}
-			_ = safeEmit(Event{
-				Type: EventToolResult, ID: call.ID, Name: call.Name,
-				Content: refusal.Content, IsError: true,
-			})
-			return
-		}
-
-		// Plugins see the call before it runs, and may refuse it or change
-		// its arguments.
-		if a.plugins != nil {
 			hook := a.plugins.Dispatch(ctx, plugin.Payload{
 				Event: plugin.PreToolCall, SessionID: sess.ID, Platform: req.Platform,
 				Tool: call.Name, Arguments: call.Arguments,
@@ -850,11 +843,70 @@ func (a *Agent) executeTools(
 					Type: EventToolResult, ID: call.ID, Name: call.Name,
 					Content: content, IsError: true,
 				})
-				return
+				return false
 			}
 			if hook.Arguments != "" {
 				call.Arguments = hook.Arguments
 			}
+			return true
+		}
+
+		explicitTool, explicitApproval := tool.(tools.OperationApproval)
+		mode := strings.ToLower(strings.TrimSpace(a.config().Tools.ApprovalMode))
+		if mode == "" {
+			mode = "auto"
+		}
+		// Explicit operations are approved from the plugin's final arguments.
+		// Deny mode remains an immediate refusal and does not invoke plugins.
+		if explicitApproval && mode != "deny" && !applyPreToolPlugin() {
+			return
+		}
+
+		var refusal *tools.Result
+		if explicitApproval {
+			if mode == "deny" {
+				refusal = denyApproval(call.Name)
+			} else {
+				op, err := explicitTool.ApprovalOperation(json.RawMessage(call.Arguments), sess.ID)
+				if err != nil {
+					result := tools.Errorf("%v", err)
+					refusal = &result
+				} else {
+					if op.Message == "" {
+						op.Message = approvalMessage(op)
+					}
+					_ = safeEmit(Event{
+						Type: EventToolCall, ID: call.ID, Name: call.Name,
+						Arguments: op.Arguments,
+					})
+					refusal = a.awaitApproval(ctx, op, safeEmit)
+				}
+			}
+		} else {
+			// Ordinary tools keep the established approval-before-plugin order.
+			refusal = a.checkApproval(ctx, call, tool, sess.ID, safeEmit)
+		}
+
+		if refusal != nil {
+			outcomes[i] = toolOutcome{
+				message: llm.Message{
+					Role: llm.RoleTool, ToolCallID: call.ID, Name: call.Name,
+					Content: refusal.Content,
+				},
+				isError: true,
+			}
+			_ = safeEmit(Event{
+				Type: EventToolResult, ID: call.ID, Name: call.Name,
+				Content: refusal.Content, IsError: true,
+			})
+			return
+		}
+
+		// Plugins see the call before it runs, and may refuse it or change
+		// its arguments. Explicit operations already ran this hook so the
+		// approved projection and executed call cannot diverge.
+		if !explicitApproval && !applyPreToolPlugin() {
+			return
 		}
 
 		workspace := sess.Workspace

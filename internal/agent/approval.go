@@ -14,8 +14,10 @@ import (
 	"github.com/enowdev/antares/internal/tools"
 )
 
-// Approval gates tools that change something. `tools.approval_mode` decides
-// what happens: run it, refuse it, or ask a person.
+// Approval gates tools that change something. Ordinary tools follow
+// `tools.approval_mode`: run, ask, or refuse. Explicit operations such as
+// mutating Cursor calls override auto and still ask, while deny remains an
+// immediate refusal and never creates a pending approval.
 //
 // Asking only works where a person is watching. A cron job or a messaging
 // thread has nobody to answer, so a request that goes unanswered is refused
@@ -52,7 +54,21 @@ const approvalTimeout = 5 * time.Minute
 // checkApproval decides whether a call may proceed. It returns an error result
 // to hand back to the model when it may not.
 func (a *Agent) checkApproval(ctx context.Context, call llm.ToolCall, tool tools.Tool, sessionID string, emit Emit) *tools.Result {
-	if explicit, ok := tool.(tools.OperationApproval); ok {
+	mode := strings.ToLower(strings.TrimSpace(a.config().Tools.ApprovalMode))
+	if mode == "" {
+		mode = "auto"
+	}
+	danger := dangerIn(call.Name, call.Arguments)
+	explicit, explicitApproval := tool.(tools.OperationApproval)
+
+	if mode == "deny" {
+		if explicitApproval || tools.NeedsApproval(tool) || danger != "" {
+			return denyApproval(call.Name)
+		}
+		return nil
+	}
+
+	if explicitApproval {
 		op, err := explicit.ApprovalOperation(json.RawMessage(call.Arguments), sessionID)
 		if err != nil {
 			res := tools.Errorf("%v", err)
@@ -64,13 +80,6 @@ func (a *Agent) checkApproval(ctx context.Context, call llm.ToolCall, tool tools
 		return a.awaitApproval(ctx, op, emit)
 	}
 
-	mode := strings.ToLower(strings.TrimSpace(a.config().Tools.ApprovalMode))
-	if mode == "" {
-		mode = "auto"
-	}
-
-	danger := dangerIn(call.Name, call.Arguments)
-
 	switch mode {
 	case "auto":
 		// The mode says run it, so it runs. A destructive command is still
@@ -78,14 +87,6 @@ func (a *Agent) checkApproval(ctx context.Context, call llm.ToolCall, tool tools
 		// nobody wants to discover afterwards.
 		if danger != "" {
 			_ = emit(Event{Type: EventNotice, Message: "running a command that " + danger})
-		}
-		return nil
-
-	case "deny":
-		if tools.NeedsApproval(tool) || danger != "" {
-			res := tools.Errorf("refused: %s changes state and tools.approval_mode is \"deny\". "+
-				"Report what you would have done instead.", call.Name)
-			return &res
 		}
 		return nil
 
@@ -109,6 +110,12 @@ func (a *Agent) checkApproval(ctx context.Context, call llm.ToolCall, tool tools
 	}
 	op.Message = approvalMessage(op)
 	return a.awaitApproval(ctx, op, emit)
+}
+
+func denyApproval(toolName string) *tools.Result {
+	result := tools.Errorf("refused: %s changes state and tools.approval_mode is \"deny\". "+
+		"Report what you would have done instead.", toolName)
+	return &result
 }
 
 func (a *Agent) awaitApproval(ctx context.Context, op approval.Operation, emit Emit) *tools.Result {

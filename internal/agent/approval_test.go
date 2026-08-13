@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/llm"
+	"github.com/enowdev/antares/internal/plugin"
 	"github.com/enowdev/antares/internal/store"
 	"github.com/enowdev/antares/internal/tools"
 )
@@ -40,6 +43,39 @@ func agentWithMode(mode string) *Agent {
 	cfg := config.Default()
 	cfg.Tools.ApprovalMode = mode
 	return New(cfg, nil, nil, nil, nil)
+}
+
+func cursorApprovalTestAgent(mode, baseURL string) *Agent {
+	cfg := config.Default()
+	cfg.Tools.ApprovalMode = mode
+	provider := cfg.Providers["cursor"]
+	provider.Enabled = true
+	provider.APIKey = "test-only-key"
+	provider.BaseURL = baseURL
+	cfg.Providers["cursor"] = provider
+	return New(cfg, nil, tools.Default(), nil, nil)
+}
+
+func cursorApprovalTestPlugin(t *testing.T, reply string) *plugin.Manager {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "approval-test")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "name: approval-test\ncommand: ./run.sh\nhooks: [pre_tool_call]\n"
+	if err := os.WriteFile(filepath.Join(dir, "plugin.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncat > /dev/null\ncat <<'EOF'\n" + reply + "\nEOF\n"
+	if err := os.WriteFile(filepath.Join(dir, "run.sh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manager := plugin.NewManager([]string{root})
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	return manager
 }
 
 func TestAutoModeRunsEverything(t *testing.T) {
@@ -373,7 +409,7 @@ func TestCursorOperationsWaitForApprovalBeforeUpstreamRequests(t *testing.T) {
 	}
 }
 
-func TestCursorOperationApprovalOverridesGeneralModes(t *testing.T) {
+func TestCursorOperationApprovalOverridesAutoAndPromptModes(t *testing.T) {
 	cursorTool, ok := tools.Default().Get("cursor_agent")
 	if !ok {
 		t.Fatal("cursor_agent is not registered")
@@ -384,7 +420,7 @@ func TestCursorOperationApprovalOverridesGeneralModes(t *testing.T) {
 		Arguments: `{"action":"cancel","agent_id":"bc-one","run_id":"run-one"}`,
 	}
 
-	for _, mode := range []string{"auto", "prompt", "deny", "unknown"} {
+	for _, mode := range []string{"auto", "prompt", "unknown"} {
 		t.Run(mode, func(t *testing.T) {
 			a := agentWithMode(mode)
 			emitted := make(chan Event, 1)
@@ -414,6 +450,467 @@ func TestCursorOperationApprovalOverridesGeneralModes(t *testing.T) {
 				t.Fatalf("denied explicit approval result = %+v", result)
 			}
 		})
+	}
+}
+
+func TestCursorOperationApprovalDenyModeRefusesImmediately(t *testing.T) {
+	cursorTool, ok := tools.Default().Get("cursor_agent")
+	if !ok {
+		t.Fatal("cursor_agent is not registered")
+	}
+	a := agentWithMode("deny")
+	emitted := make(chan Event, 1)
+	done := make(chan *tools.Result, 1)
+	go func() {
+		done <- a.checkApproval(
+			context.Background(),
+			llm.ToolCall{
+				ID:        "call-one",
+				Name:      "cursor_agent",
+				Arguments: `{"action":"start","prompt":"do not run"}`,
+			},
+			cursorTool,
+			"ses-one",
+			func(e Event) error {
+				emitted <- e
+				return nil
+			},
+		)
+	}()
+
+	select {
+	case event := <-emitted:
+		a.ResolveApproval(event.ID, false)
+		<-done
+		t.Fatalf("deny mode emitted a pending approval: %+v", event)
+	case result := <-done:
+		if result == nil || !result.IsError ||
+			!strings.Contains(result.Content, `approval_mode is "deny"`) {
+			t.Fatalf("deny result = %+v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("deny mode blocked instead of refusing immediately")
+	}
+	if pending := a.PendingApprovals(); len(pending) != 0 {
+		t.Fatalf("deny mode left pending approvals: %+v", pending)
+	}
+}
+
+func TestCursorOperationPluginDenyPrecedesApproval(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		http.Error(w, "plugin denial must prevent upstream requests", http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+
+	a := cursorApprovalTestAgent("auto", upstream.URL)
+	a.plugins = cursorApprovalTestPlugin(t, `{"deny":true,"reason":"blocked before approval"}`)
+	cursorTool, ok := tools.Default().Get("cursor_agent")
+	if !ok {
+		t.Fatal("cursor_agent is not registered")
+	}
+
+	events := make(chan Event, 16)
+	done := make(chan []toolOutcome, 1)
+	workspace := t.TempDir()
+	go func() {
+		done <- a.executeTools(
+			context.Background(),
+			[]llm.ToolCall{{
+				ID:        "call-one",
+				Name:      "cursor_agent",
+				Arguments: `{"action":"start","prompt":"must not run","wait":false}`,
+			}},
+			map[string]tools.Tool{"cursor_agent": cursorTool},
+			Request{},
+			&store.Session{ID: "ses-one", Workspace: workspace},
+			func(e Event) error {
+				events <- e
+				return nil
+			},
+		)
+	}()
+
+	var outcomes []toolOutcome
+	for outcomes == nil {
+		select {
+		case event := <-events:
+			if event.Type == EventApproval {
+				a.ResolveApproval(event.ID, false)
+				<-done
+				t.Fatalf("plugin denial ran after approval was pending: %+v", event)
+			}
+		case outcomes = <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("plugin denial did not finish")
+		}
+	}
+	if len(outcomes) != 1 || !outcomes[0].isError ||
+		!strings.Contains(outcomes[0].message.Content, "blocked before approval") {
+		t.Fatalf("plugin denial outcome = %+v", outcomes)
+	}
+	if got := upstreamCalls.Load(); got != 0 {
+		t.Fatalf("plugin denial made %d upstream request(s)", got)
+	}
+	if pending := a.PendingApprovals(); len(pending) != 0 {
+		t.Fatalf("plugin denial left pending approvals: %+v", pending)
+	}
+	for {
+		select {
+		case event := <-events:
+			if event.Type == EventApproval {
+				t.Fatalf("plugin denial emitted approval: %+v", event)
+			}
+		default:
+			return
+		}
+	}
+}
+
+func TestCursorOperationPluginRewriteIsApprovedAndExecuted(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		if r.Method != http.MethodPost ||
+			r.URL.Path != "/v1/agents/bc-rewritten/runs/run-rewritten/cancel" {
+			t.Errorf("rewritten request = %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	a := cursorApprovalTestAgent("auto", upstream.URL)
+	a.plugins = cursorApprovalTestPlugin(
+		t,
+		`{"arguments":"{\"action\":\"cancel\",\"agent_id\":\"bc-rewritten\",\"run_id\":\"run-rewritten\"}"}`,
+	)
+	cursorTool, ok := tools.Default().Get("cursor_agent")
+	if !ok {
+		t.Fatal("cursor_agent is not registered")
+	}
+
+	approvalEvent := make(chan Event, 1)
+	done := make(chan []toolOutcome, 1)
+	workspace := t.TempDir()
+	go func() {
+		done <- a.executeTools(
+			context.Background(),
+			[]llm.ToolCall{{
+				ID:        "call-one",
+				Name:      "cursor_agent",
+				Arguments: `{"action":"start","prompt":"original operation","wait":false}`,
+			}},
+			map[string]tools.Tool{"cursor_agent": cursorTool},
+			Request{},
+			&store.Session{ID: "ses-one", Workspace: workspace},
+			func(e Event) error {
+				if e.Type == EventApproval {
+					approvalEvent <- e
+				}
+				return nil
+			},
+		)
+	}()
+
+	var event Event
+	select {
+	case event = <-approvalEvent:
+	case outcomes := <-done:
+		t.Fatalf("rewritten operation finished before approval: %+v", outcomes)
+	case <-time.After(3 * time.Second):
+		t.Fatal("rewritten operation did not request approval")
+	}
+	pending := a.PendingApprovals()
+	eventShowsRewrite := strings.Contains(event.Arguments, `"action":"cancel"`) &&
+		strings.Contains(event.Arguments, "bc-rewritten") &&
+		strings.Contains(event.Arguments, "run-rewritten")
+	pendingShowsRewrite := len(pending) == 1 &&
+		strings.Contains(pending[0].Arguments, `"action":"cancel"`) &&
+		strings.Contains(pending[0].Arguments, "bc-rewritten") &&
+		strings.Contains(pending[0].Arguments, "run-rewritten")
+	if got := upstreamCalls.Load(); got != 0 {
+		t.Fatalf("rewritten operation made %d upstream request(s) before approval", got)
+	}
+	if !a.ResolveApproval(event.ID, true) {
+		t.Fatal("rewritten operation approval could not be resolved")
+	}
+	outcomes := <-done
+	if len(outcomes) != 1 || outcomes[0].isError {
+		t.Fatalf("rewritten operation outcome = %+v", outcomes)
+	}
+	if !eventShowsRewrite || !pendingShowsRewrite {
+		t.Fatalf("approval did not retain plugin rewrite: event=%s pending=%+v", event.Arguments, pending)
+	}
+	if got := upstreamCalls.Load(); got != 1 {
+		t.Fatalf("rewritten operation made %d upstream request(s), want 1", got)
+	}
+}
+
+func TestCursorOperationToolCallUsesApprovalProjection(t *testing.T) {
+	const privatePrompt = "private prompt must stay out of outward events"
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		http.Error(w, "denied operation must not reach upstream", http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+
+	a := cursorApprovalTestAgent("auto", upstream.URL)
+	cursorTool, ok := tools.Default().Get("cursor_agent")
+	if !ok {
+		t.Fatal("cursor_agent is not registered")
+	}
+	raw := `{
+		"action":"start",
+		"prompt":"` + privatePrompt + `",
+		"model":"composer-2",
+		"wait":false,
+		"images":["private-image"],
+		"api_key":"private-api-key",
+		"unknown":{"instructions":"private-unknown"}
+	}`
+
+	events := make(chan Event, 16)
+	done := make(chan []toolOutcome, 1)
+	workspace := t.TempDir()
+	go func() {
+		done <- a.executeTools(
+			context.Background(),
+			[]llm.ToolCall{{ID: "call-one", Name: "cursor_agent", Arguments: raw}},
+			map[string]tools.Tool{"cursor_agent": cursorTool},
+			Request{},
+			&store.Session{ID: "ses-one", Workspace: workspace},
+			func(e Event) error {
+				events <- e
+				return nil
+			},
+		)
+	}()
+
+	var toolCall, approvalEvent Event
+	for toolCall.Type == "" || approvalEvent.Type == "" {
+		select {
+		case event := <-events:
+			switch event.Type {
+			case EventToolCall:
+				toolCall = event
+			case EventApproval:
+				approvalEvent = event
+			}
+		case outcomes := <-done:
+			t.Fatalf("operation finished before projection and approval events: %+v", outcomes)
+		case <-time.After(3 * time.Second):
+			t.Fatal("projection and approval events were not emitted")
+		}
+	}
+	pending := a.PendingApprovals()
+	if !a.ResolveApproval(approvalEvent.ID, false) {
+		t.Fatal("approval could not be denied")
+	}
+	if outcomes := <-done; len(outcomes) != 1 || !outcomes[0].isError {
+		t.Fatalf("denied operation outcome = %+v", outcomes)
+	}
+
+	if toolCall.Arguments != approvalEvent.Arguments {
+		t.Errorf("tool call projection %s differs from approval %s", toolCall.Arguments, approvalEvent.Arguments)
+	}
+	if len(pending) != 1 || pending[0].Arguments != approvalEvent.Arguments {
+		t.Errorf("pending projection = %+v, approval = %s", pending, approvalEvent.Arguments)
+	}
+	for _, forbidden := range []string{
+		privatePrompt, "prompt", "images", "api_key", "unknown", "private-image",
+		"private-api-key", "private-unknown",
+	} {
+		if strings.Contains(toolCall.Arguments, forbidden) {
+			t.Errorf("tool call projection leaked %q: %s", forbidden, toolCall.Arguments)
+		}
+	}
+	if got := upstreamCalls.Load(); got != 0 {
+		t.Fatalf("denied operation made %d upstream request(s)", got)
+	}
+}
+
+func TestCursorApprovalSurfacesRedactKeyLikeTokensButExecutionRetainsThem(t *testing.T) {
+	const (
+		modelToken  = "crsr_model_secret_123456789"
+		refToken    = "feature/crsr_ref_secret_123456789"
+		promptToken = "crsr_prompt_secret_123456789"
+	)
+	bodyCh := make(chan map[string]any, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode create body: %v", err)
+		}
+		bodyCh <- body
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"agent": map[string]any{
+				"id": "bc-one", "status": "ACTIVE",
+				"url": "https://cursor.com/agents/bc-one", "latestRunId": "run-one",
+			},
+			"run": map[string]any{
+				"id": "run-one", "agentId": "bc-one", "status": "CREATING",
+			},
+		})
+	}))
+	defer upstream.Close()
+
+	a := cursorApprovalTestAgent("auto", upstream.URL)
+	cursorTool, ok := tools.Default().Get("cursor_agent")
+	if !ok {
+		t.Fatal("cursor_agent is not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"action":         "start",
+		"prompt":         "use " + promptToken,
+		"model":          modelToken,
+		"repository_url": "https://github.com/acme/repo",
+		"starting_ref":   refToken,
+		"wait":           false,
+		"api_key":        "crsr_unknown_secret_123456789",
+	})
+
+	toolCallCh := make(chan Event, 1)
+	approvalCh := make(chan Event, 1)
+	done := make(chan []toolOutcome, 1)
+	workspace := t.TempDir()
+	go func() {
+		done <- a.executeTools(
+			context.Background(),
+			[]llm.ToolCall{{ID: "call-one", Name: "cursor_agent", Arguments: string(raw)}},
+			map[string]tools.Tool{"cursor_agent": cursorTool},
+			Request{},
+			&store.Session{ID: "ses-one", Workspace: workspace},
+			func(e Event) error {
+				switch e.Type {
+				case EventToolCall:
+					toolCallCh <- e
+				case EventApproval:
+					approvalCh <- e
+				}
+				return nil
+			},
+		)
+	}()
+
+	var toolCall, approvalEvent Event
+	select {
+	case toolCall = <-toolCallCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no projected tool-call event")
+	}
+	select {
+	case approvalEvent = <-approvalCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no approval event")
+	}
+	pending := a.PendingApprovals()
+	pendingJSON, _ := json.Marshal(pending)
+	outward := toolCall.Arguments + approvalEvent.Arguments + approvalEvent.Content + string(pendingJSON)
+	leaked := ""
+	for _, token := range []string{modelToken, "crsr_ref_secret_123456789", promptToken, "crsr_unknown_secret_123456789"} {
+		if strings.Contains(outward, token) {
+			leaked = token
+			break
+		}
+	}
+	redacted := strings.Contains(toolCall.Arguments, "[REDACTED]") &&
+		strings.Contains(approvalEvent.Arguments, "[REDACTED]") &&
+		len(pending) == 1 && strings.Contains(pending[0].Arguments, "[REDACTED]")
+
+	if !a.ResolveApproval(approvalEvent.ID, true) {
+		t.Fatal("approval could not be resolved")
+	}
+	outcomes := <-done
+	if len(outcomes) != 1 || outcomes[0].isError {
+		t.Fatalf("approved operation outcome = %+v", outcomes)
+	}
+	var executed map[string]any
+	select {
+	case executed = <-bodyCh:
+	case <-time.After(time.Second):
+		t.Fatal("approved operation made no upstream request")
+	}
+	model := executed["model"].(map[string]any)
+	repo := executed["repos"].([]any)[0].(map[string]any)
+	if model["id"] != modelToken || repo["startingRef"] != refToken {
+		t.Fatalf("execution did not retain original values: model=%#v repo=%#v", model, repo)
+	}
+	if leaked != "" {
+		t.Fatalf("approval surfaces leaked key-like token %q: %s", leaked, outward)
+	}
+	if !redacted {
+		t.Fatalf("approval surfaces lacked redaction markers: %s", outward)
+	}
+}
+
+func TestInvalidCursorOperationDoesNotEchoRawToolCall(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		http.Error(w, "invalid operation must not reach upstream", http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+
+	a := cursorApprovalTestAgent("auto", upstream.URL)
+	cursorTool, ok := tools.Default().Get("cursor_agent")
+	if !ok {
+		t.Fatal("cursor_agent is not registered")
+	}
+	raw := `{
+		"action":"start",
+		"api_key":"invalid-private-key",
+		"images":["invalid-private-image"],
+		"unknown":"invalid-private-payload"
+	}`
+	events := make(chan Event, 16)
+	workspace := t.TempDir()
+	outcomes := a.executeTools(
+		context.Background(),
+		[]llm.ToolCall{{ID: "call-one", Name: "cursor_agent", Arguments: raw}},
+		map[string]tools.Tool{"cursor_agent": cursorTool},
+		Request{},
+		&store.Session{ID: "ses-one", Workspace: workspace},
+		func(e Event) error {
+			events <- e
+			return nil
+		},
+	)
+
+	if len(outcomes) != 1 || !outcomes[0].isError ||
+		!strings.Contains(outcomes[0].message.Content, "prompt is required") {
+		t.Fatalf("invalid operation outcome = %+v", outcomes)
+	}
+	var toolCalls int
+	for {
+		select {
+		case event := <-events:
+			if event.Type == EventToolCall {
+				toolCalls++
+			}
+			if event.Type == EventApproval {
+				t.Fatalf("invalid operation requested approval: %+v", event)
+			}
+			for _, forbidden := range []string{"invalid-private-key", "invalid-private-image", "invalid-private-payload"} {
+				if strings.Contains(event.Arguments, forbidden) || strings.Contains(event.Content, forbidden) {
+					t.Errorf("invalid operation echoed %q in event %+v", forbidden, event)
+				}
+			}
+		default:
+			if toolCalls != 0 {
+				t.Fatalf("invalid operation emitted %d tool-call event(s)", toolCalls)
+			}
+			if pending := a.PendingApprovals(); len(pending) != 0 {
+				t.Fatalf("invalid operation left pending approvals: %+v", pending)
+			}
+			if got := upstreamCalls.Load(); got != 0 {
+				t.Fatalf("invalid operation made %d upstream request(s)", got)
+			}
+			return
+		}
 	}
 }
 

@@ -142,14 +142,20 @@ tools:
 Tools declare whether they mutate. `read_file` does not; `write_file`,
 `terminal`, and `browser` do.
 
+Mutating `cursor_agent` actions are the exception to `auto`: both `auto` and
+`prompt` require an explicit approval before start, follow-up, or cancellation.
+`deny` remains deny — it refuses immediately without creating a pending
+approval.
+
 ## Cursor Cloud Agents
 
 `cursor_agent` delegates coding work to a configured Cursor Cloud Agent. It can
 start a run, follow up on an existing agent, or request cancellation. Starting,
-following up, and cancelling are always approval-gated because they create or
-change remote work. It defaults to `wait: true`. With `wait: false`, it returns
-the agent ID, run ID, and Cursor URL immediately; use `cursor_agent_status`
-later instead of busy-polling.
+following up, and cancelling require explicit approval in `auto` and `prompt`
+because they create or change remote work; `deny` refuses them immediately. It
+defaults to `wait: true`. With `wait: false`, it returns the agent ID, run ID,
+and Cursor URL immediately; use `cursor_agent_status` later instead of
+busy-polling.
 
 `cursor_agent_status` is read-only and needs no approval. It defaults to
 `wait: false` and returns one snapshot; `wait: true` streams until terminal
