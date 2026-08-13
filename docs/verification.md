@@ -67,8 +67,12 @@ the approval card:
 4. Press Send **once**. The turn must stop at the approval card, and the card
    must show the exact model, every parameter, repository and starting ref, and
    any dirty-worktree or local-only-commit warning.
-5. **Deny** it. A denied operation sends no request to Cursor, so this whole
-   pass is free. Leaving the card pending is not a substitute for denying it.
+5. **Deny** it. Denying means no create-agent, create-run, or cancel request is
+   ever sent, so nothing is created and nothing is billed. Steps 2–4 do reach
+   Cursor — the catalogue and account reads (`GET /v1/models`, `GET /v1/me`)
+   are exactly what makes the picker and the card work — but those are
+   read-only metadata, which is why the pass is still free. Leaving the card
+   pending is not a substitute for denying it.
 
 Approving at step 5 starts a billable run. Do that only when you actually want
 the work done.

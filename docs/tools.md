@@ -188,7 +188,12 @@ and then an actionable reselect error, never a guess.
 
 **Approval.** Every paid or state-changing Cursor operation — start, follow-up,
 and cancel — needs an explicit human decision, in `auto` as much as in `prompt`.
-No request reaches Cursor before you approve. The card shows the operation,
+The guarantee is specifically about mutations: **no create-agent, create-run
+(follow-up), or cancel request is sent to Cursor before its own approval.**
+Read-only metadata does travel earlier — the composer cannot draw the model
+list, the variant options, or the approval card without reading your account
+and catalogue (`GET /v1/me`, `GET /v1/models`) — but those requests create
+nothing, change nothing, and cost nothing. The card shows the operation,
 whether it creates a new agent or follows up, the model and every parameter,
 repository and starting ref, mode, auto-create-PR, a bounded prompt preview,
 and the attachment count. What executes is the request the server retained, not

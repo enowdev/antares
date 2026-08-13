@@ -343,8 +343,21 @@ for execution happens in the composer.
 ### Cursor options
 
 Selecting a Cursor model chooses the `isDefault` variant. If no variant is
-marked default, Antares chooses the first returned variant. A model with no
-variants uses an empty parameter list.
+marked default, Antares chooses the first returned variant.
+
+A model the catalogue returned **no** variant for is not runnable from the
+composer. It is still listed, so its absence is explained rather than silent,
+but the row is disabled and there is no target to select. Antares must not
+substitute a synthesized empty parameter list: `{"params": []}` is a selection
+Cursor never offered, and the exact-authoritative-variant rule below is
+binding. This is the same rule that forbids assembling a Cartesian product —
+an upstream variant is the only runnable thing.
+
+The one selection that legitimately carries no parameters is the
+`cursor_agent` tool's preserve-upstream-default path, where a caller names a
+model and omits `model_params`. That sends the model id with the `params` field
+**absent** so Cursor applies its own default; it is not an empty array, and it
+is not available to the composer, which always requires an exact variant.
 
 The main chip shows `Cursor · <model>`. A Cursor options popover exposes:
 
