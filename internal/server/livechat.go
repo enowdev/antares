@@ -25,6 +25,7 @@ type liveRun struct {
 	events  []agent.Event
 	base    int // absolute index of events[0] (count of events already trimmed)
 	done    bool
+	stop    context.CancelFunc
 	updated chan struct{} // closed on every change; replaced under the lock
 }
 
@@ -54,9 +55,39 @@ func (lr *liveRun) finish() {
 	lr.mu.Lock()
 	if !lr.done {
 		lr.done = true
+		lr.stop = nil
 		lr.signal()
 	}
 	lr.mu.Unlock()
+}
+
+// setStop attaches a local watcher cancellation hook. Ordinary chat runs do
+// not set one; direct Cursor runs use it so /api/chat/interrupt can stop local
+// observation without cancelling the remote run.
+func (lr *liveRun) setStop(stop context.CancelFunc) {
+	lr.mu.Lock()
+	if lr.done {
+		lr.mu.Unlock()
+		if stop != nil {
+			stop()
+		}
+		return
+	}
+	lr.stop = stop
+	lr.mu.Unlock()
+}
+
+// stopWatching invokes the direct run's local cancellation hook at most once.
+func (lr *liveRun) stopWatching() bool {
+	lr.mu.Lock()
+	stop := lr.stop
+	lr.stop = nil
+	lr.mu.Unlock()
+	if stop == nil {
+		return false
+	}
+	stop()
+	return true
 }
 
 // follow replays events from cursor, then blocks for new ones until the run
@@ -132,6 +163,22 @@ func (h *liveHub) put(session string, lr *liveRun) {
 	h.mu.Lock()
 	h.runs[session] = lr
 	h.mu.Unlock()
+}
+
+// putIfAbsent atomically reserves a session for one live turn or recovery
+// watcher. It is the paid-run concurrency gate and must be acquired before an
+// approval is published.
+func (h *liveHub) putIfAbsent(session string, lr *liveRun) bool {
+	if session == "" || lr == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, exists := h.runs[session]; exists {
+		return false
+	}
+	h.runs[session] = lr
+	return true
 }
 
 func (h *liveHub) get(session string) *liveRun {

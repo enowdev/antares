@@ -86,6 +86,15 @@ type Server struct {
 	setupMu sync.Mutex
 	// passwordMu serializes first-password creation and password replacement.
 	passwordMu sync.Mutex
+
+	// cursorCancels serializes explicit cancellation approval and the durable
+	// pre-POST marker. After that marker commits, durable state prevents repeats.
+	cursorCancelMu sync.Mutex
+	cursorCancels  map[string]string
+
+	// cursorLifecycleMu makes local turn reservation, history mutation, and
+	// session deletion one decision. Durable CAS still arbitrates revisions.
+	cursorLifecycleMu sync.Mutex
 }
 
 // Options configures a Server.
@@ -129,7 +138,8 @@ func New(o Options) *Server {
 		reloadFn:     o.Reload,
 		cursorRunner: o.Cursor,
 
-		dashSessions: map[string]time.Time{},
+		dashSessions:  map[string]time.Time{},
+		cursorCancels: map[string]string{},
 	}
 	if s.cursorRunner == nil {
 		s.cursorRunner = cursorrun.New(cursorrun.Options{

@@ -126,6 +126,21 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeReasoningValidationError(w, err)
 		return
 	}
+	lr := newLiveRun()
+	reservedExisting := false
+	if s.db != nil && strings.TrimSpace(req.SessionID) != "" {
+		if err := s.reserveOrdinaryChat(r.Context(), req.SessionID, lr); err != nil {
+			if errors.Is(err, errCursorSessionBusy) {
+				writeError(w, http.StatusConflict, errors.New(
+					"a turn is already active for this session",
+				))
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		reservedExisting = true
+	}
 
 	// Persist the picked role against the session so a reload reflects it. The
 	// session id is only known once the run assigns one, so a brand-new
@@ -141,6 +156,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	sse, err := newSSE(w)
 	if err != nil {
+		if reservedExisting {
+			s.hub.remove(req.SessionID, lr)
+		}
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -183,8 +201,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// reattach through /chat/attach. Events flow into a liveRun; this request is
 	// just the first follower. Interrupt still stops it (agent.Interrupt keys off
 	// the session id), and the run persists its own messages as it goes.
-	lr := newLiveRun()
-	s.hub.put(req.SessionID, lr) // existing session: findable immediately
+	if req.SessionID != "" && !reservedExisting {
+		s.hub.put(req.SessionID, lr)
+	}
 	sessionKey := req.SessionID
 
 	emit := func(e agent.Event) error {
@@ -228,6 +247,29 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	_ = lr.follow(ctx, 0, func(e agent.Event, _ int) error { return sse.send(e) })
 }
 
+func (s *Server) reserveOrdinaryChat(
+	ctx context.Context,
+	sessionID string,
+	live *liveRun,
+) error {
+	s.cursorLifecycleMu.Lock()
+	defer s.cursorLifecycleMu.Unlock()
+	active, err := s.cursorSessionHasUnfinishedState(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return errCursorSessionBusy
+	}
+	if err := s.invalidateCursorTarget(ctx, sessionID, false); err != nil {
+		return err
+	}
+	if !s.hub.putIfAbsent(sessionID, live) {
+		return errCursorSessionBusy
+	}
+	return nil
+}
+
 // handleChatAttach reconnects a client to a turn already in flight for a session
 // (e.g. after navigating away and back), replaying from the given cursor. If no
 // run is live, it reports done at once so the client falls back to the persisted
@@ -244,8 +286,14 @@ func (s *Server) handleChatAttach(w http.ResponseWriter, r *http.Request) {
 
 	lr := s.hub.get(session)
 	if lr == nil {
-		_ = sse.send(agent.Event{Type: agent.EventDone})
-		return
+		lr = s.cursorRecoveryRun(session)
+		if lr == nil {
+			_ = sse.send(agent.Event{Type: agent.EventDone})
+			return
+		}
+		// The browser cursor indexes the lost process's in-memory log. A fresh
+		// recovery log starts at zero and first replays durable partials.
+		cursor = 0
 	}
 
 	ctx := r.Context()
@@ -312,6 +360,10 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeBody(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if live := s.hub.get(body.SessionID); live != nil && live.stopWatching() {
+		writeJSON(w, http.StatusOK, map[string]bool{"interrupted": true})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"interrupted": s.agent.Interrupt(body.SessionID)})
@@ -394,6 +446,26 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("message_id is required"))
 		return
 	}
+	s.cursorLifecycleMu.Lock()
+	defer s.cursorLifecycleMu.Unlock()
+	active, err := s.cursorSessionHasUnfinishedState(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if active {
+		writeError(w, http.StatusConflict, errors.New(
+			"a remote Cursor operation is active for this session",
+		))
+		return
+	}
+	// Invalidate before rollback or transcript deletion. A later direct send
+	// must create a fresh remote agent because edited history no longer matches
+	// the remote conversation.
+	if err := s.invalidateCursorTarget(r.Context(), sessionID, true); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 
 	var reverted, skipped []string
 	if body.Revert {
@@ -439,7 +511,24 @@ func (s *Server) handleBackgroundActivity(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
-	if err := s.db.DeleteSession(r.Context(), r.PathValue("id")); err != nil {
+	sessionID := r.PathValue("id")
+	s.cursorLifecycleMu.Lock()
+	defer s.cursorLifecycleMu.Unlock()
+	active, err := s.cursorSessionHasActiveRemoteState(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if active {
+		writeError(w, http.StatusConflict, errors.New(
+			"cannot delete a session with an active remote Cursor operation",
+		))
+		return
+	}
+	if live := s.hub.get(sessionID); live != nil {
+		live.stopWatching()
+	}
+	if err := s.db.DeleteSession(r.Context(), sessionID); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -498,6 +587,28 @@ func (s *Server) handleDeleteAllSessions(w http.ResponseWriter, r *http.Request)
 	if len(ids) == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{"deleted": 0})
 		return
+	}
+	s.cursorLifecycleMu.Lock()
+	defer s.cursorLifecycleMu.Unlock()
+	// Check every selected session before DeleteSessions mutates the first one,
+	// so a later active entry cannot produce a partial bulk deletion.
+	for _, id := range ids {
+		active, err := s.cursorSessionHasActiveRemoteState(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if active {
+			writeError(w, http.StatusConflict, errors.New(
+				"cannot bulk delete while a remote Cursor operation is active",
+			))
+			return
+		}
+	}
+	for _, id := range ids {
+		if live := s.hub.get(id); live != nil {
+			live.stopWatching()
+		}
 	}
 
 	n, err := s.db.DeleteSessions(r.Context(), ids)

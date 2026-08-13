@@ -21,6 +21,8 @@ func (s *Server) routes() {
 
 	// Chat
 	m.HandleFunc("POST /api/chat", s.handleChat)
+	m.HandleFunc("POST /api/chat/cursor", s.handleCursorChat)
+	m.HandleFunc("POST /api/chat/cursor/cancel", s.handleCursorCancel)
 	m.HandleFunc("POST /api/upload", s.handleUpload)
 	m.HandleFunc("GET /api/chat/attach", s.handleChatAttach)
 	m.HandleFunc("POST /api/chat/interrupt", s.handleInterrupt)

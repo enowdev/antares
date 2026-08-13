@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/enowdev/antares/internal/approval"
 	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/cursor"
 	"github.com/enowdev/antares/internal/cursorrun"
@@ -95,6 +96,67 @@ func TestAutoModeRunsEverything(t *testing.T) {
 	if res := a.checkApproval(context.Background(), call, writingTool{"write_file"}, "s", noEmit); res != nil {
 		t.Fatalf("auto mode blocked a write: %s", res.Content)
 	}
+}
+
+func TestAwaitOperationApprovalSharesExplicitCursorPolicy(t *testing.T) {
+	t.Run("auto still waits for a human", func(t *testing.T) {
+		a := agentWithMode("auto")
+		eventCh := make(chan Event, 1)
+		resultCh := make(chan struct {
+			allowed bool
+			err     error
+		}, 1)
+		go func() {
+			allowed, err := a.AwaitOperationApproval(
+				context.Background(),
+				approval.Operation{
+					SessionID: "ses-one",
+					Tool:      "cursor_direct",
+					Arguments: `{"operation":"start"}`,
+					Message:   "Start Cursor Cloud Agent run",
+				},
+				func(event Event) error {
+					if event.Type == EventApproval {
+						eventCh <- event
+					}
+					return nil
+				},
+			)
+			resultCh <- struct {
+				allowed bool
+				err     error
+			}{allowed: allowed, err: err}
+		}()
+
+		event := <-eventCh
+		if event.ID == "" || event.Arguments != `{"operation":"start"}` {
+			t.Fatalf("approval event = %+v", event)
+		}
+		if !a.ResolveApproval(event.ID, true) {
+			t.Fatal("pending operation could not be resolved through Agent")
+		}
+		result := <-resultCh
+		if !result.allowed || result.err != nil {
+			t.Fatalf("approval result = %+v", result)
+		}
+	})
+
+	t.Run("deny refuses without publishing", func(t *testing.T) {
+		a := agentWithMode("deny")
+		emitted := false
+		allowed, err := a.AwaitOperationApproval(
+			context.Background(),
+			approval.Operation{SessionID: "ses-one", Tool: "cursor_direct"},
+			func(Event) error {
+				emitted = true
+				return nil
+			},
+		)
+		if err != nil || allowed || emitted || len(a.PendingApprovals()) != 0 {
+			t.Fatalf("deny result allowed=%v err=%v emitted=%v pending=%d",
+				allowed, err, emitted, len(a.PendingApprovals()))
+		}
+	})
 }
 
 func TestAutoModeStillNamesDangerousCommands(t *testing.T) {

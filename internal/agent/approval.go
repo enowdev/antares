@@ -39,6 +39,29 @@ func (a *Agent) ResolveApproval(id string, allow bool) bool {
 	return a.approvalGate().Resolve(id, allow)
 }
 
+// AwaitOperationApproval applies the explicit-operation policy to an immutable
+// operation supplied by another adapter (for example direct Cursor chat).
+// Deny mode refuses immediately; every other mode waits on this Agent's shared
+// gate so PendingApprovals and ResolveApproval remain the single decision
+// surface.
+func (a *Agent) AwaitOperationApproval(
+	ctx context.Context,
+	op approval.Operation,
+	emit Emit,
+) (bool, error) {
+	if a.approvalMode() == "deny" {
+		return false, nil
+	}
+	if op.Message == "" {
+		op.Message = approvalMessage(op)
+	}
+	allowed, err := a.awaitApprovalDecision(ctx, op, emit)
+	if err == nil && allowed && emit != nil {
+		_ = emit(Event{Type: EventNotice, Message: "approved " + op.Tool})
+	}
+	return allowed, err
+}
+
 func (a *Agent) approvalGate() *approval.Gate {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -164,20 +187,7 @@ func denyApproval(toolName string) *tools.Result {
 }
 
 func (a *Agent) awaitApproval(ctx context.Context, op approval.Operation, emit Emit) *tools.Result {
-	allow, err := a.approvalGate().Await(ctx, op, func(req approval.Request) error {
-		payload, marshalErr := json.Marshal(req)
-		if marshalErr != nil {
-			return marshalErr
-		}
-		return emit(Event{
-			Type:      EventApproval,
-			ID:        req.ID,
-			Name:      req.Tool,
-			Arguments: req.Arguments,
-			Message:   req.Message,
-			Content:   string(payload),
-		})
-	})
+	allow, err := a.awaitApprovalDecision(ctx, op, emit)
 	if err == nil {
 		if allow {
 			_ = emit(Event{Type: EventNotice, Message: "approved " + op.Tool})
@@ -194,6 +204,30 @@ func (a *Agent) awaitApproval(ctx context.Context, op approval.Operation, emit E
 	}
 	res := tools.Errorf("interrupted before %s was approved", op.Tool)
 	return &res
+}
+
+func (a *Agent) awaitApprovalDecision(
+	ctx context.Context,
+	op approval.Operation,
+	emit Emit,
+) (bool, error) {
+	if emit == nil {
+		emit = func(Event) error { return nil }
+	}
+	return a.approvalGate().Await(ctx, op, func(req approval.Request) error {
+		payload, marshalErr := json.Marshal(req)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		return emit(Event{
+			Type:      EventApproval,
+			ID:        req.ID,
+			Name:      req.Tool,
+			Arguments: req.Arguments,
+			Message:   req.Message,
+			Content:   string(payload),
+		})
+	})
 }
 
 func approvalMessage(op approval.Operation) string {
