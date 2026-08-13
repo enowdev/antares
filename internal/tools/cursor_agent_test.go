@@ -23,6 +23,9 @@ const cursorToolTestKey = "synthetic-key"
 func cursorToolTestConfig(baseURL string) *config.Config {
 	cfg := config.Default()
 	p := cfg.Providers["cursor"]
+	// Cursor ships disabled, so a test that exercises the tool has to turn it
+	// on explicitly — the same thing a user does on the Providers page.
+	p.Enabled = true
 	p.APIKey = cursorToolTestKey
 	p.BaseURL = baseURL
 	cfg.Providers["cursor"] = p

@@ -47,7 +47,9 @@ func (globTool) Execute(_ context.Context, in Input) Result {
 	if args.Limit <= 0 || args.Limit > 2000 {
 		args.Limit = 200
 	}
-	root, err := resolvePath(in.Workspace, args.Path)
+	// Same read boundary as read_file: workspace-confined in an ordinary
+	// session, anywhere in a project session.
+	root, err := resolveRead(in, args.Path)
 	if err != nil {
 		return Errorf("%v", err)
 	}
@@ -199,7 +201,9 @@ func (grepTool) Execute(ctx context.Context, in Input) Result {
 	if err != nil {
 		return Errorf("invalid regular expression: %v", err)
 	}
-	root, err := resolvePath(in.Workspace, args.Path)
+	// Same read boundary as read_file: workspace-confined in an ordinary
+	// session, anywhere in a project session.
+	root, err := resolveRead(in, args.Path)
 	if err != nil {
 		return Errorf("%v", err)
 	}
@@ -211,10 +215,11 @@ func (grepTool) Execute(ctx context.Context, in Input) Result {
 	}
 
 	var (
-		b       strings.Builder
-		matches int
-		files   int
-		stopped bool
+		b        strings.Builder
+		matches  int
+		files    int
+		stopped  bool
+		warnings []string
 	)
 
 	searchFile := func(path, display string) error {
@@ -272,6 +277,11 @@ func (grepTool) Execute(ctx context.Context, in Input) Result {
 				}
 			}
 		}
+		// A line longer than the scanner buffer aborts the scan; say so instead
+		// of silently reporting the rest of the file as match-free.
+		if err := sc.Err(); err != nil && len(warnings) < 8 {
+			warnings = append(warnings, fmt.Sprintf("%s: search stopped at line %d: %v", display, lineNo+1, err))
+		}
 		return nil
 	}
 
@@ -307,14 +317,18 @@ func (grepTool) Execute(ctx context.Context, in Input) Result {
 		_ = searchFile(root, relTo(in.Workspace, root))
 	}
 
+	warn := ""
+	if len(warnings) > 0 {
+		warn = "\nwarning: " + strings.Join(warnings, "\nwarning: ")
+	}
 	if matches == 0 {
-		return Text(fmt.Sprintf("No matches for %q under %s", args.Pattern, relTo(in.Workspace, root)))
+		return Text(fmt.Sprintf("No matches for %q under %s%s", args.Pattern, relTo(in.Workspace, root), warn))
 	}
 	header := fmt.Sprintf("%d match(es) in %d file(s) for %q", matches, files, args.Pattern)
 	if stopped {
 		header += " (limit reached)"
 	}
-	return Text(header + "\n" + b.String())
+	return Text(header + "\n" + b.String() + warn)
 }
 
 func truncateLine(s string) string {

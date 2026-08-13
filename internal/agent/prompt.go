@@ -106,6 +106,7 @@ help them now — do not block them.
 			// paste line numbers into old_string or expand tabs to spaces and
 			// the exact match fails repeatedly.
 			b.WriteString("- read_file returns lines as `NUMBER|CONTENT`. The `|` is metadata only. When calling edit_file, copy **only** the content after `|` into old_string/new_string — never the line number. Preserve tabs and spaces exactly (do not expand tabs to spaces). Line endings are matched automatically.\n")
+			b.WriteString("- Before every edit_file call, re-read the region you are editing (read_file with offset/limit on large files). edit_file requires an exact, unique old_string from that fresh read. After any successful edit or write, re-read before making another edit; do not reuse an older block or invent identifiers. If it reports multiple occurrences, include unique neighbouring lines or use replace_all only when every occurrence should change.\n")
 		}
 		if hasTool(active, "vps_upload") || hasTool(active, "vps_download") || hasTool(active, "vps_run") {
 			// Without this, models fall back to terminal rsync/scp and never use

@@ -33,7 +33,13 @@ func TestDefaultCursorProviderUsesEnvironmentKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, p := cfg.ResolveProvider("cursor")
-	if !p.Enabled || p.APIKey != "synthetic-env-key" || p.Kind != "cursor-agent" {
+	if p.APIKey != "synthetic-env-key" || p.Kind != "cursor-agent" {
 		t.Fatalf("cursor provider = %+v", p)
+	}
+	// The env key is picked up, but the provider still ships disabled: having
+	// CURSOR_API_KEY in the environment must not by itself let the model spawn
+	// billable cloud agents. Enabling is the user's explicit act.
+	if p.Enabled {
+		t.Error("cursor must default to disabled even when its env key is present")
 	}
 }

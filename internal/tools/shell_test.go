@@ -128,6 +128,46 @@ func TestPersistentShellExitReturnsPromptlyAndRecovers(t *testing.T) {
 	}
 }
 
+func TestPersistentShellTimeoutKillsCommandAndRecovers(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX process-group behavior does not apply on Windows")
+	}
+
+	m := NewShellManager(config.Terminal{})
+	t.Cleanup(m.CloseAll)
+	workspace := t.TempDir()
+	sess, err := m.session("timeout-session", workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	_, _, err = sess.run(context.Background(), "sleep 60", 150*time.Millisecond, nil)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("timeout error = %v, want timed out", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("timeout returned after %s, want prompt cancellation", elapsed)
+	}
+	if !sess.dead.Load() {
+		t.Fatal("timed-out shell was left marked live")
+	}
+
+	// The next call must receive a replacement shell rather than appending to
+	// the command that was killed at the timeout boundary.
+	replacement, err := m.session("timeout-session", workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement == sess {
+		t.Fatal("timed-out persistent shell was reused")
+	}
+	out, code, err := replacement.run(context.Background(), "printf RECOVERED", 2*time.Second, nil)
+	if err != nil || code != 0 || out != "RECOVERED" {
+		t.Fatalf("replacement shell result = (%q, %d, %v)", out, code, err)
+	}
+}
+
 // Commands like `adb shell …` inherit the persistent shell's stdin pipe. Because
 // that pipe stays open between tool calls, they block reading (or steal the
 // completion sentinel). Wrapping the user command so its stdin is /dev/null

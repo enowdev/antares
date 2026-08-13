@@ -2887,27 +2887,59 @@ export function StreamingIndicator({
   )
 }
 
-// Memoised for the same reason as ToolCallCard: on a message that grows to many
-// segments during one streaming turn, only the changed segment should re-render.
-// `text` is a primitive, so memo compares by value and finished blocks are free.
+/**
+ * Collapsible model-thinking block.
+ *
+ * Must NOT run the chat Markdown renderer on expand: reasoning traces are long
+ * (tens of KB of decompiler/code-like text with many `*`/`[]`), and turning
+ * that into hundreds of React nodes freezes the tab ("Page Unresponsive").
+ * Plain pre-wrap text in a height-capped scroller is one DOM node, cheap to
+ * open, and matches how thinking logs are meant to be read.
+ *
+ * Memoised for the same reason as ToolCallCard: on a message that grows to many
+ * segments during one streaming turn, only the changed segment should re-render.
+ * `text` is a primitive, so memo compares by value and finished blocks are free.
+ */
 const ReasoningBlock = memo(function ReasoningBlock({ text }: { text: string }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
-  // A slim inline toggle rather than a boxed card: collapsed reasoning should
-  // barely take a line, expanding into a quiet left-ruled block when opened.
+  // Defer mounting the body to the next frame so the click paints first and
+  // Chrome does not treat the expand as a long task on the same turn.
+  const [bodyReady, setBodyReady] = useState(false)
+  useEffect(() => {
+    if (!open) {
+      setBodyReady(false)
+      return
+    }
+    const id = requestAnimationFrame(() => setBodyReady(true))
+    return () => cancelAnimationFrame(id)
+  }, [open])
+
   return (
     <div className="text-muted-foreground">
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 text-[11px] font-medium transition-colors hover:text-foreground"
       >
         <Brain className="size-3.5" />
         {t('chat.reasoning')}
+        {text.length > 2000 ? (
+          <span className="font-normal text-muted-foreground/70">
+            ({Math.round(text.length / 1000)}k)
+          </span>
+        ) : null}
         <CaretDown className={cn('size-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open ? (
-        <div className="mt-1.5 border-l-2 border-border pl-3 text-xs">
-          <Markdown content={text} />
+        <div className="mt-1.5 max-h-80 overflow-y-auto overflow-x-hidden border-l-2 border-border pl-3">
+          {bodyReady ? (
+            <pre className="m-0 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+              {text}
+            </pre>
+          ) : (
+            <p className="m-0 text-[11px] text-muted-foreground/60">…</p>
+          )}
         </div>
       ) : null}
     </div>

@@ -219,6 +219,11 @@ func (m *ShellManager) session(id, workspace string) (*shellSession, error) {
 	out := &lockedBuffer{}
 	cmd.Stdout = out
 	cmd.Stderr = out
+	// Keep the persistent shell and every foreground command it starts in an
+	// isolated process group. A timed-out command must be terminated as a unit;
+	// killing only the shell can leave descendants holding the shell's pipes and
+	// wedge the session for all subsequent calls.
+	configureProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start shell: %w", err)
 	}
@@ -312,8 +317,11 @@ func (m *ShellManager) ReapIdle(lifetime time.Duration) {
 func (s *shellSession) killLocked() {
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.stdin.Close()
-		_ = s.cmd.Process.Kill()
-		// Process.Kill returns before the OS has released the process's
+		// Kill the whole process group, not just the shell: a timed-out
+		// command's descendants keep the shell's pipes open and would wedge
+		// the session even after the shell itself is gone.
+		killProcessGroup(s.cmd)
+		// The kill returns before the OS has released the process's
 		// handles (including its working directory), which races callers that
 		// remove the workspace right after CloseAll. Wait for the Wait
 		// goroutine so resources are actually freed; cap the wait so a wedged

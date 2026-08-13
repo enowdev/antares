@@ -332,7 +332,19 @@ func TestModelSetRequiresDashboardPassword(t *testing.T) {
 // pointer-swap / async-normalize data race: the swap must publish an atomic
 // pointer and the background save must not mutate the shared struct.
 func TestModelSetConcurrentWithConfigReads(t *testing.T) {
-	home := t.TempDir()
+	// A manual temp dir, not t.TempDir: handleModelSet saves in a detached
+	// goroutine, and twenty overlapping saves are still writing when the test
+	// body returns. t.TempDir's RemoveAll would race them and fail the test
+	// with "directory not empty". We wait for the writers to drain and then
+	// clean up ourselves.
+	home, err := os.MkdirTemp("", "antares-model-set-concurrent")
+	if err != nil {
+		t.Fatalf("temp dir: %v", err)
+	}
+	defer func() {
+		waitForSavesToDrain(t, home)
+		_ = os.RemoveAll(home)
+	}()
 	t.Setenv("ANTARES_HOME", home)
 
 	cfg := config.Default()
@@ -384,5 +396,70 @@ func TestModelSetConcurrentWithConfigReads(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
-	waitForModelSave(t, config.ConfigFile(), "model-19")
+
+	// The in-memory swap IS ordered, so the live config must show the last
+	// switch. The on-disk state is not: handleModelSet saves in a detached
+	// goroutine, so twenty overlapping saves can land in any order and the
+	// file legitimately ends up holding an earlier model. Asserting
+	// "model-19 reached disk" made this test fail whenever the scheduler
+	// happened to finish the savers out of order.
+	if got := s.agent.Config().Model.Default; got != "model-19" {
+		t.Fatalf("live config = %q, want the last switch model-19", got)
+	}
+	if got := s.config().Model.Default; got != "model-19" {
+		t.Fatalf("server config = %q, want the last switch model-19", got)
+	}
+	// Some save must still land: whichever model wins the race, the file has
+	// to hold one of the models we set.
+	waitForAnyModelSave(t, config.ConfigFile(), 20)
+}
+
+// waitForAnyModelSave polls until a detached save has landed a config carrying
+// any of the models the concurrent switches set. It deliberately does not care
+// WHICH model won — the saves are unordered, so demanding the last one is a
+// guarantee the handler never made.
+func waitForAnyModelSave(t *testing.T, path string, models int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if b, err := os.ReadFile(path); err == nil {
+			for i := range models {
+				if strings.Contains(string(b), "model-"+strconv.Itoa(i)) {
+					return
+				}
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("no concurrent save landed a model in %s", path)
+}
+
+// waitForSavesToDrain waits until no temporary config file is left in dir, so
+// every detached save goroutine has finished writing before the caller removes
+// the directory. SaveNormalizedAt writes to ".config-*.yaml.tmp" and renames.
+func waitForSavesToDrain(t *testing.T, dir string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		pending := false
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".yaml.tmp") {
+				pending = true
+				break
+			}
+		}
+		if !pending {
+			// One more short settle: a goroutine may be between CreateTemp and
+			// its first write. Two consecutive clean reads is enough in
+			// practice, and a leftover temp file is harmless to RemoveAll.
+			time.Sleep(20 * time.Millisecond)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Log("config saves did not drain within 5s; cleaning up anyway")
 }

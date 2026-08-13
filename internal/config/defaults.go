@@ -49,8 +49,13 @@ func Default() *Config {
 			"custom": {
 				Kind: "custom", Label: "Custom endpoint", Enabled: false, TimeoutSecs: 300,
 			},
+			// Opt-in, like every other provider the user must bring a key for.
+			// Enabled:true here would mean that merely having CURSOR_API_KEY in
+			// the environment lets the model spawn billable cloud agents — and
+			// the default approval_mode is "auto", so nothing would prompt.
+			// Turn it on from the Providers page when you actually want it.
 			"cursor": {
-				Kind: "cursor-agent", Label: "Cursor Cloud Agents", Enabled: true,
+				Kind: "cursor-agent", Label: "Cursor Cloud Agents", Enabled: false,
 				BaseURL: "https://api.cursor.com", APIKeyEnv: "CURSOR_API_KEY", TimeoutSecs: 900,
 			},
 		},
