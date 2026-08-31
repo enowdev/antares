@@ -189,15 +189,16 @@ func walk(v reflect.Value, prefix, group string, out *[]Field) {
 		path := name
 		grp := group
 		fv := v.Field(i)
-		if prefix != "" {
+		switch {
+		case prefix != "":
 			path = prefix + "." + name
 			if hidden[path] {
 				continue
 			}
-		} else if fv.Kind() == reflect.Struct {
+		case fv.Kind() == reflect.Struct:
 			// A struct at the root names its own group; a bare scalar does not.
 			grp = name
-		} else {
+		default:
 			grp = "general"
 		}
 

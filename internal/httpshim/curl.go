@@ -170,11 +170,12 @@ func runCurl(args []string) int {
 		return fallback("curl", args)
 	}
 	if method == "" {
-		if headOnly {
+		switch {
+		case headOnly:
 			method = "HEAD"
-		} else if haveBody {
+		case haveBody:
 			method = "POST"
-		} else {
+		default:
 			method = "GET"
 		}
 	}

@@ -357,12 +357,12 @@ func modalBox(t Theme) lipgloss.Style {
 
 // placeModal composites box at (x,y) over a dimmed copy of base, falling back to
 // a plain centred placement when the box is larger than the screen.
-func placeModal(base, box string, x, y, W, H int, t Theme) string {
-	if lipgloss.Width(box) > W || lipgloss.Height(box) > H {
-		return clampHeight(lipgloss.Place(W, H, lipgloss.Center, lipgloss.Center, box), H)
+func placeModal(base, box string, x, y, w, h int, t Theme) string {
+	if lipgloss.Width(box) > w || lipgloss.Height(box) > h {
+		return clampHeight(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box), h)
 	}
 	dim := lipgloss.NewStyle().Foreground(t.Faint)
-	return clampHeight(overlayBox(base, box, x, y, W, H, dim), H)
+	return clampHeight(overlayBox(base, box, x, y, w, h, dim), h)
 }
 
 // swatch renders a theme's palette as coloured dots for a visual preview.
@@ -374,28 +374,28 @@ func swatch(th Theme) string {
 }
 
 // overlayBox draws box at (x,y) over a dimmed, plain-text copy of base.
-func overlayBox(base, box string, x, y, W, H int, dim lipgloss.Style) string {
+func overlayBox(base, box string, x, y, w, h int, dim lipgloss.Style) string {
 	if x < 0 {
 		x = 0
 	}
 	if y < 0 {
 		y = 0
 	}
-	bp := dimPlain(base, W, H)
+	bp := dimPlain(base, w, h)
 	bl := strings.Split(box, "\n")
-	out := make([]string, H)
-	for i := 0; i < H; i++ {
+	out := make([]string, h)
+	for i := 0; i < h; i++ {
 		r := []rune(bp[i])
 		bi := i - y
 		if bi >= 0 && bi < len(bl) {
 			bw := lipgloss.Width(bl[bi])
 			lx := x
-			if lx > W {
-				lx = W
+			if lx > w {
+				lx = w
 			}
 			rx := x + bw
-			if rx > W {
-				rx = W
+			if rx > w {
+				rx = w
 			}
 			out[i] = dim.Render(string(r[:lx])) + bl[bi] + dim.Render(string(r[rx:]))
 		} else {
@@ -407,19 +407,19 @@ func overlayBox(base, box string, x, y, W, H int, dim lipgloss.Style) string {
 
 // dimPlain strips colour from base and normalises it to exactly H lines of W
 // runes, so a modal can be spliced in without worrying about ANSI state.
-func dimPlain(base string, W, H int) []string {
+func dimPlain(base string, w, h int) []string {
 	src := strings.Split(base, "\n")
-	out := make([]string, H)
-	for i := 0; i < H; i++ {
+	out := make([]string, h)
+	for i := 0; i < h; i++ {
 		line := ""
 		if i < len(src) {
 			line = stripANSI(src[i])
 		}
 		r := []rune(line)
-		if len(r) > W {
-			r = r[:W]
+		if len(r) > w {
+			r = r[:w]
 		}
-		for len(r) < W {
+		for len(r) < w {
 			r = append(r, ' ')
 		}
 		out[i] = string(r)

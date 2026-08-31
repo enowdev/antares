@@ -121,17 +121,18 @@ func (imageGenerateTool) Execute(ctx context.Context, in Input) Result {
 	}
 
 	var img []byte
-	if out.Data[0].B64 != "" {
+	switch {
+	case out.Data[0].B64 != "":
 		img, err = base64.StdEncoding.DecodeString(out.Data[0].B64)
 		if err != nil {
 			return Errorf("could not decode the image: %v", err)
 		}
-	} else if out.Data[0].URL != "" {
+	case out.Data[0].URL != "":
 		img, err = fetchBytes(ctx, out.Data[0].URL)
 		if err != nil {
 			return Errorf("could not download the image: %v", err)
 		}
-	} else {
+	default:
 		return Errorf("the image endpoint returned neither data nor a url")
 	}
 

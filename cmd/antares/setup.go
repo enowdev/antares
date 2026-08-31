@@ -483,7 +483,8 @@ func pickModel(ctx context.Context, cfg *config.Config, chosen providerChoice) s
 			rest = append(rest, id)
 		}
 		sort.Strings(rest)
-		suggestions = append(ordered, rest...)
+		ordered = append(ordered, rest...)
+		suggestions = ordered
 	}
 
 	if len(suggestions) == 0 {

@@ -34,7 +34,7 @@ func usernameCandidates(local string) []string {
 	}
 	add(local)
 	add(strings.NewReplacer(".", "", "-", "", "_", "").Replace(local)) // collapse separators
-	add(regexp.MustCompile(`\d+$`).ReplaceAllString(local, ""))         // strip trailing digits
+	add(regexp.MustCompile(`\d+$`).ReplaceAllString(local, ""))        // strip trailing digits
 	return out
 }
 
@@ -205,7 +205,8 @@ func (osintEmailTool) Execute(ctx context.Context, in Input) Result {
 		return Errorf("%v", err)
 	}
 	email := strings.TrimSpace(strings.ToLower(args.Email))
-	if !strings.Contains(email, "@") {
+	local, domain, ok := strings.Cut(email, "@")
+	if !ok {
 		return Errorf("%q is not a valid email", email)
 	}
 	var b strings.Builder
@@ -249,8 +250,6 @@ func (osintEmailTool) Execute(ctx context.Context, in Input) Result {
 	// few normalised variants and hand them to the agent to cross-search with
 	// osint_username / osint_pivot — this is what turns an email into linked
 	// accounts instead of a dead end.
-	local := email[:strings.Index(email, "@")]
-	domain := email[strings.Index(email, "@")+1:]
 	cands := usernameCandidates(local)
 	fmt.Fprintf(&b, "\nUsername candidates (from the local part) — cross-search these:\n")
 	for _, c := range cands {
