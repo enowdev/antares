@@ -64,7 +64,7 @@ struct AppShell: View {
         case "logs":
             LogsView()
         case "config":
-            PageStub(id: item.id)
+            ConfigView()
         case "system":
             SystemView()
         case "content-creator":
