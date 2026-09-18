@@ -53,22 +53,29 @@ final class AppModel: ObservableObject {
     func stop() async {
         await runtime.stop()
     }
-}
 
-private struct SetupStatus: Decodable {
-    var needsSetup: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case needsSetup = "needs_setup"
+    func login(password: String) async throws {
+        let _: EmptyResponse = try await client.post("/api/auth/login", body: LoginRequest(password: password))
+        await start()
     }
-}
 
-private struct AuthStatus: Decodable {
-    var passwordRequired: Bool
-    var authenticated: Bool
+    func setDashboardPassword(_ password: String, current: String? = nil) async throws {
+        let _: EmptyResponse = try await client.post(
+            "/api/auth/password",
+            body: SetPasswordRequest(password: password, current: current)
+        )
+    }
 
-    enum CodingKeys: String, CodingKey {
-        case passwordRequired = "password_required"
-        case authenticated
+    func setupStatus() async throws -> SetupStatus {
+        try await client.get("/api/setup/status")
+    }
+
+    func testSetup(_ request: SetupTestRequest) async throws -> SetupTestResponse {
+        try await client.post("/api/setup/test", body: request)
+    }
+
+    func completeSetup(_ request: CompleteSetupRequest) async throws {
+        let _: EmptyResponse = try await client.post("/api/setup/complete", body: request)
+        await start()
     }
 }
