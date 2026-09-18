@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ChatToolCall: Equatable, Sendable {
+public struct ChatToolCall: Equatable, Identifiable, Sendable {
     public var id: String
     public var name: String
     public var args: String
@@ -174,5 +174,104 @@ public struct ChatTranscript: Equatable, Sendable {
     private mutating func updateTool(id: String, update: (inout ChatToolCall) -> Void) {
         guard let idx = toolCalls.firstIndex(where: { $0.id == id }) else { return }
         update(&toolCalls[idx])
+    }
+}
+
+public struct ChatHistoryMessage: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var role: String
+    public var content: String
+    public var reasoning: String
+    public var toolCalls: [ChatToolCall]
+    public var error: String?
+
+    public init(
+        id: String,
+        role: String,
+        content: String = "",
+        reasoning: String = "",
+        toolCalls: [ChatToolCall] = [],
+        error: String? = nil
+    ) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.reasoning = reasoning
+        self.toolCalls = toolCalls
+        self.error = error
+    }
+}
+
+public func hydrateChat(_ detail: SessionDetail) -> [ChatHistoryMessage] {
+    var rows: [ChatHistoryMessage] = []
+    var toolIndex: [String: Int] = [:]
+
+    for message in detail.messages {
+        if message.hidden == true { continue }
+
+        if message.role == "tool" {
+            if let callID = message.toolCallID, let idx = toolIndex[callID], rows.indices.contains(idx) {
+                rows[idx].toolCalls = rows[idx].toolCalls.map { call in
+                    guard call.id == callID else { return call }
+                    var next = call
+                    next.result = message.content
+                    next.running = false
+                    next.isError = message.meta?["is_error"]?.boolValue == true
+                    return next
+                }
+            }
+            continue
+        }
+
+        var row = ChatHistoryMessage(
+            id: message.id,
+            role: message.role,
+            content: message.content,
+            reasoning: message.reasoning ?? ""
+        )
+
+        if message.role == "assistant", message.meta?["is_error"]?.boolValue == true {
+            row.error = parseHydratedError(message.content)
+            row.content = ""
+        }
+
+        if let raw = message.toolCalls, let parsed = parseHydratedToolCalls(raw) {
+            row.toolCalls = parsed
+            let index = rows.count
+            for call in parsed {
+                toolIndex[call.id] = index
+            }
+        }
+
+        rows.append(row)
+    }
+
+    return rows
+}
+
+private func parseHydratedError(_ content: String) -> String {
+    guard let data = content.data(using: .utf8),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let error = obj["error"] as? String
+    else {
+        return content
+    }
+    return error
+}
+
+private struct EncodedHydratedToolCall: Decodable {
+    var id: String
+    var name: String
+    var arguments: String
+}
+
+private func parseHydratedToolCalls(_ raw: String) -> [ChatToolCall]? {
+    guard let data = raw.data(using: .utf8),
+          let parsed = try? JSONDecoder().decode([EncodedHydratedToolCall].self, from: data)
+    else {
+        return nil
+    }
+    return parsed.map {
+        ChatToolCall(id: $0.id, name: $0.name, args: $0.arguments, running: true)
     }
 }

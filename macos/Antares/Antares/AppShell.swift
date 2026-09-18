@@ -20,7 +20,7 @@ struct AppShell: View {
     private func detailView(for item: SidebarItem) -> some View {
         switch item.id {
         case "chat":
-            PageStub(id: item.id)
+            ChatView()
         case "sessions":
             PageStub(id: item.id)
         case "providers":

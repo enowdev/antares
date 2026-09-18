@@ -25,6 +25,20 @@ final class SSEClientTests: XCTestCase {
         XCTAssertEqual(count, 1)
     }
 
+    func testAccumulatorDispatchesRecordSplitAcrossChunks() throws {
+        var accumulator = SSEAccumulator()
+        var events: [[String: String]] = []
+
+        try accumulator.append(Data("data: {\"type\":\"text\"".utf8)) { event in
+            events.append(event)
+        }
+        try accumulator.append(Data(",\"delta\":\"x\"}\n\n".utf8)) { event in
+            events.append(event)
+        }
+
+        XCTAssertEqual(events, [["type": "text", "delta": "x"]])
+    }
+
     func testMalformedJSONKeepsStreamAlive() throws {
         let raw = "data: not-json\n\ndata: {\"ok\":true}\n\n"
         var events: [[String: String]] = []
