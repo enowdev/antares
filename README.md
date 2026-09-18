@@ -4,7 +4,7 @@
 
 <h1 align="center">Antares</h1>
 
-<p align="center">A self-hosted AI agent. Go backend, React dashboard, one binary.</p>
+<p align="center">A self-hosted AI agent. Go backend, web dashboard everywhere, optional native macOS app.</p>
 
 Antares reads and writes files, runs shell commands, drives a real browser,
 searches the web, remembers what matters across sessions, retrieves from a
@@ -31,6 +31,8 @@ antares setup        # configure it, in the browser or the terminal
 Runs on **Linux**, **macOS**, and **Windows**.
 
 Mac operators can also build an optional native dashboard companion with `make macos`.
+The Mac app is optional; the CLI `antares` still serves the web UI for other
+platforms.
 
 ---
 
@@ -331,6 +333,7 @@ internal/
   wsutil/             minimal RFC 6455 client
   config/             layered configuration and its schema
 web/                  React dashboard (Vite, Tailwind, shadcn-style, Phosphor)
+macos/                optional native companion: AntaresKit + Antares SwiftUI
 ```
 
 The dashboard owns its layout centrally: `web/src/lib/routes.ts` declares every

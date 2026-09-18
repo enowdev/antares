@@ -27,6 +27,11 @@ make build       # one binary with the dashboard inside it
 
 ## macOS app
 
+The Mac app is optional. Building it requires Xcode or the Swift toolchain.
+The CLI `antares` and `antares tui` are unchanged: they still start the Go
+backend and serve the embedded web dashboard on every platform, including
+Linux and Windows.
+
 ```bash
 make macos
 open macos/build/Build/Products/Release/Antares.app

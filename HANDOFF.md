@@ -3,6 +3,15 @@
 Last updated: 2026-08-08. Branch: `main`. Working tree: clean.
 **11 commits are committed locally but NOT pushed** (`dff21d7`..`0119b7a`).
 
+## Current state (2026-09-18)
+
+macOS has an optional native SwiftUI dashboard in `macos/` (`make macos`):
+`AntaresKit` plus the `Antares` SwiftUI app, talking HTTP/SSE to `:8787`.
+The Mac app is optional; the CLI `antares` still serves the embedded React
+dashboard for Linux, Windows, and anyone who does not build the app. The Go
+backend was not rewritten. Session log below is from 2026-08-08 and is
+otherwise unchanged.
+
 ## Goal
 
 Ongoing maintenance of Antares (Go backend + React/Vite dashboard in `web/`).

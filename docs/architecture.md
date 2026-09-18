@@ -23,6 +23,7 @@ internal/
   wsutil/             a minimal RFC 6455 client
   config/             layered configuration and its schema
 web/                  the React dashboard
+macos/                AntaresKit + Antares SwiftUI companion (HTTP/SSE to :8787)
 ```
 
 ## The turn
@@ -81,6 +82,8 @@ everywhere and adding one is a single registration.
 
 **The dashboard embedded.** `make build` copies `web/dist` into the binary. One
 file to copy anywhere. In development Vite serves the UI and proxies the API.
+On macOS, `make macos` can also build an optional native SwiftUI companion; it
+does not replace the Go process or the embedded web dashboard.
 
 ## The dashboard
 
@@ -91,6 +94,12 @@ load only when selected. Development sample routes are excluded from production.
 
 Built with React 19, Vite, Tailwind v4 with oklch tokens, Radix primitives, and
 Phosphor icons. Five languages, English by default.
+
+macOS has an optional native companion in `macos/`: `AntaresKit` (HTTP, SSE,
+process supervisor) plus the `Antares` SwiftUI app. It talks only to the
+existing Go API at `http://127.0.0.1:8787`. The Mac app is optional; the CLI
+`antares` still serves the web UI for other platforms. The Go backend is
+unchanged.
 
 ## Streaming
 
