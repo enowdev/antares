@@ -237,6 +237,7 @@ struct SetupView: View {
             selectedModel = loaded.model
             workspace = loaded.workspace
             dbDriver = loaded.database.isEmpty ? "sqlite" : loaded.database
+            showsSetPassword = false
             applyProviderDefaults(for: providerID)
         } catch let error as APIError where error.isDashboardPasswordRequired {
             showsSetPassword = true
@@ -360,7 +361,9 @@ struct SetupView: View {
             do {
                 try await model.setDashboardPassword(passwordForGate)
                 try await model.login(password: passwordForGate)
-                showsSetPassword = false
+                passwordForGate = ""
+                confirmPasswordForGate = ""
+                await loadStatus()
             } catch {
                 errorMessage = error.localizedDescription
             }
