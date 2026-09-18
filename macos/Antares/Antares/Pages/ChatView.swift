@@ -103,6 +103,7 @@ final class ChatController: ObservableObject {
     static let liveAssistantID = "live-assistant"
     static let bottomID = "chat-bottom"
     static let lastSessionKey = "antares.lastSession"
+    static let lastRoleKey = "antares.lastRole"
 
     @Published var draft = ""
     @Published var messages: [ChatHistoryMessage] = []
@@ -209,7 +210,9 @@ final class ChatController: ObservableObject {
     private func runStream(message: String, generation: UInt64) async {
         guard let client else { return }
         do {
-            try await client.streamChat(ChatSendRequest(sessionID: sessionID, message: message)) { [weak self] event in
+            try await client.streamChat(
+                ChatSendRequest(sessionID: sessionID, message: message, role: currentRole())
+            ) { [weak self] event in
                 await self?.applyLive(event, generation: generation)
             }
         } catch is CancellationError {
@@ -236,6 +239,7 @@ final class ChatController: ObservableObject {
             messages = hydrateChat(detail)
             title = detail.session.title.isEmpty ? "Chat" : detail.session.title
             persistSession(id)
+            await refreshSessionRole(id)
             errorMessage = nil
             bumpScroll()
         } catch let error as APIError where error.status == 404 {
@@ -325,6 +329,23 @@ final class ChatController: ObservableObject {
     private func persistSession(_ id: String) {
         sessionID = id
         UserDefaults.standard.set(id, forKey: Self.lastSessionKey)
+    }
+
+    private func currentRole() -> String? {
+        let role = UserDefaults.standard.string(forKey: Self.lastRoleKey) ?? ""
+        return role.isEmpty ? nil : role
+    }
+
+    private func refreshSessionRole(_ id: String) async {
+        guard let client else { return }
+        do {
+            let response = try await client.sessionRole(id)
+            if !response.role.isEmpty {
+                UserDefaults.standard.set(response.role, forKey: Self.lastRoleKey)
+            }
+        } catch {
+            // Keep the remembered last-used role if the session has none yet.
+        }
     }
 
     private func bumpScroll() {

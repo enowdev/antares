@@ -32,15 +32,15 @@ struct AppShell: View {
         case "memory":
             MemoryView()
         case "roles":
-            PageStub(id: item.id)
+            RolesView()
         case "soul":
-            PageStub(id: item.id)
+            SoulView()
         case "skills":
-            PageStub(id: item.id)
+            SkillsView()
         case "cron":
-            PageStub(id: item.id)
+            CronView()
         case "channels":
-            PageStub(id: item.id)
+            ChannelsView()
         case "autopilot":
             PageStub(id: item.id)
         case "engagement":
