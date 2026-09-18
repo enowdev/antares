@@ -102,7 +102,7 @@ struct ChatView: View {
 final class ChatController: ObservableObject {
     static let liveAssistantID = "live-assistant"
     static let bottomID = "chat-bottom"
-    private static let lastSessionKey = "antares.lastSession"
+    static let lastSessionKey = "antares.lastSession"
 
     @Published var draft = ""
     @Published var messages: [ChatHistoryMessage] = []

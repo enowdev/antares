@@ -105,12 +105,44 @@ public struct SessionDetail: Decodable, Sendable {
     public var messages: [SessionMessage]
 }
 
-public struct SessionSummary: Decodable, Sendable {
+public struct SessionSummary: Decodable, Identifiable, Sendable {
     public var id: String
     public var title: String
+    public var platform: String
+    public var channelID: String
+    public var userID: String
     public var model: String?
     public var provider: String?
+    public var workspace: String
+    public var messageCount: Int
+    public var tokensIn: Int
+    public var tokensOut: Int
+    public var cost: Double
+    public var archived: Bool
+    public var pinned: Bool
+    public var createdAt: String
+    public var updatedAt: String
     public var meta: [String: FlexibleJSON]?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case platform
+        case channelID = "channel_id"
+        case userID = "user_id"
+        case model
+        case provider
+        case workspace
+        case messageCount = "message_count"
+        case tokensIn = "tokens_in"
+        case tokensOut = "tokens_out"
+        case cost
+        case archived
+        case pinned
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case meta
+    }
 }
 
 public struct SessionMessage: Decodable, Identifiable, Sendable {

@@ -36,15 +36,27 @@ public final class APIClient: @unchecked Sendable {
     }
 
     public func get<T: Decodable>(_ path: String) async throws -> T {
-        try await send(path, method: "GET", body: nil as Data?)
+        try await send(url: url(path), method: "GET", body: nil)
+    }
+
+    public func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T {
+        var components = URLComponents(url: url(path), resolvingAgainstBaseURL: true)!
+        if !query.isEmpty {
+            components.queryItems = query
+        }
+        return try await send(url: components.url!, method: "GET", body: nil)
     }
 
     public func post<T: Decodable, B: Encodable & Sendable>(_ path: String, body: B) async throws -> T {
-        try await send(path, method: "POST", body: JSONEncoder().encode(body))
+        try await send(url: url(path), method: "POST", body: JSONEncoder().encode(body))
     }
 
-    private func send<T: Decodable>(_ path: String, method: String, body: Data?) async throws -> T {
-        var req = URLRequest(url: url(path))
+    public func delete<T: Decodable>(_ path: String) async throws -> T {
+        try await send(url: url(path), method: "DELETE", body: nil)
+    }
+
+    private func send<T: Decodable>(url: URL, method: String, body: Data?) async throws -> T {
+        var req = URLRequest(url: url)
         req.httpMethod = method
         req.httpBody = body
         if body != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }

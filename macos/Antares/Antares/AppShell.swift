@@ -22,13 +22,15 @@ struct AppShell: View {
         case "chat":
             ChatView()
         case "sessions":
-            PageStub(id: item.id)
+            SessionsView {
+                selection = SidebarItem.all.first { $0.id == "chat" }
+            }
         case "providers":
-            PageStub(id: item.id)
+            ProvidersView()
         case "tools":
-            PageStub(id: item.id)
+            ToolsView()
         case "memory":
-            PageStub(id: item.id)
+            MemoryView()
         case "roles":
             PageStub(id: item.id)
         case "soul":
