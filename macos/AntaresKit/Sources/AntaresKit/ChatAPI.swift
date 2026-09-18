@@ -177,7 +177,7 @@ public struct SessionMessage: Decodable, Identifiable, Sendable {
     }
 }
 
-public enum FlexibleJSON: Decodable, Sendable, Equatable {
+public enum FlexibleJSON: Decodable, Sendable, Equatable, Hashable {
     case string(String)
     case bool(Bool)
     case number(Double)
@@ -210,6 +210,23 @@ public enum FlexibleJSON: Decodable, Sendable, Equatable {
     public var stringValue: String? {
         if case .string(let value) = self { return value }
         return nil
+    }
+
+    public var numberValue: Double? {
+        if case .number(let value) = self { return value }
+        return nil
+    }
+
+    public var displayString: String {
+        switch self {
+        case .string(let value): return value
+        case .bool(let value): return value ? "true" : "false"
+        case .number(let value):
+            if value.rounded() == value { return String(Int(value)) }
+            return String(value)
+        case .null: return "null"
+        case .array, .object: return ""
+        }
     }
 }
 

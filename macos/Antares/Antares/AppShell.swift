@@ -56,17 +56,17 @@ struct AppShell: View {
         case "proxies":
             ProxiesView()
         case "vps":
-            PageStub(id: item.id)
+            VPSView()
         case "analytics":
-            PageStub(id: item.id)
+            AnalyticsView()
         case "files":
-            PageStub(id: item.id)
+            FilesView()
         case "logs":
-            PageStub(id: item.id)
+            LogsView()
         case "config":
             PageStub(id: item.id)
         case "system":
-            PageStub(id: item.id)
+            SystemView()
         case "content-creator":
             PageStub(id: item.id)
         case "social-media":

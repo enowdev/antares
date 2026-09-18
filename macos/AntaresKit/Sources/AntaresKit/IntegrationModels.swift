@@ -623,7 +623,7 @@ public struct ClearedFlagResponse: Decodable, Sendable {
     public var ok: Bool?
 }
 
-private func encodedPath(_ value: String) -> String {
+func encodedPath(_ value: String) -> String {
     value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
 }
 
