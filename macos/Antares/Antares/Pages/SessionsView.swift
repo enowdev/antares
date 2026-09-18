@@ -28,6 +28,13 @@ struct SessionsView: View {
                 )
             } else {
                 List {
+                    if let errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
                     if !hits.isEmpty {
                         Section("Content matches") {
                             ForEach(hits) { hit in

@@ -25,6 +25,13 @@ struct ToolsView: View {
                 )
             } else {
                 List {
+                    if let errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
                     if let response {
                         Section("Toolset") {
                             Text(response.toolset.isEmpty ? "—" : response.toolset)

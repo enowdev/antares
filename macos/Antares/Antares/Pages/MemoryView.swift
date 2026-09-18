@@ -32,6 +32,13 @@ struct MemoryView: View {
                 )
             } else {
                 List {
+                    if let errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
                     ForEach(memories) { item in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
