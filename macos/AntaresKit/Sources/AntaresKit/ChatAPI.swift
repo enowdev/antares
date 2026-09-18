@@ -261,38 +261,6 @@ extension APIClient {
             throw APIError(status: status, body: Data())
         }
 
-        var accumulator = SSEAccumulator()
-        for try await byte in bytes {
-            var emitted: [[String: String]] = []
-            var parseErrors: [(String, Error)] = []
-            try accumulator.append(Data([byte]), onEvent: { event in
-                emitted.append(event)
-            }, onParseError: { raw, error in
-                parseErrors.append((raw, error))
-            })
-            for event in emitted {
-                await onEvent(event)
-            }
-            if let onParseError {
-                for (raw, error) in parseErrors {
-                    await onParseError(raw, error)
-                }
-            }
-        }
-        var emitted: [[String: String]] = []
-        var parseErrors: [(String, Error)] = []
-        try accumulator.finish(onEvent: { event in
-            emitted.append(event)
-        }, onParseError: { raw, error in
-            parseErrors.append((raw, error))
-        })
-        for event in emitted {
-            await onEvent(event)
-        }
-        if let onParseError {
-            for (raw, error) in parseErrors {
-                await onParseError(raw, error)
-            }
-        }
+        try await SSEStream.consume(bytes, onEvent: onEvent, onParseError: onParseError)
     }
 }

@@ -171,6 +171,10 @@ public struct ChatTranscript: Equatable, Sendable {
         }
     }
 
+    public var hasDisplayableContent: Bool {
+        !assistantText.isEmpty || !reasoning.isEmpty || !toolCalls.isEmpty || error != nil
+    }
+
     private mutating func updateTool(id: String, update: (inout ChatToolCall) -> Void) {
         guard let idx = toolCalls.firstIndex(where: { $0.id == id }) else { return }
         update(&toolCalls[idx])

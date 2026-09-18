@@ -116,6 +116,7 @@ final class ChatController: ObservableObject {
 
     private var client: APIClient?
     private var streamTask: Task<Void, Never>?
+    private var streamGeneration: UInt64 = 0
     private var receivedStreamContent = false
 
     var visibleMessages: [ChatHistoryMessage] {
@@ -144,8 +145,11 @@ final class ChatController: ObservableObject {
         }
         guard let sessionID else { return }
         await loadSession(sessionID)
-        guard self.sessionID == sessionID else { return }
-        await attachLive(sessionID)
+        guard self.sessionID == sessionID, streamTask == nil, !isStreaming else { return }
+        let generation = bumpGeneration()
+        let task = Task { await attachLive(sessionID, generation: generation) }
+        streamTask = task
+        await task.value
     }
 
     func send() {
@@ -160,13 +164,17 @@ final class ChatController: ObservableObject {
         live = ChatTranscript()
         isStreaming = true
         bumpScroll()
+        let generation = bumpGeneration()
         streamTask?.cancel()
-        streamTask = Task { await runStream(message: text) }
+        streamTask = Task { await runStream(message: text, generation: generation) }
     }
 
     func interrupt() {
         guard isStreaming else { return }
         let id = sessionID
+        bumpGeneration()
+        isStreaming = false
+        finishLiveIfNeeded()
         streamTask?.cancel()
         streamTask = nil
         Task {
@@ -178,6 +186,7 @@ final class ChatController: ObservableObject {
     func newChat() {
         let id = sessionID
         let wasStreaming = isStreaming
+        bumpGeneration()
         streamTask?.cancel()
         streamTask = nil
         sessionID = nil
@@ -197,22 +206,23 @@ final class ChatController: ObservableObject {
         }
     }
 
-    private func runStream(message: String) async {
+    private func runStream(message: String, generation: UInt64) async {
         guard let client else { return }
         do {
             try await client.streamChat(ChatSendRequest(sessionID: sessionID, message: message)) { [weak self] event in
-                await self?.applyLive(event)
+                await self?.applyLive(event, generation: generation)
             }
         } catch is CancellationError {
             // Local interrupt; the interrupt POST is fired separately.
         } catch {
-            if !Task.isCancelled {
-                errorMessage = (error as? APIError)?.message ?? error.localizedDescription
-            }
+            guard isCurrent(generation), !Task.isCancelled else { return }
+            errorMessage = (error as? APIError)?.message ?? error.localizedDescription
         }
+        guard isCurrent(generation) else { return }
         finishLiveIfNeeded()
         if receivedStreamContent {
             await refreshSession()
+            guard isCurrent(generation) else { return }
         }
         bumpScroll()
     }
@@ -235,25 +245,29 @@ final class ChatController: ObservableObject {
         }
     }
 
-    private func attachLive(_ id: String) async {
+    private func attachLive(_ id: String, generation: UInt64) async {
         guard let client else { return }
         receivedStreamContent = false
         live = ChatTranscript()
         do {
             try await client.attachChat(sessionID: id) { [weak self] event in
-                await self?.applyLive(event)
+                await self?.applyLive(event, generation: generation)
             }
         } catch is CancellationError {
             return
         } catch {
+            if Task.isCancelled || !isCurrent(generation) { return }
             // No live turn, or the attach failed; keep hydrated history.
         }
+        guard isCurrent(generation) else { return }
         finishLiveIfNeeded()
         await refreshSession()
+        guard isCurrent(generation) else { return }
         bumpScroll()
     }
 
-    private func applyLive(_ event: [String: String]) {
+    private func applyLive(_ event: [String: String], generation: UInt64) {
+        guard isCurrent(generation) else { return }
         live.apply(event)
         if event["type"] != "done" {
             isStreaming = true
@@ -269,8 +283,7 @@ final class ChatController: ObservableObject {
     }
 
     private func finishLiveIfNeeded() {
-        let hasContent = !live.assistantText.isEmpty || !live.toolCalls.isEmpty || live.error != nil
-        if hasContent {
+        if live.hasDisplayableContent {
             messages.append(
                 ChatHistoryMessage(
                     id: "asst-\(UUID().uuidString)",
@@ -284,6 +297,16 @@ final class ChatController: ObservableObject {
         }
         live = ChatTranscript()
         isStreaming = false
+    }
+
+    @discardableResult
+    private func bumpGeneration() -> UInt64 {
+        streamGeneration += 1
+        return streamGeneration
+    }
+
+    private func isCurrent(_ generation: UInt64) -> Bool {
+        generation == streamGeneration
     }
 
     private func refreshSession() async {

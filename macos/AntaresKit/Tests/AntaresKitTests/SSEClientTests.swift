@@ -60,4 +60,29 @@ final class SSEClientTests: XCTestCase {
         }
         XCTAssertEqual(events, [["value": "spaced"], ["value": "tight"]])
     }
+
+    func testConsumeAssemblesEventsFromAsyncByteStreamInChunks() async throws {
+        let raw = "data: {\"type\":\"text\",\"delta\":\"hello\"}\n\n"
+        let bytes = AsyncStream<UInt8> { continuation in
+            for byte in raw.utf8 {
+                continuation.yield(byte)
+            }
+            continuation.finish()
+        }
+
+        let collected = EventCollector()
+        try await SSEStream.consume(bytes, chunkSize: 8) { event in
+            collected.append(event)
+        }
+
+        XCTAssertEqual(collected.events, [["type": "text", "delta": "hello"]])
+    }
+}
+
+private final class EventCollector: @unchecked Sendable {
+    private(set) var events: [[String: String]] = []
+
+    func append(_ event: [String: String]) {
+        events.append(event)
+    }
 }

@@ -82,6 +82,15 @@ final class ChatEventsTests: XCTestCase {
         XCTAssertFalse(s.done)
     }
 
+    func testHasDisplayableContentIncludesReasoningOnly() {
+        let empty = ChatTranscript()
+        XCTAssertFalse(empty.hasDisplayableContent)
+
+        var reasoningOnly = ChatTranscript()
+        reasoningOnly.apply(["type": "reasoning", "delta": "hmm"])
+        XCTAssertTrue(reasoningOnly.hasDisplayableContent)
+    }
+
     func testUsageParsesTokenFields() {
         var s = ChatTranscript()
         s.apply([

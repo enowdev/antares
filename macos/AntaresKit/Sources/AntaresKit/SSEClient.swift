@@ -131,6 +131,66 @@ public struct SSEAccumulator {
     }
 }
 
+public enum SSEStream {
+    public static let defaultChunkSize = 4096
+
+    public static func consume<S: AsyncSequence>(
+        _ bytes: S,
+        chunkSize: Int = defaultChunkSize,
+        onEvent: @escaping @Sendable ([String: String]) async -> Void,
+        onParseError: (@Sendable (String, Error) async -> Void)? = nil
+    ) async throws where S.Element == UInt8 {
+        let flushAt = max(chunkSize, 1)
+        var accumulator = SSEAccumulator()
+        var chunk = Data()
+        chunk.reserveCapacity(flushAt)
+
+        func flush() async throws {
+            guard !chunk.isEmpty else { return }
+            var emitted: [[String: String]] = []
+            var parseErrors: [(String, Error)] = []
+            try accumulator.append(chunk, onEvent: { event in
+                emitted.append(event)
+            }, onParseError: { raw, error in
+                parseErrors.append((raw, error))
+            })
+            chunk.removeAll(keepingCapacity: true)
+            for event in emitted {
+                await onEvent(event)
+            }
+            if let onParseError {
+                for (raw, error) in parseErrors {
+                    await onParseError(raw, error)
+                }
+            }
+        }
+
+        for try await byte in bytes {
+            chunk.append(byte)
+            if chunk.count >= flushAt || byte == 0x0A {
+                try await flush()
+            }
+        }
+        try await flush()
+
+        var emitted: [[String: String]] = []
+        var parseErrors: [(String, Error)] = []
+        try accumulator.finish(onEvent: { event in
+            emitted.append(event)
+        }, onParseError: { raw, error in
+            parseErrors.append((raw, error))
+        })
+        for event in emitted {
+            await onEvent(event)
+        }
+        if let onParseError {
+            for (raw, error) in parseErrors {
+                await onParseError(raw, error)
+            }
+        }
+    }
+}
+
 public enum SSEParser {
     public static func parse(
         _ data: Data,
