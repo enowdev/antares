@@ -4,7 +4,8 @@ import Foundation
 public enum RuntimePlan {
     public enum Mode: Equatable { case attached, spawned, conflict }
 
-    public static func decide(healthOK: Bool, portBusy: Bool) -> Mode {
+    public static func decide(healthOK: Bool, portBusy: Bool, childExists: Bool = false) -> Mode {
+        if childExists { return .spawned }
         if healthOK { return .attached }
         if portBusy { return .conflict }
         return .spawned
@@ -58,25 +59,30 @@ public actor StderrLog {
 public final class RuntimeSupervisor: @unchecked Sendable {
     public private(set) var mode: RuntimePlan.Mode?
     public let stderrLog = StderrLog()
+    public let baseURL: URL
 
-    private let baseURL: URL
     private let client: APIClient
     private var process: Process?
     private var stderrTask: Task<Void, Never>?
 
     public init(baseURL: URL? = nil, session: URLSession = .shared) {
-        let resolved = baseURL
-            ?? ProcessInfo.processInfo.environment["ANTARES_URL"].flatMap { URL(string: $0) }
-            ?? AntaresKit.defaultBaseURL
+        let resolved = baseURL ?? AntaresKit.resolveBaseURL()
         self.baseURL = resolved
         self.client = APIClient(baseURL: resolved, session: session)
     }
 
     /// Probes health, attaches or spawns the bundled backend, then waits until healthy.
+    /// If a child already exists, keep `.spawned` and return without re-probing —
+    /// a healthy child must not flip the mode to `.attached` (quit would leak it).
     public func start(binary: URL?) async throws {
+        if process != nil {
+            mode = .spawned
+            return
+        }
+
         let healthOK = await probeHealth()
         let portBusy = !healthOK && isPortBusy(baseURL: baseURL)
-        let plan = RuntimePlan.decide(healthOK: healthOK, portBusy: portBusy)
+        let plan = RuntimePlan.decide(healthOK: healthOK, portBusy: portBusy, childExists: false)
         mode = plan
 
         switch plan {
@@ -96,14 +102,25 @@ public final class RuntimeSupervisor: @unchecked Sendable {
         }
     }
 
+    /// Sends SIGTERM immediately to a spawned child. Call from
+    /// `NSApplication.willTerminateNotification` on the main actor so the
+    /// child is signaled even if the async wait in `stop()` never runs.
+    ///
+    /// Remaining race: the app can still exit before the 5s wait / SIGKILL
+    /// in `stop()` finishes. Immediate `process.terminate()` is the part
+    /// that is guaranteed once this method is invoked.
+    public func terminateSpawnedChild() {
+        guard let mode, RuntimePlan.shouldStopChild(mode: mode) else { return }
+        process?.terminate()
+    }
+
     /// Stops a spawned child with SIGTERM, then SIGKILL after 5s. Attached mode is left running.
     public func stop() async {
-        guard let mode, RuntimePlan.shouldStopChild(mode: mode) else { return }
+        terminateSpawnedChild()
         stderrTask?.cancel()
         stderrTask = nil
         guard let process else { return }
         if process.isRunning {
-            process.terminate()
             let pid = process.processIdentifier
             try? await Task.sleep(for: .seconds(5))
             if process.isRunning {

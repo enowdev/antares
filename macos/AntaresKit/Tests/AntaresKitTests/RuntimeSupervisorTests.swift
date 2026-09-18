@@ -24,4 +24,16 @@ final class RuntimeSupervisorTests: XCTestCase {
         XCTAssertTrue(HealthResponse.meansAntaresPresent(decodeSucceeded: true, ok: true))
         XCTAssertFalse(HealthResponse.meansAntaresPresent(decodeSucceeded: false, ok: false))
     }
+
+    func testExistingChildKeepsSpawnedEvenWhenHealthy() {
+        XCTAssertEqual(
+            RuntimePlan.decide(healthOK: true, portBusy: false, childExists: true),
+            .spawned
+        )
+    }
+
+    func testSupervisorUsesInjectedBaseURL() {
+        let url = URL(string: "http://127.0.0.1:9999")!
+        XCTAssertEqual(RuntimeSupervisor(baseURL: url).baseURL, url)
+    }
 }

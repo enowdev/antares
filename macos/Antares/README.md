@@ -1,9 +1,19 @@
 # Antares macOS
 
-This task ships the macOS app shell as a SwiftPM executable package:
+Native SwiftUI dashboard. Build the app bundle (Swift executable + bundled `antares` backend):
 
 ```sh
-swift build
+make macos
 ```
 
-No `.xcodeproj` is checked in yet because `xcodegen` was not available in this environment. Task 7 should add the `make macos` / `xcodebuild` entry point and generate or check in a project file.
+The result is `macos/build/Build/Products/Release/Antares.app`.
+
+Package-level checks:
+
+```sh
+swift test --package-path macos/AntaresKit
+swift test --package-path macos/Antares
+swift build --package-path macos/Antares
+```
+
+Override the loopback API with `ANTARES_URL` (shared by the HTTP client and the runtime supervisor).

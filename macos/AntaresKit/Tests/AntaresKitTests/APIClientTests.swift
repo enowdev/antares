@@ -17,4 +17,9 @@ final class APIClientTests: XCTestCase {
         let c = APIClient(baseURL: URL(string: "http://127.0.0.1:8787")!)
         XCTAssertEqual(c.url("/api/health").absoluteString, "http://127.0.0.1:8787/api/health")
     }
+
+    func test401IsUnauthorized() {
+        XCTAssertTrue(APIError(status: 401, body: Data()).isUnauthorized)
+        XCTAssertFalse(APIError(status: 403, body: Data()).isUnauthorized)
+    }
 }

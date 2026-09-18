@@ -12,6 +12,8 @@ struct AntaresApp: App {
                     await model.start()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    // SIGTERM now; async wait/SIGKILL may still lose the race with process exit.
+                    model.terminateSpawnedChild()
                     Task {
                         await model.stop()
                     }
