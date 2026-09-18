@@ -9,8 +9,9 @@ struct ChannelsView: View {
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var busyID: String?
-    @State private var tokenDrafts: [String: String] = [:]
     @State private var configFor: ChannelInfo?
+    @State private var fieldValues: [String: String] = [:]
+    @State private var revealedKeys: Set<String> = []
 
     var body: some View {
         Group {
@@ -28,7 +29,7 @@ struct ChannelsView: View {
                 )
             } else {
                 List {
-                    if let errorMessage {
+                    if let errorMessage, configFor == nil {
                         Section {
                             Text(errorMessage)
                                 .foregroundStyle(.red)
@@ -56,8 +57,7 @@ struct ChannelsView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Button(channel.configured ? "Change token" : "Connect") {
-                                    tokenDrafts[channel.id] = ""
-                                    configFor = channel
+                                    openConfig(channel)
                                 }
                             }
                         }
@@ -109,16 +109,19 @@ struct ChannelsView: View {
         .sheet(item: $configFor) { channel in
             NavigationStack {
                 Form {
-                    if let docs = channel.docs, let url = URL(string: docs) {
-                        Link("Get a token", destination: url)
+                    if !channel.detail.isEmpty {
+                        Text(channel.detail)
+                            .foregroundStyle(.secondary)
                     }
-                    SecureField(
-                        channel.configured ? "New token" : "Token",
-                        text: Binding(
-                            get: { tokenDrafts[channel.id] ?? "" },
-                            set: { tokenDrafts[channel.id] = $0 }
-                        )
-                    )
+
+                    ForEach(channel.fields) { field in
+                        fieldRow(field)
+                    }
+
+                    if let docs = channel.docs, let url = URL(string: docs) {
+                        Link("Get a token for \(channel.label)", destination: url)
+                    }
+
                     if let errorMessage {
                         Text(errorMessage)
                             .foregroundStyle(.red)
@@ -130,17 +133,56 @@ struct ChannelsView: View {
                         Button("Cancel") { configFor = nil }
                     }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(busyID == channel.id ? "Saving…" : "Save") {
-                            Task { await saveToken(channel) }
+                        Button(busyID == channel.id ? "Saving…" : "Verify and save") {
+                            Task { await saveConfig(channel) }
                         }
-                        .disabled(tokenIsMissing(channel) || busyID != nil)
+                        .disabled(
+                            ChannelConfigForm.hasMissingRequired(channel.fields, values: fieldValues)
+                                || busyID != nil
+                        )
                     }
                 }
             }
-            .frame(minWidth: 420, minHeight: 220)
+            .frame(minWidth: 460, minHeight: 360)
         }
         .task { await load() }
         .refreshable { await load() }
+    }
+
+    @ViewBuilder
+    private func fieldRow(_ field: ChannelField) -> some View {
+        let binding = Binding(
+            get: { fieldValues[field.key] ?? "" },
+            set: { fieldValues[field.key] = $0 }
+        )
+        let placeholder = field.placeholder ?? (field.set ? "••••••••" : "")
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(field.label)
+                if field.set {
+                    Text("· set")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            HStack {
+                if field.secret && !revealedKeys.contains(field.key) {
+                    SecureField(placeholder, text: binding)
+                        .textContentType(.password)
+                } else {
+                    TextField(placeholder, text: binding)
+                }
+                if field.secret {
+                    Button(revealedKeys.contains(field.key) ? "Hide" : "Show") {
+                        if revealedKeys.contains(field.key) {
+                            revealedKeys.remove(field.key)
+                        } else {
+                            revealedKeys.insert(field.key)
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
     }
 
     private func statusLabel(_ channel: ChannelInfo) -> String {
@@ -150,9 +192,11 @@ struct ChannelsView: View {
         return "Disabled"
     }
 
-    private func tokenIsMissing(_ channel: ChannelInfo) -> Bool {
-        let value = tokenDrafts[channel.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return value.isEmpty
+    private func openConfig(_ channel: ChannelInfo) {
+        fieldValues = [:]
+        revealedKeys = []
+        errorMessage = nil
+        configFor = channel
     }
 
     private func load() async {
@@ -168,32 +212,23 @@ struct ChannelsView: View {
         isLoading = false
     }
 
-    private func saveToken(_ channel: ChannelInfo) async {
-        let token = tokenDrafts[channel.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !token.isEmpty else { return }
+    private func saveConfig(_ channel: ChannelInfo) async {
+        let fields = ChannelConfigForm.collectedFields(fieldValues)
         busyID = channel.id
         defer { busyID = nil }
         errorMessage = nil
         do {
-            let result: ChannelMutationResponse
-            if channel.id == "telegram" || channel.id == "discord" {
-                result = try await model.client.post(
-                    "/api/channels/\(channel.id)/token",
-                    body: ChannelTokenRequest(token: token)
+            let result: ChannelMutationResponse = try await model.client.post(
+                "/api/channels/\(channel.id)/config",
+                body: ChannelConfigRequest(
+                    fields: fields,
+                    enabled: channel.configured ? nil : true
                 )
-            } else {
-                let key = channel.fields.first(where: { $0.secret })?.key ?? "bot_token"
-                result = try await model.client.post(
-                    "/api/channels/\(channel.id)/config",
-                    body: ChannelConfigRequest(
-                        fields: [key: token],
-                        enabled: channel.configured ? nil : true
-                    )
-                )
-            }
+            )
             if result.ok {
                 configFor = nil
-                tokenDrafts[channel.id] = ""
+                fieldValues = [:]
+                revealedKeys = []
                 await load()
             } else {
                 errorMessage = result.error ?? "Token rejected."

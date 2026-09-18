@@ -327,6 +327,38 @@ public struct ChannelField: Decodable, Identifiable, Sendable {
     public var set: Bool
 
     public var id: String { key }
+
+    public init(key: String, label: String, secret: Bool, placeholder: String? = nil, set: Bool) {
+        self.key = key
+        self.label = label
+        self.secret = secret
+        self.placeholder = placeholder
+        self.set = set
+    }
+}
+
+public enum ChannelConfigForm {
+    public static let optionalKeys: Set<String> = ["listen_addr", "path", "user_id"]
+
+    public static func collectedFields(_ values: [String: String]) -> [String: String] {
+        var fields: [String: String] = [:]
+        for (key, value) in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                fields[key] = trimmed
+            }
+        }
+        return fields
+    }
+
+    public static func hasMissingRequired(_ fields: [ChannelField], values: [String: String]) -> Bool {
+        fields.contains { field in
+            guard !optionalKeys.contains(field.key) else { return false }
+            if field.set { return false }
+            let trimmed = values[field.key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty
+        }
+    }
 }
 
 public struct PairingInfo: Decodable, Identifiable, Sendable {

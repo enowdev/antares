@@ -379,4 +379,67 @@ final class ControlModelsTests: XCTestCase {
         XCTAssertEqual((json?["fields"] as? [String: String])?["bot_token"], "123:abc")
         XCTAssertEqual(json?["enabled"] as? Bool, true)
     }
+
+    func testSignalConfigPayloadPostsApiURLAndNumber() throws {
+        let payload = ChannelConfigForm.collectedFields([
+            "api_url": " http://localhost:8080 ",
+            "number": "+15551234567",
+        ])
+
+        XCTAssertEqual(payload, [
+            "api_url": "http://localhost:8080",
+            "number": "+15551234567",
+        ])
+    }
+
+    func testBlankConfigValuesAreOmittedSoExistingSecretsAreKept() {
+        let payload = ChannelConfigForm.collectedFields([
+            "app_token": "xapp-1",
+            "bot_token": "   ",
+        ])
+
+        XCTAssertEqual(payload, ["app_token": "xapp-1"])
+    }
+
+    func testWhatsAppRequiredFieldsIgnoreListenAddrAndPath() {
+        let fields = [
+            ChannelField(key: "token", label: "Graph API token", secret: true, set: false),
+            ChannelField(key: "phone_number_id", label: "Phone number id", secret: false, set: false),
+            ChannelField(key: "verify_token", label: "Webhook verify token", secret: true, set: false),
+            ChannelField(key: "listen_addr", label: "Listen address", secret: false, placeholder: ":8090", set: false),
+            ChannelField(key: "path", label: "Webhook path", secret: false, placeholder: "/webhook", set: false),
+        ]
+
+        XCTAssertTrue(ChannelConfigForm.hasMissingRequired(fields, values: [:]))
+        XCTAssertTrue(ChannelConfigForm.hasMissingRequired(fields, values: [
+            "token": "t",
+            "listen_addr": ":8090",
+        ]))
+        XCTAssertFalse(ChannelConfigForm.hasMissingRequired(fields, values: [
+            "token": "t",
+            "phone_number_id": "1",
+            "verify_token": "v",
+        ]))
+    }
+
+    func testAlreadySetRequiredFieldIsNotMissingWhenLeftBlank() {
+        let fields = [
+            ChannelField(key: "homeserver", label: "Homeserver URL", secret: false, set: true),
+            ChannelField(key: "user_id", label: "Bot user id", secret: false, placeholder: "@bot:matrix.org", set: false),
+            ChannelField(key: "access_token", label: "Access token", secret: true, set: true),
+        ]
+
+        XCTAssertFalse(ChannelConfigForm.hasMissingRequired(fields, values: [:]))
+    }
+
+    func testSlackConfigPayloadPostsBothTokens() {
+        let payload = ChannelConfigForm.collectedFields([
+            "app_token": "xapp-1",
+            "bot_token": "xoxb-2",
+        ])
+
+        XCTAssertEqual(payload["app_token"], "xapp-1")
+        XCTAssertEqual(payload["bot_token"], "xoxb-2")
+        XCTAssertEqual(payload.count, 2)
+    }
 }
