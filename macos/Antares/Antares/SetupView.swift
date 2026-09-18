@@ -9,6 +9,7 @@ struct SetupView: View {
     @State private var providerName = ""
     @State private var baseURL = ""
     @State private var apiKey = ""
+    @State private var headersText = ""
     @State private var selectedModel = ""
     @State private var modelFilter = ""
     @State private var testedModels: [String] = []
@@ -70,7 +71,20 @@ struct SetupView: View {
                 TextField("Base URL", text: $baseURL)
                     .textContentType(.URL)
 
-                SecureField(selectedProvider?.keyLabel ?? "API Key", text: $apiKey)
+                if selectedProvider?.local != true {
+                    SecureField(selectedProvider?.keyLabel ?? "API Key", text: $apiKey)
+                }
+
+                if showsHeaderEditor {
+                    Text("Custom Headers")
+                        .font(.headline)
+                    TextEditor(text: $headersText)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 86)
+                    Text("Enter one header per line as `Header-Name: value`.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
 
                 if let hint = selectedProvider?.hint, !hint.isEmpty {
                     Text(hint)
@@ -208,6 +222,10 @@ struct SetupView: View {
         selectedProvider?.custom == true || selectedProvider?.needsBaseURL == true
     }
 
+    private var showsHeaderEditor: Bool {
+        selectedProvider?.custom == true
+    }
+
     private func loadStatus() async {
         isLoading = true
         errorMessage = nil
@@ -233,6 +251,12 @@ struct SetupView: View {
         guard let provider = status?.providers.first(where: { $0.id == id }) else { return }
         baseURL = provider.baseURL ?? ""
         testedModels = []
+        if provider.local {
+            apiKey = ""
+        }
+        if provider.custom != true {
+            headersText = ""
+        }
         if selectedModel.isEmpty {
             selectedModel = provider.models?.first ?? ""
         }
@@ -244,13 +268,23 @@ struct SetupView: View {
         errorMessage = nil
         noticeMessage = nil
 
+        let headers: [String: String]?
+        do {
+            headers = try parsedHeaders()
+        } catch {
+            errorMessage = error.localizedDescription
+            isTesting = false
+            return
+        }
+
         Task {
             do {
                 let response = try await model.testSetup(
                     SetupTestRequest(
                         provider: providerID,
                         baseURL: effectiveBaseURL,
-                        apiKey: apiKey
+                        apiKey: selectedProvider?.local == true ? "" : apiKey,
+                        headers: headers
                     )
                 )
                 if response.ok {
@@ -277,6 +311,15 @@ struct SetupView: View {
         errorMessage = nil
         noticeMessage = nil
 
+        let headers: [String: String]?
+        do {
+            headers = try parsedHeaders()
+        } catch {
+            errorMessage = error.localizedDescription
+            isSaving = false
+            return
+        }
+
         Task {
             do {
                 try await model.completeSetup(
@@ -284,7 +327,8 @@ struct SetupView: View {
                         provider: providerID,
                         name: providerName,
                         baseURL: effectiveBaseURL,
-                        apiKey: apiKey,
+                        apiKey: selectedProvider?.local == true ? "" : apiKey,
+                        headers: headers,
                         model: selectedModel.trimmingCharacters(in: .whitespacesAndNewlines),
                         workspace: workspace.trimmingCharacters(in: .whitespacesAndNewlines),
                         database: SetupDatabaseRequest(driver: dbDriver, dsn: dbDriver == "postgres" ? dbDSN : ""),
@@ -327,5 +371,43 @@ struct SetupView: View {
     private var effectiveBaseURL: String {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? (selectedProvider?.baseURL ?? "") : trimmed
+    }
+
+    private func parsedHeaders() throws -> [String: String]? {
+        guard showsHeaderEditor else { return nil }
+
+        let lines = headersText
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !lines.isEmpty else { return nil }
+
+        var headers: [String: String] = [:]
+        for line in lines {
+            guard let separator = line.firstIndex(of: ":") else {
+                throw HeaderParseError.invalidLine(line)
+            }
+
+            let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else {
+                throw HeaderParseError.invalidLine(line)
+            }
+            headers[key] = value
+        }
+
+        return headers
+    }
+}
+
+private enum HeaderParseError: LocalizedError {
+    case invalidLine(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidLine(let line):
+            "Invalid header line: \(line). Use `Header-Name: value`."
+        }
     }
 }

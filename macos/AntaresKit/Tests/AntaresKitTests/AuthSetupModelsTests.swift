@@ -56,4 +56,28 @@ final class AuthSetupModelsTests: XCTestCase {
         XCTAssertEqual(object["password"] as? String, "secret")
         XCTAssertNil(object["apiKey"])
     }
+
+    func testCompleteSetupRequestEncodesHeadersWhenPresent() throws {
+        let request = CompleteSetupRequest(
+            provider: "custom",
+            name: "Local Gateway",
+            baseURL: "http://127.0.0.1:8080/v1",
+            apiKey: "",
+            headers: ["X-API-Key": "secret"],
+            model: "local-model",
+            workspace: "/tmp/antares",
+            database: SetupDatabaseRequest(),
+            rag: SetupRAGRequest()
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let headers = try XCTUnwrap(object["headers"] as? [String: String])
+
+        XCTAssertEqual(headers["X-API-Key"], "secret")
+        XCTAssertEqual(object["base_url"] as? String, "http://127.0.0.1:8080/v1")
+        XCTAssertEqual(object["api_key"] as? String, "")
+        XCTAssertNil(object["baseURL"])
+        XCTAssertNil(object["apiKey"])
+    }
 }
