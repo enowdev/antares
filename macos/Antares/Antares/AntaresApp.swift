@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct AntaresApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = AppModel()
 
     var body: some Scene {
@@ -10,6 +11,16 @@ struct AntaresApp: App {
                 .environmentObject(model)
                 .task {
                     await model.start()
+                }
+                .task(id: scenePhase) {
+                    if scenePhase == .background {
+                        await model.stop()
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    Task {
+                        await model.stop()
+                    }
                 }
         }
     }

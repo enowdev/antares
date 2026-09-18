@@ -30,6 +30,8 @@ antares setup        # configure it, in the browser or the terminal
 
 Runs on **Linux**, **macOS**, and **Windows**.
 
+Mac operators can also build an optional native dashboard companion with `make macos`.
+
 ---
 
 ## A look at it

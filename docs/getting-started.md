@@ -25,6 +25,16 @@ make build       # one binary with the dashboard inside it
 ./bin/antares
 ```
 
+## macOS app
+
+```bash
+make macos
+open macos/build/Build/Products/Release/Antares.app
+```
+
+The app starts `antares --foreground` if nothing is listening on :8787.
+Linux and Windows still use the web dashboard.
+
 The first run has nothing configured, so it drops straight into setup:
 
 ```
