@@ -295,4 +295,24 @@ extension APIClient {
 
         try await SSEStream.consume(bytes, onEvent: onEvent, onParseError: onParseError)
     }
+
+    public func streamGetJSON<T: Decodable & Sendable>(
+        _ path: String,
+        as type: T.Type = T.self,
+        onEvent: @escaping @Sendable (T) async -> Void,
+        onParseError: (@Sendable (String, Error) async -> Void)? = nil
+    ) async throws {
+        var request = URLRequest(url: url(path))
+        request.httpMethod = "GET"
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        if let bearerToken, !bearerToken.isEmpty {
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        }
+        let (bytes, response) = try await session.bytes(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw APIError(status: status, body: Data())
+        }
+        try await SSEStream.consumeJSON(bytes, as: type, onEvent: onEvent, onParseError: onParseError)
+    }
 }

@@ -48,13 +48,13 @@ struct AppShell: View {
         case "board":
             BoardView()
         case "intercept":
-            PageStub(id: item.id)
+            InterceptView()
         case "mcp":
-            PageStub(id: item.id)
+            MCPView()
         case "plugins":
-            PageStub(id: item.id)
+            PluginsView()
         case "proxies":
-            PageStub(id: item.id)
+            ProxiesView()
         case "vps":
             PageStub(id: item.id)
         case "analytics":

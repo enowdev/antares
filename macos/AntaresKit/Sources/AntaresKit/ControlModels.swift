@@ -205,6 +205,16 @@ public struct HubInstallResponse: Decodable, Sendable {
     public var name: String?
     public var path: String?
     public var summary: String?
+    public var missingKeys: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case error
+        case name
+        case path
+        case summary
+        case missingKeys = "missing_keys"
+    }
 }
 
 public struct CronJobsResponse: Decodable, Sendable {
