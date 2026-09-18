@@ -40,11 +40,11 @@ public final class APIClient: @unchecked Sendable {
     }
 
     public func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T {
-        var components = URLComponents(url: url(path), resolvingAgainstBaseURL: true)!
-        if !query.isEmpty {
-            components.queryItems = query
-        }
-        return try await send(url: components.url!, method: "GET", body: nil)
+        try await send(url: url(path, query: query), method: "GET", body: nil)
+    }
+
+    public func getData(_ path: String, query: [URLQueryItem] = []) async throws -> Data {
+        try await raw(url: url(path, query: query), method: "GET", body: nil)
     }
 
     public func post<T: Decodable, B: Encodable & Sendable>(_ path: String, body: B) async throws -> T {
@@ -55,7 +55,25 @@ public final class APIClient: @unchecked Sendable {
         try await send(url: url(path), method: "DELETE", body: nil)
     }
 
+    public func delete<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T {
+        try await send(url: url(path, query: query), method: "DELETE", body: nil)
+    }
+
+    private func url(_ path: String, query: [URLQueryItem]) -> URL {
+        var components = URLComponents(url: url(path), resolvingAgainstBaseURL: true)!
+        if !query.isEmpty {
+            components.queryItems = query
+        }
+        return components.url!
+    }
+
     private func send<T: Decodable>(url: URL, method: String, body: Data?) async throws -> T {
+        let data = try await raw(url: url, method: method, body: body)
+        if T.self == EmptyResponse.self { return EmptyResponse() as! T }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func raw(url: URL, method: String, body: Data?) async throws -> Data {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.httpBody = body
@@ -66,8 +84,7 @@ public final class APIClient: @unchecked Sendable {
         let (data, resp) = try await session.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else { throw APIError(status: status, body: data) }
-        if T.self == EmptyResponse.self { return EmptyResponse() as! T }
-        return try JSONDecoder().decode(T.self, from: data)
+        return data
     }
 }
 

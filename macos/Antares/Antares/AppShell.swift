@@ -42,11 +42,11 @@ struct AppShell: View {
         case "channels":
             ChannelsView()
         case "autopilot":
-            PageStub(id: item.id)
+            AutopilotView()
         case "engagement":
-            PageStub(id: item.id)
+            EngagementView()
         case "board":
-            PageStub(id: item.id)
+            BoardView()
         case "intercept":
             PageStub(id: item.id)
         case "mcp":
