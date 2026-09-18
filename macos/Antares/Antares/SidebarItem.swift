@@ -1,8 +1,43 @@
 import Foundation
 
+enum SidebarRoute: String, CaseIterable {
+    case chat
+    case sessions
+    case providers
+    case tools
+    case memory
+    case roles
+    case soul
+    case skills
+    case cron
+    case channels
+    case autopilot
+    case engagement
+    case board
+    case intercept
+    case mcp
+    case plugins
+    case proxies
+    case vps
+    case analytics
+    case files
+    case logs
+    case config
+    case system
+    case contentCreator = "content-creator"
+    case socialMedia = "social-media"
+}
+
 struct SidebarItem: Identifiable, Hashable {
     let id: String
     let title: String
+
+    var route: SidebarRoute {
+        guard let route = SidebarRoute(rawValue: id) else {
+            preconditionFailure("SidebarItem id \(id) has no SidebarRoute")
+        }
+        return route
+    }
 
     static let all: [SidebarItem] = [
         SidebarItem(id: "chat", title: "Chat"),

@@ -18,61 +18,59 @@ struct AppShell: View {
 
     @ViewBuilder
     private func detailView(for item: SidebarItem) -> some View {
-        switch item.id {
-        case "chat":
+        switch item.route {
+        case .chat:
             ChatView()
-        case "sessions":
+        case .sessions:
             SessionsView {
                 selection = SidebarItem.all.first { $0.id == "chat" }
             }
-        case "providers":
+        case .providers:
             ProvidersView()
-        case "tools":
+        case .tools:
             ToolsView()
-        case "memory":
+        case .memory:
             MemoryView()
-        case "roles":
+        case .roles:
             RolesView()
-        case "soul":
+        case .soul:
             SoulView()
-        case "skills":
+        case .skills:
             SkillsView()
-        case "cron":
+        case .cron:
             CronView()
-        case "channels":
+        case .channels:
             ChannelsView()
-        case "autopilot":
+        case .autopilot:
             AutopilotView()
-        case "engagement":
+        case .engagement:
             EngagementView()
-        case "board":
+        case .board:
             BoardView()
-        case "intercept":
+        case .intercept:
             InterceptView()
-        case "mcp":
+        case .mcp:
             MCPView()
-        case "plugins":
+        case .plugins:
             PluginsView()
-        case "proxies":
+        case .proxies:
             ProxiesView()
-        case "vps":
+        case .vps:
             VPSView()
-        case "analytics":
+        case .analytics:
             AnalyticsView()
-        case "files":
+        case .files:
             FilesView()
-        case "logs":
+        case .logs:
             LogsView()
-        case "config":
+        case .config:
             ConfigView()
-        case "system":
+        case .system:
             SystemView()
-        case "content-creator":
+        case .contentCreator:
             ContentCreatorView()
-        case "social-media":
+        case .socialMedia:
             SocialMediaView()
-        default:
-            PageStub(id: item.id)
         }
     }
 }
