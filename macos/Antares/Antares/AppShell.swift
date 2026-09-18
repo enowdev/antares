@@ -68,9 +68,9 @@ struct AppShell: View {
         case "system":
             SystemView()
         case "content-creator":
-            PageStub(id: item.id)
+            ContentCreatorView()
         case "social-media":
-            PageStub(id: item.id)
+            SocialMediaView()
         default:
             PageStub(id: item.id)
         }

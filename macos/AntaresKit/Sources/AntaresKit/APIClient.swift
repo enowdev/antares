@@ -51,6 +51,10 @@ public final class APIClient: @unchecked Sendable {
         try await send(url: url(path), method: "POST", body: JSONEncoder().encode(body))
     }
 
+    public func put<T: Decodable, B: Encodable & Sendable>(_ path: String, body: B) async throws -> T {
+        try await send(url: url(path), method: "PUT", body: JSONEncoder().encode(body))
+    }
+
     public func delete<T: Decodable>(_ path: String) async throws -> T {
         try await send(url: url(path), method: "DELETE", body: nil)
     }
