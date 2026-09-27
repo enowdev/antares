@@ -546,6 +546,26 @@ const en = {
   'sessions.tokens': '{n} tokens',
   'sessions.cleanEmpty': 'Clean {n} empty',
   'sessions.untitled': 'Untitled',
+
+  'palette.title': 'Command palette',
+  'palette.open': 'Search pages and commands',
+  'palette.search': 'Search',
+  'palette.placeholder': 'Search pages, sessions, actions…',
+  'palette.groupActions': 'Actions',
+  'palette.groupPages': 'Pages',
+  'palette.groupSessions': 'Recent sessions',
+  'palette.empty': 'Nothing matches that.',
+  'palette.off': 'off',
+  'palette.offHint': 'This module is off. The page still opens.',
+  'palette.newChat': 'New chat',
+  'palette.themeLight': 'Switch to light theme',
+  'palette.themeDark': 'Switch to dark theme',
+  'palette.goModels': 'Go to model settings',
+  'palette.hintNavigate': 'navigate',
+  'palette.hintOpen': 'open',
+  'palette.hintClose': 'close',
+  'palette.loadingSessions': 'Loading sessions…',
+
   'sessions.deleteOne': 'Delete session',
   'sessions.deleteAll': 'Delete All',
   'sessions.deleteAllTitle': 'Delete all sessions?',
@@ -1099,6 +1119,11 @@ const en = {
 export type MessageKey = keyof typeof en
 
 export type Dict = Partial<Record<MessageKey, string>>
+
+/** The English text for a key, whatever the active language (palette search). */
+export function englishText(key: MessageKey): string {
+  return en[key] ?? key
+}
 
 /**
  * Non-English dictionaries are code-split: each is a dynamic import so the

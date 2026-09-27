@@ -16,6 +16,7 @@ import { UpdateBanner } from '@/components/layout/UpdateBanner'
 import { PageChromeProvider, usePageChrome } from '@/components/layout/PageChrome'
 import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
 import { SkeletonList, SkeletonStats } from '@/components/ui/skeleton'
+import { CommandPalette, CommandPaletteTrigger } from '@/components/CommandPalette'
 
 /** Applies the persisted theme to <html>. */
 function useTheme() {
@@ -328,6 +329,9 @@ export function AppShell() {
                 <p className="truncate text-[11px] text-muted-foreground">{t('nav.subtitle')}</p>
               </div>
             </div>
+            <div className="px-3 pb-3">
+              <CommandPaletteTrigger variant="sidebar" />
+            </div>
             <div className="flex-1 overflow-y-auto px-2 pb-2">
               <NavItems />
             </div>
@@ -377,12 +381,14 @@ export function AppShell() {
                 <AntaresMark className="size-7" />
                 <span className="truncate text-sm font-semibold">Antares</span>
               </div>
+              <div className="ml-auto">
+                <CommandPaletteTrigger variant="icon" />
+              </div>
               <Button
                 variant="ghost"
                 size="icon"
                 aria-label={t('theme.toggle')}
                 onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                className="ml-auto"
               >
                 {theme === 'dark' ? <Sun /> : <Moon />}
               </Button>
@@ -428,6 +434,7 @@ export function AppShell() {
             </nav>
           </div>
         </div>
+        <CommandPalette theme={theme} onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')} />
       </PageChromeProvider>
     </TooltipProvider>
   )

@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { ApiError, get, post } from './api'
+import { get, post } from './api'
 import { type ModuleId, type PresetLabel, presetFor, resolveModules, toModuleList } from './modules'
 
 /**
@@ -41,16 +41,13 @@ function fromResponse(res: ModulesResponse): ModulesState {
 
 function load(): Promise<void> {
   if (inflight) return inflight
-  inflight = get<ModulesResponse>('/api/ui/modules')
+  inflight = get<ModulesResponse>('/ui/modules')
     .then((res) => publish(fromResponse(res)))
     .catch((err) => {
-      // An older server without the endpoint: keep everything visible.
-      if (err instanceof ApiError && err.status === 404) {
-        publish({ ...state, loaded: true })
-        return
-      }
-      // Fail open — hiding navigation because a request failed would strand
-      // the user. Mark loaded so callers stop waiting.
+      // Fail open: hiding navigation because a request failed would strand
+      // the user. Every failure is logged, 404 included — the dashboard ships
+      // embedded in the server binary, so there is no older server to excuse,
+      // and the smoke walker fails on console errors, catching a wrong path.
       // eslint-disable-next-line no-console
       console.error('[modules] failed to load module settings', err)
       publish({ ...state, loaded: true })
@@ -68,7 +65,7 @@ function subscribe(listener: () => void) {
 
 /** Persist a new module set. Rejects with the server error; state is unchanged on failure. */
 export async function saveModules(active: ReadonlySet<ModuleId>): Promise<void> {
-  const res = await post<ModulesResponse>('/api/ui/modules', {
+  const res = await post<ModulesResponse>('/ui/modules', {
     modules: toModuleList(active),
     preset: presetFor(active),
   })
