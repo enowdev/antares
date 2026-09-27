@@ -30,7 +30,7 @@ interface UpdateInfo {
  * the update streams the installer's output, and falls back to showing the
  * manual command if the in-place upgrade can't run.
  */
-export function UpdateBanner() {
+export function UpdateBanner({ compact }: { compact?: boolean }) {
   const { t } = useI18n()
   const [info, setInfo] = useState<UpdateInfo | null>(null)
   const [open, setOpen] = useState(false)
@@ -49,18 +49,29 @@ export function UpdateBanner() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-2 rounded-[var(--radius-md)] border border-primary/40 bg-primary/5 px-3 py-2 text-left transition-colors hover:bg-primary/10"
-      >
-        <DownloadSimple className="size-4 shrink-0 text-primary" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-xs font-medium text-foreground">{t('update.available')}</span>
-          <span className="block truncate text-[11px] text-muted-foreground">
-            {info.current} → {info.latest}
+      {compact ? (
+        <button
+          onClick={() => setOpen(true)}
+          title={`${t('update.available')} · ${info.current} → ${info.latest}`}
+          aria-label={t('update.available')}
+          className="flex h-9 w-full items-center justify-center rounded-[var(--radius-md)] border border-primary/40 bg-primary/5 transition-colors hover:bg-primary/10"
+        >
+          <DownloadSimple className="size-4 text-primary" />
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex w-full items-center gap-2 rounded-[var(--radius-md)] border border-primary/40 bg-primary/5 px-3 py-2 text-left transition-colors hover:bg-primary/10"
+        >
+          <DownloadSimple className="size-4 shrink-0 text-primary" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs font-medium text-foreground">{t('update.available')}</span>
+            <span className="block truncate text-[11px] text-muted-foreground">
+              {info.current} → {info.latest}
+            </span>
           </span>
-        </span>
-      </button>
+        </button>
+      )}
       <UpdateDialog open={open} onOpenChange={setOpen} info={info} />
     </>
   )

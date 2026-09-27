@@ -1,29 +1,21 @@
 import { Suspense, useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { DotsThreeOutline, List, Moon, Sun, Translate, X } from '@phosphor-icons/react'
+import { DotsThreeOutline, List, Moon, SidebarSimple, Sun, X } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { useLocalStorage, useMediaQuery } from '@/lib/hooks'
-import { LANGUAGES, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
+import { useTheme } from '@/lib/theme'
 import { HUBS, hubById, routeFor, type HubDef } from '@/lib/routes'
 import { hubFor } from '@/lib/routeManifest'
 import { Button } from '@/components/ui/button'
-import { Separator, TooltipProvider } from '@/components/ui/primitives'
+import { Separator, Tooltip, TooltipProvider } from '@/components/ui/primitives'
 import { HubTabs } from '@/components/layout/HubTabs'
 import { StatusPill } from '@/components/layout/StatusPill'
 import { UpdateBanner } from '@/components/layout/UpdateBanner'
 import { PageChromeProvider, usePageChrome } from '@/components/layout/PageChrome'
 import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
+import { PageSettingsSheet } from '@/components/settings/PageSettingsSheet'
 import { SkeletonList, SkeletonStats } from '@/components/ui/skeleton'
-
-/** Applies the persisted theme to <html>. */
-function useTheme() {
-  const [theme, setTheme] = useLocalStorage<'dark' | 'light'>('antares.theme', 'dark')
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    document.documentElement.style.colorScheme = theme
-  }, [theme])
-  return { theme, setTheme }
-}
 
 function AntaresMark({ className }: { className?: string }) {
   return (
@@ -39,24 +31,44 @@ function AntaresMark({ className }: { className?: string }) {
   )
 }
 
-function HubLink({ hub, active, onNavigate }: { hub: HubDef; active: boolean; onNavigate?: () => void }) {
+function HubLink({
+  hub,
+  active,
+  collapsed,
+  onNavigate,
+}: {
+  hub: HubDef
+  active: boolean
+  collapsed?: boolean
+  onNavigate?: () => void
+}) {
   const { t } = useI18n()
   const Icon = hub.icon
-  return (
+  const title = t(hub.titleKey)
+  const link = (
     <Link
       to={hub.tabs[0].path}
       onClick={onNavigate}
       aria-current={active ? 'page' : undefined}
+      aria-label={collapsed ? title : undefined}
       className={cn(
         'flex items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-sm transition-colors',
+        collapsed && 'justify-center px-0',
         active
           ? 'bg-primary/12 font-medium text-primary'
           : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
       )}
     >
       <Icon className="size-4.5 shrink-0" weight={active ? 'fill' : 'regular'} />
-      <span className="truncate">{t(hub.titleKey)}</span>
+      {collapsed ? null : <span className="truncate">{title}</span>}
     </Link>
+  )
+  return collapsed ? (
+    <Tooltip side="right" label={title}>
+      {link}
+    </Tooltip>
+  ) : (
+    link
   )
 }
 
@@ -65,7 +77,7 @@ function HubLink({ hub, active, onNavigate }: { hub: HubDef; active: boolean; on
  * resumed /c/:id), so activeness comes from hubFor() rather than NavLink's own
  * path match. The system tier sits apart at the bottom.
  */
-function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+function NavItems({ onNavigate, collapsed }: { onNavigate?: () => void; collapsed?: boolean }) {
   const location = useLocation()
   const activeHub = hubFor(location.pathname)
   const main = HUBS.filter((h) => h.tier !== 'system')
@@ -73,13 +85,13 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="flex min-h-full flex-col gap-0.5">
       {main.map((hub) => (
-        <HubLink key={hub.id} hub={hub} active={hub.id === activeHub} onNavigate={onNavigate} />
+        <HubLink key={hub.id} hub={hub} active={hub.id === activeHub} collapsed={collapsed} onNavigate={onNavigate} />
       ))}
       {system.length ? (
         <div className="mt-auto flex flex-col gap-0.5 pt-4">
           <Separator className="mb-2" />
           {system.map((hub) => (
-            <HubLink key={hub.id} hub={hub} active={hub.id === activeHub} onNavigate={onNavigate} />
+            <HubLink key={hub.id} hub={hub} active={hub.id === activeHub} collapsed={collapsed} onNavigate={onNavigate} />
           ))}
         </div>
       ) : null}
@@ -87,46 +99,39 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
-function LanguagePicker() {
-  const { lang, setLang, t } = useI18n()
+/** Language and theme live in Settings › Appearance; the footer shows status only. */
+function SidebarFooter({ collapsed }: { collapsed?: boolean }) {
   return (
-    <label className="flex h-9 items-center gap-2 rounded-[var(--radius-sm)] px-3 text-xs text-muted-foreground">
-      <Translate className="size-4 shrink-0" />
-      <span className="sr-only">{t('nav.language')}</span>
-      <select
-        value={lang}
-        onChange={(e) => setLang(e.target.value as typeof lang)}
-        className="w-full cursor-pointer bg-transparent text-xs text-foreground outline-none"
-        aria-label={t('nav.language')}
-      >
-        {LANGUAGES.map((l) => (
-          <option key={l.code} value={l.code} className="bg-popover text-popover-foreground">
-            {l.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className={cn('space-y-1 border-t border-border p-3', collapsed && 'px-2')}>
+      <UpdateBanner compact={collapsed} />
+      <StatusPill compact={collapsed} />
+    </div>
   )
 }
 
-function SidebarFooter() {
-  const { theme, setTheme } = useTheme()
+/** Collapses the desktop sidebar to an icon rail, or expands it back. */
+function RailToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const { t } = useI18n()
-  return (
-    <div className="space-y-1 border-t border-border p-3">
-      <UpdateBanner />
-      <StatusPill />
-      <LanguagePicker />
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-9 w-full justify-start gap-2 px-3"
-        onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-      >
-        {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-        {theme === 'dark' ? t('theme.light') : t('theme.dark')}
-      </Button>
-    </div>
+  const label = collapsed ? t('sidebar.expand') : t('sidebar.collapse')
+  const button = (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onToggle}
+      aria-label={label}
+      aria-expanded={!collapsed}
+      className={cn('h-9 w-full justify-start gap-2 px-3 text-muted-foreground', collapsed && 'justify-center px-0')}
+    >
+      <SidebarSimple className={cn('size-4', collapsed && '-scale-x-100')} />
+      {collapsed ? null : label}
+    </Button>
+  )
+  return collapsed ? (
+    <Tooltip side="right" label={label}>
+      {button}
+    </Tooltip>
+  ) : (
+    button
   )
 }
 
@@ -153,6 +158,8 @@ function PageFrame() {
   // Hubs with several pages get the compact header: hub title, tab strip, and
   // actions on one row. The page description moves to the tab tooltip.
   const tabbed = hub && hub.tabs.length > 1 ? hub : undefined
+  // Pages whose config groups moved out of Settings get a gear for them.
+  const settingsRoute = route?.configGroups?.length ? route : undefined
 
   const labels = {
     title: t('error.pageTitle'),
@@ -202,8 +209,11 @@ function PageFrame() {
             </h1>
             <HubTabs hub={tabbed} className="flex-1" />
           </div>
-          {actions ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+          {actions || settingsRoute ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {actions}
+              {settingsRoute ? <PageSettingsSheet route={settingsRoute} /> : null}
+            </div>
           ) : null}
         </header>
       ) : route ? (
@@ -223,8 +233,11 @@ function PageFrame() {
               </p>
             ) : null}
           </div>
-          {actions ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+          {actions || settingsRoute ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {actions}
+              {settingsRoute ? <PageSettingsSheet route={settingsRoute} /> : null}
+            </div>
           ) : null}
         </header>
       ) : null}
@@ -244,10 +257,11 @@ function PageFrame() {
 const BOTTOM_BAR_HUBS = HUBS.filter((h) => h.tabs.some((r) => r.primary))
 
 export function AppShell() {
-  const { theme, setTheme } = useTheme()
+  const { theme, toggleTheme } = useTheme()
   const { t } = useI18n()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [railCollapsed, setRailCollapsed] = useLocalStorage('antares.sidebarCollapsed', false)
   const location = useLocation()
 
   useEffect(() => setDrawerOpen(false), [location.pathname])
@@ -261,18 +275,28 @@ export function AppShell() {
       <PageChromeProvider>
         <div className="flex min-h-dvh bg-background">
           {/* Desktop sidebar */}
-          <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
-            <div className="flex items-center gap-2.5 px-4 py-4">
+          <aside
+            className={cn(
+              'sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-border bg-sidebar lg:flex',
+              railCollapsed ? 'w-14' : 'w-60',
+            )}
+          >
+            <div className={cn('flex items-center gap-2.5 px-4 py-4', railCollapsed && 'justify-center px-0')}>
               <AntaresMark />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold tracking-tight">Antares</p>
-                <p className="truncate text-[11px] text-muted-foreground">{t('nav.subtitle')}</p>
-              </div>
+              {railCollapsed ? null : (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold tracking-tight">Antares</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{t('nav.subtitle')}</p>
+                </div>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto px-2 pb-2">
-              <NavItems />
+              <NavItems collapsed={railCollapsed} />
             </div>
-            <SidebarFooter />
+            <SidebarFooter collapsed={railCollapsed} />
+            <div className={cn('px-3 pb-3', railCollapsed && 'px-2')}>
+              <RailToggle collapsed={railCollapsed} onToggle={() => setRailCollapsed(!railCollapsed)} />
+            </div>
           </aside>
 
           {/* Mobile drawer */}
@@ -322,7 +346,7 @@ export function AppShell() {
                 variant="ghost"
                 size="icon"
                 aria-label={t('theme.toggle')}
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                onClick={toggleTheme}
                 className="ml-auto"
               >
                 {theme === 'dark' ? <Sun /> : <Moon />}
