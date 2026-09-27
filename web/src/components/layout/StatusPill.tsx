@@ -16,8 +16,11 @@ export interface StatusResponse {
   active_sessions: number
 }
 
-/** Compact backend health indicator shown in the sidebar. */
-export function StatusPill({ className }: { className?: string }) {
+/**
+ * Compact backend health indicator shown in the sidebar. `compact` shows the
+ * icon alone (collapsed icon rail); the label stays in the tooltip.
+ */
+export function StatusPill({ className, compact }: { className?: string; compact?: boolean }) {
   const { t } = useI18n()
   const { data, loading, error, reload } = usePoll<StatusResponse>('/status', 10000)
 
@@ -48,12 +51,20 @@ export function StatusPill({ className }: { className?: string }) {
     <div
       className={cn(
         'flex items-center gap-2 rounded-[var(--radius-sm)] border border-border px-2.5 py-1.5',
+        compact && 'h-9 justify-center px-0',
         className,
       )}
-      title={offline ? t('status.offlineHint') : `${data?.provider} · ${data?.model}`}
+      title={
+        offline
+          ? t('status.offlineHint')
+          : compact
+            ? `${label} · ${data?.provider} · ${data?.model}`
+            : `${data?.provider} · ${data?.model}`
+      }
+      aria-label={compact ? label : undefined}
     >
       <Icon className={cn('size-4 shrink-0', tone)} weight="fill" />
-      <div className="min-w-0 flex-1">
+      <div className={cn('min-w-0 flex-1', compact && 'sr-only')}>
         <p className="truncate text-[11px] font-medium leading-tight">{label}</p>
         {data ? (
           <p className="truncate text-[10px] leading-tight text-muted-foreground">

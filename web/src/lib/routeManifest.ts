@@ -78,6 +78,12 @@ export interface RouteManifestEntry {
    * container. For genuinely short, static pages.
    */
   staticHeight?: boolean
+  /**
+   * Top-level config.yaml keys (schema groups) edited from this page's
+   * settings sheet instead of the Settings page. A group belongs to at most
+   * one route; groups no route claims stay in Settings.
+   */
+  configGroups?: string[]
 }
 
 export const ROUTE_MANIFEST: RouteManifestEntry[] = [
@@ -108,6 +114,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.models',
     titleKey: 'providers.title',
     descKey: 'providers.desc',
+    configGroups: ['model'],
     primary: true,
   },
   {
@@ -118,6 +125,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.roles',
     titleKey: 'roles.title',
     descKey: 'roles.desc',
+    configGroups: ['roles', 'delegation'],
   },
   {
     id: 'soul',
@@ -137,6 +145,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.memory',
     titleKey: 'memory.title',
     descKey: 'memory.desc',
+    configGroups: ['memory', 'rag'],
   },
 
   // Capabilities
@@ -148,6 +157,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.tools',
     titleKey: 'tools.title',
     descKey: 'tools.desc',
+    configGroups: ['tools', 'terminal', 'code_execution', 'tool_loop_guardrails'],
   },
   {
     id: 'skills',
@@ -157,6 +167,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.skills',
     titleKey: 'skills.title',
     descKey: 'skills.desc',
+    configGroups: ['skills'],
   },
   {
     id: 'mcp',
@@ -166,6 +177,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.mcp',
     titleKey: 'mcp.title',
     descKey: 'mcp.desc',
+    configGroups: ['mcp'],
   },
   {
     id: 'plugins',
@@ -175,6 +187,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.plugins',
     titleKey: 'plugins.title',
     descKey: 'plugins.desc',
+    configGroups: ['plugins'],
   },
 
   // Automation
@@ -186,6 +199,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'tab.schedules',
     titleKey: 'cron.title',
     descKey: 'cron.desc',
+    configGroups: ['cron'],
   },
   {
     id: 'autopilot',
@@ -195,6 +209,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.autopilot',
     titleKey: 'autopilot.title',
     descKey: 'autopilot.desc',
+    configGroups: ['autopilot'],
   },
   {
     id: 'board',
@@ -213,6 +228,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.channels',
     titleKey: 'channels.title',
     descKey: 'channels.desc',
+    configGroups: ['gateway'],
   },
 
   // Security
@@ -224,6 +240,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.engagement',
     titleKey: 'engagement.title',
     descKey: 'engagement.desc',
+    configGroups: ['security', 'osint'],
   },
   {
     id: 'intercept',
@@ -242,6 +259,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'nav.proxies',
     titleKey: 'proxies.title',
     descKey: 'proxies.desc',
+    configGroups: ['proxies'],
   },
   {
     id: 'vps',
@@ -262,6 +280,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'tab.creator',
     titleKey: 'creator.title',
     descKey: 'creator.desc',
+    configGroups: ['image_gen', 'video_gen'],
   },
   {
     id: 'social-media',
@@ -271,6 +290,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     tabKey: 'tab.social',
     titleKey: 'social.title',
     descKey: 'social.desc',
+    configGroups: ['social'],
   },
 
   // System
