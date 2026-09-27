@@ -851,6 +851,16 @@ type Display struct {
 	Language              string `yaml:"language" json:"language"`
 	BellOnComplete        bool   `yaml:"bell_on_complete" json:"bell_on_complete"`
 	InterimAssistant      bool   `yaml:"interim_assistant_messages" json:"interim_assistant_messages"`
+	// Modules lists the optional dashboard modules shown in the sidebar (see
+	// KnownModules). It is a pointer so "absent" and "empty" stay distinct:
+	// nil means the key is missing, as in every install that predates modules,
+	// and resolves to all modules on; a pointer to an empty slice is the
+	// deliberate General preset. A plain slice would turn an old config into
+	// General the first time it was re-saved and silently hide navigation.
+	Modules *[]string `yaml:"modules,omitempty" json:"modules"`
+	// Preset is the label of the use-case preset last chosen. Display only;
+	// Modules decides visibility.
+	Preset string `yaml:"preset,omitempty" json:"preset,omitempty"`
 }
 
 // Logging controls log level and sinks.

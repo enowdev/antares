@@ -106,6 +106,10 @@ func tierFor(path string) string {
 var hidden = map[string]bool{
 	"server.dashboard_password_hash": true,
 	"skills.frontmatter_migrated":    true,
+	// The dashboard has a dedicated Modules section; the generic form cannot
+	// express "absent" versus "empty" for display.modules.
+	"display.modules": true,
+	"display.preset":  true,
 }
 
 var enums = map[string][]string{

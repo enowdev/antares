@@ -11,13 +11,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var skillStateMu sync.Mutex
+// persistedEditMu serialises read-modify-write edits of the persisted file
+// (skill state, dashboard modules) so one cannot overwrite the other's change.
+var persistedEditMu sync.Mutex
 
 // MigrateSkillState imports legacy frontmatter opt-outs exactly once. Imported
 // names are merged with preferences already present in the active profile.
 func MigrateSkillState(disabled []string) (*Config, error) {
-	skillStateMu.Lock()
-	defer skillStateMu.Unlock()
+	persistedEditMu.Lock()
+	defer persistedEditMu.Unlock()
 
 	cfg, err := readPersistedConfig()
 	if err != nil {
@@ -40,8 +42,8 @@ func SetSkillEnabled(name string, enabled bool) (*Config, error) {
 		return nil, errors.New("skill name is required")
 	}
 
-	skillStateMu.Lock()
-	defer skillStateMu.Unlock()
+	persistedEditMu.Lock()
+	defer persistedEditMu.Unlock()
 
 	cfg, err := readPersistedConfig()
 	if err != nil {
