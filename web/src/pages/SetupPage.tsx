@@ -621,7 +621,7 @@ export default function SetupPage() {
               {t('setup.startChatting')}
               <ArrowRight className="size-4" />
             </Button>
-            <Button variant="outline" onClick={() => navigate('/config')}>
+            <Button variant="outline" onClick={() => navigate('/system/settings')}>
               {t('nav.config')}
             </Button>
           </div>
