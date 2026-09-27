@@ -13,7 +13,11 @@ import {
 } from '@phosphor-icons/react'
 import { get, post } from '@/lib/api'
 import { parseProviderHeaders } from '@/lib/providerHeaders'
-import { useI18n } from '@/lib/i18n'
+import { useI18n, type MessageKey } from '@/lib/i18n'
+import { DEFAULT_PRESET, PRESET_IDS, PRESET_MODULES, type PresetId } from '@/lib/modules'
+import { hubsOfModules } from '@/lib/moduleNav'
+import { HUB_MANIFEST } from '@/lib/routeManifest'
+import { reloadModules } from '@/lib/useModules'
 import { cn } from '@/lib/utils'
 import { ProviderHeadersField } from '@/components/providers/ProviderHeadersField'
 import { Button } from '@/components/ui/button'
@@ -95,6 +99,7 @@ export default function SetupPage() {
   const [embedKey, setEmbedKey] = useState('')
   const [telegram, setTelegram] = useState('')
   const [dashboardPassword, setDashboardPassword] = useState('')
+  const [preset, setPreset] = useState<PresetId>(DEFAULT_PRESET)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
@@ -195,7 +200,14 @@ export default function SetupPage() {
         },
         telegram_token: telegram,
         dashboard_password: dashboardPassword,
+        modules: [...PRESET_MODULES[preset]],
+        preset,
       })
+      // Refresh the shared module store so the sidebar matches the preset.
+      // Skipped when a password was just set: every API call now needs a
+      // login, and the 401 would bounce this page to /login before the done
+      // step shows. The login page reload loads modules fresh anyway.
+      if (!dashboardPassword.trim()) void reloadModules()
       setStep('done')
     } catch (e) {
       setError((e as Error).message)
@@ -497,6 +509,8 @@ export default function SetupPage() {
             description={t('setup.extrasDesc')}
           />
 
+          <PresetPicker value={preset} onChange={setPreset} />
+
           <Card>
             <CardHeader>
               <div className="flex items-start gap-3">
@@ -628,6 +642,53 @@ export default function SetupPage() {
         </section>
       ) : null}
     </SetupShell>
+  )
+}
+
+/** Use-case presets: each card says which optional hubs it adds. */
+function PresetPicker({ value, onChange }: { value: PresetId; onChange: (id: PresetId) => void }) {
+  const { t } = useI18n()
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('preset.title')}</CardTitle>
+        <CardDescription>{t('preset.desc')}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div role="radiogroup" aria-label={t('preset.title')} className="grid gap-2 sm:grid-cols-2">
+          {PRESET_IDS.map((id) => {
+            const selected = value === id
+            const hubs = hubsOfModules(HUB_MANIFEST, PRESET_MODULES[id])
+            return (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => onChange(id)}
+                className={cn(
+                  'flex flex-col gap-1 rounded-[var(--radius-md)] border p-3 text-left transition-colors',
+                  selected ? 'border-primary bg-primary/8' : 'border-border hover:border-primary/40',
+                )}
+              >
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  {t(`preset.${id}` as MessageKey)}
+                  {selected ? <CheckCircle className="size-4 text-primary" weight="fill" /> : null}
+                </span>
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  {t(`preset.${id}Desc` as MessageKey)}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {hubs.length
+                    ? t('preset.adds', { hubs: hubs.map((h) => t(h.titleKey)).join(', ') })
+                    : t('preset.addsNothing')}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

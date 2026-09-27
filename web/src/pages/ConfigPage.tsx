@@ -17,6 +17,7 @@ import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { usePageActions } from '@/components/layout/PageChrome'
+import { ModulesSettings } from '@/components/settings/ModulesSettings'
 import { Button } from '@/components/ui/button'
 import {
   Badge,
@@ -302,6 +303,8 @@ export default function ConfigPage() {
                     {t('config.essentialsHint')}
                   </p>
                 ) : null}
+
+                {section === ESSENTIALS ? <ModulesSettings /> : null}
 
                 {section === 'osint' ? (
                   <GoogleOsintCard cookieEdited={edits['osint.google_cookie'] as string | undefined} />

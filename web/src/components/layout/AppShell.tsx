@@ -6,6 +6,8 @@ import { useLocalStorage, useMediaQuery } from '@/lib/hooks'
 import { LANGUAGES, useI18n } from '@/lib/i18n'
 import { HUBS, hubById, routeFor, type HubDef } from '@/lib/routes'
 import { hubFor } from '@/lib/routeManifest'
+import { offModuleOf, visibleHubs, withModule } from '@/lib/moduleNav'
+import { saveModules, useModules } from '@/lib/useModules'
 import { Button } from '@/components/ui/button'
 import { Separator, TooltipProvider } from '@/components/ui/primitives'
 import { HubTabs } from '@/components/layout/HubTabs'
@@ -63,13 +65,16 @@ function HubLink({ hub, active, onNavigate }: { hub: HubDef; active: boolean; on
 /**
  * One entry per hub. A hub stays highlighted on any of its tabs (and Chat on a
  * resumed /c/:id), so activeness comes from hubFor() rather than NavLink's own
- * path match. The system tier sits apart at the bottom.
+ * path match. The system tier sits apart at the bottom. Hubs of modules that
+ * are off are left out (see visibleHubs for the exceptions).
  */
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation()
+  const { active, loaded } = useModules()
   const activeHub = hubFor(location.pathname)
-  const main = HUBS.filter((h) => h.tier !== 'system')
-  const system = HUBS.filter((h) => h.tier === 'system')
+  const hubs = visibleHubs(HUBS, active, loaded, activeHub)
+  const main = hubs.filter((h) => h.tier !== 'system')
+  const system = hubs.filter((h) => h.tier === 'system')
   return (
     <nav className="flex min-h-full flex-col gap-0.5">
       {main.map((hub) => (
@@ -126,6 +131,58 @@ function SidebarFooter() {
         {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
         {theme === 'dark' ? t('theme.light') : t('theme.dark')}
       </Button>
+    </div>
+  )
+}
+
+/**
+ * One line under the hub header when the hub's module is off: the page still
+ * works, but the sidebar no longer lists it. Turning the module back on saves
+ * immediately and the sidebar entry returns.
+ */
+function ModuleOffNotice({ hub, className }: { hub: HubDef; className?: string }) {
+  const { t } = useI18n()
+  const { active, loaded } = useModules()
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string>()
+  const off = offModuleOf(hub, active, loaded)
+
+  useEffect(() => setError(undefined), [hub.id])
+
+  if (!off) return null
+
+  const turnOn = async () => {
+    setPending(true)
+    setError(undefined)
+    try {
+      await saveModules(withModule(active, off, true))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <div
+      role="status"
+      className={cn(
+        'mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--radius-sm)] border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground',
+        className,
+      )}
+    >
+      <span>{t('modules.offNotice', { hub: t(hub.titleKey) })}</span>
+      <span aria-hidden>·</span>
+      <button
+        type="button"
+        onClick={turnOn}
+        disabled={pending}
+        aria-busy={pending || undefined}
+        className="font-medium text-primary underline-offset-2 hover:underline disabled:cursor-wait disabled:opacity-60"
+      >
+        {pending ? `${t('modules.turnOn')}…` : t('modules.turnOn')}
+      </button>
+      {error ? <span className="basis-full text-[var(--destructive)]">{error}</span> : null}
     </div>
   )
 }
@@ -228,6 +285,8 @@ function PageFrame() {
           ) : null}
         </header>
       ) : null}
+
+      {hub ? <ModuleOffNotice hub={hub} className={cn(fill && 'lg:shrink-0')} /> : null}
 
       <ErrorBoundary resetKey={location.pathname} labels={labels}>
         <Suspense fallback={<RouteFallback />}>
