@@ -8,6 +8,25 @@ import { saveModules, useModules } from '@/lib/useModules'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Label, Switch } from '@/components/ui/primitives'
 
 /**
+ * Whether a Settings search should surface the Modules card: its own title,
+ * the preset names, and every module's hubs and tabs, so searching "vps"
+ * after choosing General finds the switch that brings it back. `query` is
+ * already trimmed and lower-cased.
+ */
+export function modulesMatchQuery(t: (key: MessageKey) => string, query: string): boolean {
+  const terms = ['modules', 'preset', t('modules.title'), t('modules.preset'), t('preset.custom')]
+  for (const id of PRESET_IDS) terms.push(t(`preset.${id}` as MessageKey))
+  for (const m of MODULE_IDS) {
+    terms.push(m)
+    for (const h of hubsOfModule(HUB_MANIFEST, m)) {
+      terms.push(t(h.titleKey))
+      for (const r of tabsOf(h.id)) terms.push(t(r.tabKey ?? r.titleKey))
+    }
+  }
+  return terms.some((s) => s.toLowerCase().includes(query))
+}
+
+/**
  * Settings → Modules: which optional hubs the sidebar lists. Every change
  * saves at once; the shared store updates the sidebar without a reload. The
  * controls read the store, so a failed save leaves them where they were.

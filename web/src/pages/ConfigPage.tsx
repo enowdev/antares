@@ -1,23 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
-import {
-  ArrowSquareOut,
-  CaretDown,
-  CheckCircle,
-  Eye,
-  EyeSlash,
-  FloppyDisk,
-  GoogleLogo,
-  Lock,
-  MagnifyingGlass,
-  Sparkle,
-  Warning,
-} from '@phosphor-icons/react'
+import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { ArrowRight, MagnifyingGlass, PaintBrush, Sparkle } from '@phosphor-icons/react'
 import { post } from '@/lib/api'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import {
+  humanizeGroup,
+  movedLabelKeys,
+  partitionSearchResults,
+  settingsHref,
+  splitConfigGroups,
+  type MovedField,
+} from '@/lib/configGroups'
 import { usePageActions } from '@/components/layout/PageChrome'
-import { ModulesSettings } from '@/components/settings/ModulesSettings'
+import { ModulesSettings, modulesMatchQuery } from '@/components/settings/ModulesSettings'
 import { Button } from '@/components/ui/button'
 import {
   Badge,
@@ -28,104 +25,65 @@ import {
   CardTitle,
   EmptyState,
   Input,
-  Label,
-  Switch,
   Textarea,
 } from '@/components/ui/primitives'
 import { Skeleton, SkeletonList } from '@/components/ui/skeleton'
-
-type Tier = 'essential' | 'common' | 'advanced'
-
-interface Field {
-  path: string
-  label: string
-  group: string
-  type: 'string' | 'number' | 'boolean' | 'string[]' | 'object'
-  tier: Tier
-  default: unknown
-  secret: boolean
-  enum?: string[]
-  help?: string
-  reload: 'live' | 'reconciled' | 'restart_required'
-}
-
-interface ConfigResponse {
-  values: Record<string, unknown>
-  schema: Field[]
-  restart_fields?: string[]
-}
+import { AppearanceCard } from '@/components/settings/Appearance'
+import { DashboardPasswordCard } from '@/components/settings/ConfigCards'
+import {
+  ConfigFieldRows,
+  ConfigGroupPanel,
+  ConfigNotices,
+  ConfigSaveButton,
+  useConfigEditor,
+  type Field,
+} from '@/components/settings/ConfigGroupPanel'
 
 const ESSENTIALS = '__essentials'
+const APPEARANCE = '__appearance'
 const YAML = '__yaml'
-
-function readPath(obj: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce<unknown>((acc, key) => {
-    if (acc && typeof acc === 'object') return (acc as Record<string, unknown>)[key]
-    return undefined
-  }, obj)
-}
-
-const ACRONYMS: Record<string, string> = {
-  rag: 'RAG',
-  mcp: 'MCP',
-  yaml: 'YAML',
-  dsn: 'DSN',
-  api: 'API',
-}
-
-/** "prompt_caching" → "Prompt caching", "rag" → "RAG" */
-function humanizeGroup(name: string): string {
-  return name
-    .split('_')
-    .map((w, i) => ACRONYMS[w] ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-    .join(' ')
-}
 
 export default function ConfigPage() {
   const { t } = useI18n()
-  const { data, loading, reload } = useApi<ConfigResponse>('/config')
+  const editor = useConfigEditor()
+  const { data, loading, reload, fields, edits, dirty, saving, saved } = editor
   const rawState = useApi<{ yaml: string }>('/config/raw')
 
-  const [edits, setEdits] = useState<Record<string, unknown>>({})
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<string>()
-  const [restartFields, setRestartFields] = useState<string[]>([])
   const [filter, setFilter] = useState('')
-  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
   const [yamlDraft, setYamlDraft] = useState<string | null>(null)
   const [section, setSection] = useState<string>(ESSENTIALS)
-  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const query = filter.trim().toLowerCase()
   const searching = query.length > 0
-  const dirty = Object.keys(edits).length
 
-  const fields = useMemo(() => (data?.schema ?? []).filter((f) => f.type !== 'object'), [data])
-
+  // Groups a page's settings sheet now edits drop out of the section list.
   const groups = useMemo(() => {
     const seen: string[] = []
     for (const f of fields) if (!seen.includes(f.group)) seen.push(f.group)
-    return seen
+    return splitConfigGroups(seen).stays
   }, [fields])
 
-  // Searching spans every group and tier so nothing hides behind disclosure.
+  // Searching spans every group and tier so nothing hides behind disclosure;
+  // matches in moved groups link to the page that edits them.
   const results = useMemo(
     () =>
-      fields.filter(
-        (f) =>
-          !query || f.path.toLowerCase().includes(query) || f.label.toLowerCase().includes(query),
+      partitionSearchResults(
+        fields.filter(
+          (f) =>
+            !query || f.path.toLowerCase().includes(query) || f.label.toLowerCase().includes(query),
+        ),
       ),
     [fields, query],
   )
+  const appearanceMatch =
+    searching &&
+    [t('settings.appearance'), t('settings.language'), t('settings.theme'), 'appearance', 'language', 'theme']
+      .some((s) => s.toLowerCase().includes(query))
+  const modulesMatch = searching && modulesMatchQuery(t, query)
+  const matchCount =
+    results.local.length + results.moved.length + (appearanceMatch ? 1 : 0) + (modulesMatch ? 1 : 0)
 
-  const sectionFields = useMemo(() => {
-    if (section === ESSENTIALS) return fields.filter((f) => f.tier === 'essential')
-    return fields.filter((f) => f.group === section)
-  }, [fields, section])
-
-  const visible = sectionFields.filter((f) => showAdvanced || f.tier !== 'advanced')
-  const hiddenCount = sectionFields.length - visible.length
+  const essentialFields = useMemo(() => fields.filter((f) => f.tier === 'essential'), [fields])
 
   const dirtyPerGroup = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -138,63 +96,27 @@ export default function ConfigPage() {
     [fields, edits],
   )
 
-  // Reset disclosure when moving between sections.
-  useEffect(() => setShowAdvanced(false), [section])
-  useEffect(() => setRestartFields(data?.restart_fields ?? []), [data])
-
-  const valueOf = (f: Field): unknown => {
-    if (f.path in edits) return edits[f.path]
-    const v = data ? readPath(data.values, f.path) : undefined
-    return v === undefined ? f.default : v
-  }
-
-  const setValue = (path: string, v: unknown) => {
-    setEdits((prev) => ({ ...prev, [path]: v }))
-    setSaved(false)
-  }
-
-  const save = async () => {
-    if (!dirty) return
-    setSaving(true)
-    setError(undefined)
-    try {
-      const result = await post<{ restart_fields: string[] }>('/config', { updates: edits })
-      setRestartFields(result.restart_fields)
-      setEdits({})
-      setSaved(true)
-      reload()
-      setTimeout(() => setSaved(false), 2500)
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const saveYaml = async () => {
     if (yamlDraft === null) return
-    setSaving(true)
-    setError(undefined)
+    editor.setSaving(true)
+    editor.setError(undefined)
     try {
-      const result = await post<{ restart_fields: string[] }>('/config/raw', { yaml: yamlDraft })
-      setRestartFields(result.restart_fields)
+      const result = await post<{ restart_fields?: string[] }>('/config/raw', { yaml: yamlDraft })
+      editor.setRestartFields(result.restart_fields ?? [])
       setYamlDraft(null)
       reload()
       rawState.reload()
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
+      editor.setSaved(true)
+      setTimeout(() => editor.setSaved(false), 2500)
     } catch (e) {
-      setError((e as Error).message)
+      editor.setError((e as Error).message)
     } finally {
-      setSaving(false)
+      editor.setSaving(false)
     }
   }
 
   usePageActions(
-    <Button size="sm" onClick={save} loading={saving} disabled={!dirty} className="gap-1.5">
-      {saved ? <CheckCircle className="size-4" weight="fill" /> : <FloppyDisk className="size-4" />}
-      {saved ? t('common.saved') : dirty ? t('config.saveN', { n: dirty }) : t('common.save')}
-    </Button>,
+    <ConfigSaveButton editor={editor} />,
     // `edits` (not just its count `dirty`) must be a dependency: `save` closes
     // over the edits map, so without this the header button keeps a stale
     // closure while you edit ONE field — dirty stays 1, the button is never
@@ -203,38 +125,9 @@ export default function ConfigPage() {
     [edits, dirty, saving, saved, t],
   )
 
-  const renderRows = (list: Field[], withGroup = false) => (
-    <Card>
-      <CardContent className="divide-y divide-border p-0">
-        {list.map((f) => (
-          <FieldRow
-            key={f.path}
-            field={f}
-            showGroup={withGroup}
-            value={valueOf(f)}
-            dirty={f.path in edits}
-            revealed={!!revealed[f.path]}
-            onReveal={() => setRevealed((r) => ({ ...r, [f.path]: !r[f.path] }))}
-            onChange={(v) => setValue(f.path, v)}
-          />
-        ))}
-      </CardContent>
-    </Card>
-  )
-
   return (
     <div className="flex flex-col gap-5 lg:min-h-0 lg:flex-1">
-      {error ? (
-        <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-          <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
-          <span className="min-w-0 break-words">{error}</span>
-        </div>
-      ) : null}
-      {restartFields.length > 0 ? (
-        <p role="status" className="break-words rounded-[var(--radius-sm)] border border-border bg-muted p-3 text-sm">
-          {t('config.restartPending', { fields: restartFields.join(', ') })}
-        </p>
-      ) : null}
+      <ConfigNotices editor={editor} />
 
       <div className="relative lg:shrink-0">
         <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -256,12 +149,14 @@ export default function ConfigPage() {
       ) : searching ? (
         // Search replaces the layout entirely: one flat list, group shown per row.
         <div className="space-y-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-          <p className="text-xs text-muted-foreground">{t('config.matches', { n: results.length })}</p>
-          {results.length === 0 ? (
-            <EmptyState title={t('config.noMatch')} />
-          ) : (
-            renderRows(results, true)
-          )}
+          <p className="text-xs text-muted-foreground">{t('config.matches', { n: matchCount })}</p>
+          {matchCount === 0 ? <EmptyState title={t('config.noMatch')} /> : null}
+          {modulesMatch ? <ModulesSettings /> : null}
+          {appearanceMatch ? <AppearanceCard /> : null}
+          {results.local.length > 0 ? (
+            <ConfigFieldRows editor={editor} fields={results.local} showGroup />
+          ) : null}
+          {results.moved.length > 0 ? <MovedResults moved={results.moved} /> : null}
         </div>
       ) : (
         <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[13rem_1fr] lg:overflow-hidden">
@@ -296,6 +191,8 @@ export default function ConfigPage() {
                   </Button>
                 </CardContent>
               </Card>
+            ) : section === APPEARANCE ? (
+              <AppearanceCard />
             ) : (
               <>
                 {section === ESSENTIALS ? (
@@ -304,45 +201,58 @@ export default function ConfigPage() {
                   </p>
                 ) : null}
 
-                {section === ESSENTIALS ? <ModulesSettings /> : null}
-
-                {section === 'osint' ? (
-                  <GoogleOsintCard cookieEdited={edits['osint.google_cookie'] as string | undefined} />
-                ) : null}
-
-                {section === 'server' || section === ESSENTIALS ? (
-                  <DashboardPasswordCard />
-                ) : null}
-
-                {visible.length === 0 ? (
-                  <EmptyState title={t('config.nothingHere')} />
+                {section === ESSENTIALS ? (
+                  <>
+                    <ModulesSettings />
+                    <DashboardPasswordCard />
+                    {essentialFields.length === 0 ? (
+                      <EmptyState title={t('config.nothingHere')} />
+                    ) : (
+                      <ConfigFieldRows editor={editor} fields={essentialFields} showGroup />
+                    )}
+                  </>
                 ) : (
-                  renderRows(visible, section === ESSENTIALS)
+                  <ConfigGroupPanel editor={editor} groups={[section]} />
                 )}
-
-                {hiddenCount > 0 ? (
-                  <button
-                    onClick={() => setShowAdvanced(true)}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-dashed border-border py-2.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-                  >
-                    <CaretDown className="size-3.5" />
-                    {t('config.showAdvanced', { n: hiddenCount })}
-                  </button>
-                ) : showAdvanced && sectionFields.some((f) => f.tier === 'advanced') ? (
-                  <button
-                    onClick={() => setShowAdvanced(false)}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-dashed border-border py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <CaretDown className="size-3.5 rotate-180" />
-                    {t('config.hideAdvanced')}
-                  </button>
-                ) : null}
               </>
             )}
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+/** Search matches in groups that moved: each links to the page that edits it. */
+function MovedResults({ moved }: { moved: MovedField<Field>[] }) {
+  const { t } = useI18n()
+  return (
+    <Card>
+      <CardContent className="divide-y divide-border p-0">
+        {moved.map(({ field, route }) => {
+          const { hubKey, tabKey } = movedLabelKeys(route)
+          return (
+            <Link
+              key={field.path}
+              to={settingsHref(route)}
+              className="flex flex-col gap-1 px-4 py-3 transition-colors hover:bg-accent/50 sm:flex-row sm:items-center sm:gap-4 sm:px-5"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-sm font-medium">{field.label}</span>
+                  <Badge variant="outline">{humanizeGroup(field.group)}</Badge>
+                </div>
+                <p className="truncate font-mono text-[10px] text-muted-foreground/70">{field.path}</p>
+              </div>
+              <span className="flex items-center gap-1 text-xs text-primary sm:shrink-0">
+                {t('settings.movedTo', { place: `${t(hubKey)} › ${t(tabKey)}` })}
+                <ArrowRight className="size-3.5 shrink-0" />
+              </span>
+            </Link>
+          )
+        })}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -394,6 +304,15 @@ function SectionRail({
               weight={section === ESSENTIALS ? 'fill' : 'regular'}
             />,
           )}
+          {item(
+            APPEARANCE,
+            t('settings.appearance'),
+            undefined,
+            <PaintBrush
+              className="size-4 shrink-0"
+              weight={section === APPEARANCE ? 'fill' : 'regular'}
+            />,
+          )}
           <div className="my-1.5 h-px bg-border" />
           {groups.map((g) => item(g, humanizeGroup(g), dot(dirtyPerGroup[g] ?? 0)))}
           <div className="my-1.5 h-px bg-border" />
@@ -409,6 +328,7 @@ function SectionRail({
           aria-label={t('config.title')}
         >
           <option value={ESSENTIALS}>{t('config.essentials')}</option>
+          <option value={APPEARANCE}>{t('settings.appearance')}</option>
           {groups.map((g) => (
             <option key={g} value={g}>
               {humanizeGroup(g)}
@@ -419,438 +339,5 @@ function SectionRail({
         </select>
       </div>
     </>
-  )
-}
-
-function FieldRow({
-  field,
-  value,
-  dirty,
-  revealed,
-  showGroup,
-  onReveal,
-  onChange,
-}: {
-  field: Field
-  value: unknown
-  dirty: boolean
-  revealed: boolean
-  showGroup?: boolean
-  onReveal: () => void
-  onChange: (v: unknown) => void
-}) {
-  const { t } = useI18n()
-
-  // Booleans read best as one compact row with the switch on the right.
-  if (field.type === 'boolean') {
-    return (
-      <div className="flex items-center gap-4 px-4 py-3 sm:px-5">
-        <div className="min-w-0 flex-1">
-          <FieldLabel field={field} dirty={dirty} showGroup={showGroup} />
-          {field.help ? (
-            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{field.help}</p>
-          ) : null}
-        </div>
-        <Switch checked={!!value} onCheckedChange={onChange} />
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
-      <div className="min-w-0 sm:w-[42%] sm:pt-1.5">
-        <FieldLabel field={field} dirty={dirty} showGroup={showGroup} />
-        {field.help ? (
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{field.help}</p>
-        ) : null}
-      </div>
-
-      <div className="min-w-0 sm:flex-1">
-        {field.enum ? (
-          <select
-            value={String(value ?? '')}
-            onChange={(e) => onChange(e.target.value)}
-            className="h-9 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 text-sm"
-          >
-            {field.enum.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        ) : field.type === 'string[]' ? (
-          <ListInput value={value} onChange={onChange} placeholder={t('config.commaSeparated')} />
-        ) : field.secret ? (
-          <div className="flex gap-2">
-            <Input
-              type={revealed ? 'text' : 'password'}
-              value={String(value ?? '')}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder={t('common.notSet')}
-              autoComplete="off"
-            />
-            <Button variant="outline" size="icon" onClick={onReveal} aria-label={t('config.reveal')}>
-              {revealed ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
-            </Button>
-          </div>
-        ) : (
-          <Input
-            type={field.type === 'number' ? 'number' : 'text'}
-            value={String(value ?? '')}
-            step="any"
-            onChange={(e) =>
-              onChange(field.type === 'number' ? Number(e.target.value) : e.target.value)
-            }
-          />
-        )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * A comma-separated list editor. Keeps the RAW text you type as its own state
- * so typing is never interrupted — the previous version reparsed to an array on
- * every keystroke and re-joined it, which silently dropped commas, trailing
- * spaces, and in-progress entries (the "only the first letter saves" bug).
- * Parsing to string[] happens on change (for the draft) but the field shows
- * exactly what you typed; a blur normalises the display.
- */
-function ListInput({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: unknown
-  onChange: (v: string[]) => void
-  placeholder?: string
-}) {
-  const joined = Array.isArray(value) ? (value as string[]).join(', ') : ''
-  const [text, setText] = useState(joined)
-
-  // Resync from outside only when the committed value truly differs from what
-  // the raw text parses to (e.g. after Save/reload), not on every keystroke.
-  useEffect(() => {
-    const parsed = text.split(',').map((s) => s.trim()).filter(Boolean)
-    if (parsed.join('\x00') !== (Array.isArray(value) ? (value as string[]).join('\x00') : '')) {
-      setText(joined)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [joined])
-
-  return (
-    <Input
-      value={text}
-      placeholder={placeholder}
-      onChange={(e) => {
-        setText(e.target.value)
-        onChange(e.target.value.split(',').map((s) => s.trim()).filter(Boolean))
-      }}
-      onBlur={() => setText((t) => t.split(',').map((s) => s.trim()).filter(Boolean).join(', '))}
-    />
-  )
-}
-
-function FieldLabel({
-  field,
-  dirty,
-  showGroup,
-}: {
-  field: Field
-  dirty: boolean
-  showGroup?: boolean
-}) {
-  const { t } = useI18n()
-  return (
-    <>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Label className={cn('text-sm', dirty && 'text-primary')}>{field.label}</Label>
-        {showGroup ? <Badge variant="outline">{humanizeGroup(field.group)}</Badge> : null}
-        {dirty ? <Badge>{t('config.changed')}</Badge> : null}
-        <span className="text-xs text-muted-foreground">
-          {t(field.reload === 'restart_required' ? 'config.reloadRestart' : field.reload === 'reconciled' ? 'config.reloadReconciled' : 'config.reloadLive')}
-        </span>
-      </div>
-      <p className="truncate font-mono text-[10px] text-muted-foreground/70">{field.path}</p>
-    </>
-  )
-}
-
-interface GoogleAccount {
-  authuser: number
-  email: string
-  name: string
-}
-
-/**
- * Google OSINT status + tutorial, shown atop the OSINT settings group. Lets the
- * user verify the pasted cookie really connects to a Google account (name +
- * email) or see that it's expired, and explains how to obtain the cookie with
- * the Cookie-Editor extension.
- */
-function GoogleOsintCard({ cookieEdited }: { cookieEdited?: string }) {
-  const { t } = useI18n()
-  const [busy, setBusy] = useState(false)
-  const [selecting, setSelecting] = useState<number | null>(null)
-  const [selected, setSelected] = useState<number | null>(null)
-  const [result, setResult] = useState<{
-    connected: boolean
-    accounts?: GoogleAccount[]
-    selected?: number
-    error?: string
-  } | null>(null)
-
-  const verify = async () => {
-    setBusy(true)
-    setResult(null)
-    try {
-      // Test the just-typed (unsaved) cookie when present, else the stored one.
-      const r = await post<{
-        connected: boolean
-        accounts?: GoogleAccount[]
-        selected?: number
-        error?: string
-      }>('/osint/google/verify', cookieEdited != null ? { cookie: cookieEdited } : {})
-      setResult(r)
-      if (r.selected != null) setSelected(r.selected)
-    } catch (e) {
-      setResult({ connected: false, error: (e as Error).message })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // Persist which account lookups act as (the /u/<N>/ index).
-  const choose = async (authuser: number) => {
-    setSelecting(authuser)
-    try {
-      await post('/osint/google/select', { authuser })
-      setSelected(authuser)
-    } catch {
-      /* leave the previous selection intact on failure */
-    } finally {
-      setSelecting(null)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <GoogleLogo className="size-4 text-primary" weight="fill" />
-          {t('osintg.title')}
-        </CardTitle>
-        <CardDescription>{t('osintg.desc')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" onClick={verify} loading={busy} className="gap-1.5">
-            <CheckCircle className="size-4" />
-            {t('osintg.verify')}
-          </Button>
-          {result?.connected && result.accounts?.length ? (
-            <Badge variant="success">
-              <CheckCircle className="size-3" weight="fill" />
-              {t('osintg.connected')}
-            </Badge>
-          ) : result && !result.connected ? (
-            <Badge variant="destructive">
-              <Warning className="size-3" weight="fill" />
-              {t('osintg.notConnected')}
-            </Badge>
-          ) : null}
-        </div>
-
-        {result?.connected && result.accounts?.length ? (
-          <div className="space-y-2">
-            {result.accounts.length > 1 ? (
-              <p className="text-[11px] text-muted-foreground">{t('osintg.pick')}</p>
-            ) : null}
-            <div className="space-y-1">
-              {result.accounts.map((a) => {
-                const active = selected === a.authuser
-                return (
-                  <button
-                    key={a.authuser}
-                    onClick={() => choose(a.authuser)}
-                    disabled={selecting !== null}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-2 text-left text-xs transition-colors',
-                      active
-                        ? 'border-[var(--success)]/50 bg-[color-mix(in_oklch,var(--success)_10%,transparent)]'
-                        : 'border-border hover:border-primary/40 hover:bg-accent',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'flex size-4 shrink-0 items-center justify-center rounded-full border',
-                        active ? 'border-[var(--success)] bg-[var(--success)] text-white' : 'border-muted-foreground/40',
-                      )}
-                    >
-                      {active ? <CheckCircle className="size-3" weight="fill" /> : null}
-                    </span>
-                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
-                      {a.name ? <span className="font-medium">{a.name}</span> : null}
-                      <span className="truncate font-mono text-muted-foreground">{a.email}</span>
-                    </div>
-                    {active ? (
-                      <Badge variant="success" className="shrink-0">
-                        {t('osintg.active')}
-                      </Badge>
-                    ) : null}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        ) : null}
-        {result && !result.connected ? (
-          <p className="text-xs text-destructive">{result.error || t('osintg.notConnected')}</p>
-        ) : null}
-
-        <div className="rounded-[var(--radius-sm)] bg-muted/40 p-3 text-[11px] leading-relaxed text-muted-foreground">
-          <p className="mb-1 font-medium text-foreground">{t('osintg.howto')}</p>
-          <ol className="list-decimal space-y-0.5 pl-4">
-            <li>
-              <a
-                href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm"
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex items-center gap-1 text-primary underline underline-offset-2"
-              >
-                {t('osintg.step1')}
-                <ArrowSquareOut className="size-3" />
-              </a>
-            </li>
-            <li>{t('osintg.step2')}</li>
-            <li>{t('osintg.step3')}</li>
-            <li>{t('osintg.step4')}</li>
-          </ol>
-          <p className="mt-2">{t('osintg.note')}</p>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-/**
- * Set, change, or remove the dashboard password from Config — the same lock that
- * onboarding offers, reachable later. The plaintext is hashed server-side; only
- * the hash is ever stored. Changing an existing password requires the current
- * one (unless a live login session already proves it), matching the backend.
- */
-function DashboardPasswordCard() {
-  const { t } = useI18n()
-  const status = useApi<{ password_required?: boolean }>('/auth/status')
-  const locked = !!status.data?.password_required
-
-  const [current, setCurrent] = useState('')
-  const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [show, setShow] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState<string>()
-  const [error, setError] = useState<string>()
-
-  const submit = async (clear: boolean) => {
-    setError(undefined)
-    setDone(undefined)
-    if (!clear) {
-      if (!next) return setError(t('dashpw.errEmpty'))
-      if (next !== confirm) return setError(t('dashpw.errMismatch'))
-    }
-    setBusy(true)
-    try {
-      await post('/auth/password', { current, password: clear ? '' : next })
-      setCurrent('')
-      setNext('')
-      setConfirm('')
-      setDone(clear ? t('dashpw.cleared') : t('dashpw.saved'))
-      status.reload()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Lock className="size-4 text-primary" weight="fill" />
-          {t('dashpw.title')}
-        </CardTitle>
-        <CardDescription>
-          {locked ? t('dashpw.descLocked') : t('dashpw.descOpen')}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {locked ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="dashpw-current">{t('dashpw.current')}</Label>
-            <Input
-              id="dashpw-current"
-              type={show ? 'text' : 'password'}
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-              autoComplete="current-password"
-              placeholder="••••••••"
-            />
-          </div>
-        ) : null}
-
-        <div className="space-y-1.5">
-          <Label htmlFor="dashpw-new">{locked ? t('dashpw.new') : t('dashpw.password')}</Label>
-          <div className="relative">
-            <Input
-              id="dashpw-new"
-              type={show ? 'text' : 'password'}
-              value={next}
-              onChange={(e) => setNext(e.target.value)}
-              autoComplete="new-password"
-              placeholder="••••••••"
-            />
-            <button
-              type="button"
-              onClick={() => setShow((v) => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              aria-label={t('config.reveal')}
-            >
-              {show ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="dashpw-confirm">{t('dashpw.confirm')}</Label>
-          <Input
-            id="dashpw-confirm"
-            type={show ? 'text' : 'password'}
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submit(false)}
-            autoComplete="new-password"
-            placeholder="••••••••"
-          />
-        </div>
-
-        {error ? <p className="text-xs text-[var(--destructive)]">{error}</p> : null}
-        {done ? <p className="text-xs text-[var(--success)]">{done}</p> : null}
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => submit(false)} loading={busy} className="gap-1.5">
-            <FloppyDisk className="size-4" />
-            {locked ? t('dashpw.change') : t('dashpw.set')}
-          </Button>
-          {locked ? (
-            <Button size="sm" variant="outline" onClick={() => submit(true)} disabled={busy}>
-              {t('dashpw.remove')}
-            </Button>
-          ) : null}
-        </div>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">{t('dashpw.note')}</p>
-      </CardContent>
-    </Card>
   )
 }
