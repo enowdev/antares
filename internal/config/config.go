@@ -366,6 +366,11 @@ type ImageGen struct {
 	BaseURL  string `yaml:"base_url" json:"base_url"`
 	APIKey   string `yaml:"api_key" json:"api_key"`
 	Size     string `yaml:"size" json:"size"`
+	// ReferenceMode is how reference images reach the provider. "edits" is
+	// OpenAI's POST /images/edits with images:[{image_url}]. "generations"
+	// sends them as image:[...] on POST /images/generations, the shape some
+	// OpenAI-compatible gateways accept instead of an edits route.
+	ReferenceMode string `yaml:"reference_mode" json:"reference_mode"`
 }
 
 // Security holds settings for the authorized-security roles.

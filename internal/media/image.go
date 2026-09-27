@@ -12,8 +12,10 @@ import (
 )
 
 // GenerateImage produces a single PNG at output. When references is empty it
-// calls POST /images/generations; when non-empty it calls POST /images/edits
-// with images:[{image_url:dataURL}]. All non-URL fetches are bounded and the
+// calls POST /images/generations. With references it follows ep.ReferenceMode:
+// edits (the default) calls POST /images/edits with images:[{image_url}], and
+// generations calls POST /images/generations with image:[dataURL...] for
+// gateways that have no edits route. All non-URL fetches are bounded and the
 // output is written atomically. Errors are redacted of the API key.
 //
 // This is a paid POST: it is issued once, exactly. No automatic retry, and no
@@ -30,7 +32,7 @@ func GenerateImage(ctx context.Context, ep Endpoint, prompt, size string, refere
 
 	// Build the reference payload once; a bad reference short-circuits before
 	// any network call so we never spend money on garbage input.
-	var refs []map[string]any
+	var refs []string
 	for _, p := range references {
 		if strings.TrimSpace(p) == "" {
 			continue
@@ -39,32 +41,10 @@ func GenerateImage(ctx context.Context, ep Endpoint, prompt, size string, refere
 		if err != nil {
 			return fmt.Errorf("reference %q: %w", p, err)
 		}
-		refs = append(refs, map[string]any{"image_url": u})
+		refs = append(refs, u)
 	}
 
-	var (
-		endpoint string
-		payload  map[string]any
-	)
-	if len(refs) == 0 {
-		endpoint = ep.url("/images/generations")
-		payload = map[string]any{
-			"model":  ep.Model,
-			"prompt": prompt,
-			"size":   size,
-			"n":      1,
-		}
-	} else {
-		endpoint = ep.url("/images/edits")
-		payload = map[string]any{
-			"model":         ep.Model,
-			"prompt":        prompt,
-			"size":          size,
-			"n":             1,
-			"images":        refs,
-			"output_format": "png",
-		}
-	}
+	endpoint, payload := imageRequest(ep, prompt, size, refs)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -97,7 +77,7 @@ func GenerateImage(ctx context.Context, ep Endpoint, prompt, size string, refere
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil || len(out.Data) == 0 {
-		return errors.New("the image endpoint returned nothing usable")
+		return unusableImageResponse(ep, endpoint, resp.Header.Get("Content-Type"), raw)
 	}
 	first := out.Data[0]
 	switch {
@@ -120,6 +100,50 @@ func GenerateImage(ctx context.Context, ep Endpoint, prompt, size string, refere
 		return downloadAndReencodeAsPNG(ctx, resp, output)
 	}
 	return errors.New("the image endpoint returned neither data nor a url")
+}
+
+// imageRequest picks the route and body for one image call. Without
+// references it is a plain generation; with them, ep.ReferenceMode decides.
+func imageRequest(ep Endpoint, prompt, size string, refs []string) (string, map[string]any) {
+	payload := map[string]any{
+		"model":  ep.Model,
+		"prompt": prompt,
+		"size":   size,
+		"n":      1,
+	}
+	if len(refs) == 0 {
+		return ep.url("/images/generations"), payload
+	}
+	if ep.ReferenceMode == ReferenceModeGenerations {
+		payload["image"] = refs
+		return ep.url("/images/generations"), payload
+	}
+	images := make([]map[string]any, 0, len(refs))
+	for _, u := range refs {
+		images = append(images, map[string]any{"image_url": u})
+	}
+	payload["images"] = images
+	payload["output_format"] = "png"
+	return ep.url("/images/edits"), payload
+}
+
+// unusableImageResponse explains a 2xx reply that carried no image. It names
+// what came back, because "nothing usable" alone left no way to tell a
+// provider without the route (which often answers with its website's HTML
+// page) from an empty result.
+func unusableImageResponse(ep Endpoint, endpoint, contentType string, raw []byte) error {
+	body := strings.TrimSpace(string(raw))
+	if strings.Contains(strings.ToLower(contentType), "text/html") || strings.HasPrefix(strings.ToLower(body), "<!doctype html") || strings.HasPrefix(strings.ToLower(body), "<html") {
+		hint := "check image_gen.base_url"
+		if strings.HasSuffix(endpoint, "/images/edits") {
+			hint = "the provider likely has no /images/edits route; set image_gen.reference_mode to generations if it accepts reference images on /images/generations"
+		}
+		return fmt.Errorf("the image endpoint %s returned an HTML page instead of JSON — %s", ep.redact(endpoint), hint)
+	}
+	if body == "" {
+		return fmt.Errorf("the image endpoint %s returned an empty response", ep.redact(endpoint))
+	}
+	return fmt.Errorf("the image endpoint %s returned no image data: %s", ep.redact(endpoint), ep.redact(truncate(body, 300)))
 }
 
 // truncate caps s at n runes and marks the elision. Used only for error text.

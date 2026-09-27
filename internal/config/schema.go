@@ -121,6 +121,7 @@ var enums = map[string][]string{
 	"display.theme":             {"system", "light", "dark"},
 	"logging.level":             {"debug", "info", "warn", "error"},
 	"tools.web_search.provider": {"browser", "brave", "tavily", "searxng", "none"},
+	"image_gen.reference_mode":  {"edits", "generations"},
 }
 
 var help = map[string]string{
@@ -148,6 +149,7 @@ var help = map[string]string{
 	"osint.google_cookie":              "Optional. A logged-in Google Cookie header enables osint_google to resolve an email to its public profile. ToS-sensitive; uses your own session. Leave empty to disable.",
 	"display.show_reasoning":           "Stream and show model reasoning/thinking in the dashboard (and TUI). Off skips emitting reasoning events so long thinking traces never hit the UI.",
 	"display.tool_progress":            "Show live tool progress lines while a tool runs.",
+	"image_gen.reference_mode":         "How reference images are sent. edits: POST /images/edits (OpenAI). generations: POST /images/generations with an image array, for gateways without an edits route.",
 	"display.max_live_reasoning_chars": "Max characters of reasoning kept in the browser while a turn streams (trailing window). Prevents tab freezes on long thinking. Default 48000. 0 = unlimited. Full text is still saved server-side and restored after the turn.",
 }
 

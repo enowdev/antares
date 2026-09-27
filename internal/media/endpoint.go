@@ -16,6 +16,7 @@ package media
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"strings"
 
@@ -29,7 +30,16 @@ type Endpoint struct {
 	APIKey  string
 	Model   string
 	Headers map[string]string
+	// ReferenceMode is ReferenceModeEdits or ReferenceModeGenerations; empty
+	// means edits. Only image requests with references look at it.
+	ReferenceMode string
 }
+
+// How GenerateImage sends reference images; see config.ImageGen.ReferenceMode.
+const (
+	ReferenceModeEdits       = "edits"
+	ReferenceModeGenerations = "generations"
+)
 
 // ImageEndpoint resolves the image generation endpoint from cfg.ImageGen,
 // falling back through cfg.ImageGen.Provider → cfg.Providers[id] → openai
@@ -67,7 +77,13 @@ func ImageEndpoint(cfg *config.Config) (Endpoint, error) {
 	if model == "" {
 		model = "gpt-image-1"
 	}
-	ep := Endpoint{BaseURL: strings.TrimRight(base, "/"), APIKey: key, Model: model}
+	mode := strings.TrimSpace(ic.ReferenceMode)
+	switch mode {
+	case "", ReferenceModeEdits, ReferenceModeGenerations:
+	default:
+		return Endpoint{}, fmt.Errorf("image_gen.reference_mode must be %q or %q, not %q", ReferenceModeEdits, ReferenceModeGenerations, mode)
+	}
+	ep := Endpoint{BaseURL: strings.TrimRight(base, "/"), APIKey: key, Model: model, ReferenceMode: mode}
 	if ic.Provider != "" || ic.BaseURL == "" {
 		id := ic.Provider
 		if id == "" {
