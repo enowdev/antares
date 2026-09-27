@@ -268,6 +268,31 @@ documented opt-out for the rare case you really want a public
 unauthenticated bind. Set `public_url` when behind a reverse proxy so
 generated links are right.
 
+## Dashboard modules
+
+```yaml
+display:
+  modules: [automation]   # optional dashboard modules shown in the sidebar
+  preset: coding          # label of the preset last chosen; display only
+```
+
+`modules` lists which optional modules appear in the dashboard sidebar. The
+ids are `automation`, `security` and `studio`; an unknown id or a duplicate is
+rejected on save. A hidden module is only left out of the sidebar: its pages
+still load and the command palette still lists them.
+
+- **Key absent** means every module is on. Installs from before modules
+  existed have no key, so upgrading hides nothing, and re-saving the file for
+  any other reason keeps the key absent.
+- **`modules: []`** is a deliberate choice, the General preset: no optional
+  modules.
+
+`preset` is one of `general`, `coding`, `security`, `creator`, `full` or
+`custom` (a set that matches no preset). It is only a label; `modules` alone
+decides what is shown. Setup writes both keys from the preset picked there, and
+Settings changes them through `POST /api/ui/modules`. Neither key appears in
+the generic Settings form.
+
 ## Scheduling, channels, MCP
 
 ```yaml

@@ -173,6 +173,16 @@ persisted project binding. See [skill sources and precedence](skills.md#where-th
 | `GET /api/mcp` | MCP servers and connection state |
 | `GET /api/files` | Browse the workspace |
 | `GET /api/files/read` | Read a file from it |
+| `GET /api/ui/modules` | Dashboard modules shown in the sidebar |
+| `POST /api/ui/modules` | Change them |
+
+Both module endpoints return `{"modules": ["automation"], "preset": "coding"}`.
+`modules` is `null` when `display.modules` is absent from `config.yaml`, which
+means every module is on; `preset` is then `"full"`. `POST` takes the same
+shape, requires both fields, and answers with what was saved, the list in the
+fixed order `automation`, `security`, `studio`. An unknown module id, a
+duplicate, or a preset other than `general`, `coding`, `security`, `creator`,
+`full` or `custom` is a 400. See [Dashboard modules](configuration.md#dashboard-modules).
 
 ## Setup
 
@@ -181,6 +191,11 @@ persisted project binding. See [skill sources and precedence](skills.md#where-th
 | `GET /api/setup/status` | Whether setup is needed, and the provider catalogue |
 | `POST /api/setup/test` | Try a provider and key |
 | `POST /api/setup/complete` | Write the configuration |
+
+`POST /api/setup/complete` also takes optional `modules` (a list of module
+ids) and `preset`, validated as for `POST /api/ui/modules`. With `modules`
+omitted, `display.modules` stays absent and every module is shown; `[]` stores
+the General preset. A `preset` without `modules` is a 400.
 
 ## Content Creator
 

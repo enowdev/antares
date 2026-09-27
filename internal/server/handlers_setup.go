@@ -354,10 +354,30 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		Discord           string `json:"discord_token"`
 		Language          string `json:"language"`
 		DashboardPassword string `json:"dashboard_password"`
+		// Modules is a pointer so an omitted field (leave display.modules
+		// absent: every module on) differs from [] (the General preset).
+		Modules *[]string `json:"modules"`
+		Preset  string    `json:"preset"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	if body.Modules != nil {
+		if err := config.ValidateModules(*body.Modules); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if body.Preset != "" {
+		if body.Modules == nil {
+			writeError(w, http.StatusBadRequest, errors.New("preset requires modules"))
+			return
+		}
+		if err := config.ValidatePreset(body.Preset); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
 	}
 	if strings.TrimSpace(body.Model) == "" {
 		writeError(w, http.StatusBadRequest, errors.New("a model is required"))
@@ -491,6 +511,11 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	if lang := strings.TrimSpace(body.Language); lang != "" {
 		cfg.Display.Language = lang
+	}
+	if body.Modules != nil {
+		modules := config.NormalizeModules(*body.Modules)
+		cfg.Display.Modules = &modules
+		cfg.Display.Preset = body.Preset
 	}
 	// An optional dashboard password locks the web UI behind a login. It is
 	// stored hashed; the plaintext never touches config.

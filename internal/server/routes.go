@@ -96,6 +96,10 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/config/raw", s.handleSaveRawConfig)
 	m.HandleFunc("GET /api/config/schema", s.handleConfigSchema)
 
+	// Dashboard modules (sidebar visibility, display.modules)
+	m.HandleFunc("GET /api/ui/modules", s.handleGetModules)
+	m.HandleFunc("POST /api/ui/modules", s.handleSetModules)
+
 	// Models & providers
 	m.HandleFunc("GET /api/model/options", s.handleModelOptions)
 	m.HandleFunc("GET /api/context-window", s.handleContextWindow)
