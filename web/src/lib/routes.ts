@@ -23,8 +23,14 @@ import {
   Terminal,
   Toolbox,
 } from '@phosphor-icons/react'
-import type { MessageKey } from './i18n'
-import { ROUTE_MANIFEST, type RouteManifestEntry } from './routeManifest'
+import {
+  HUB_MANIFEST,
+  ROUTE_MANIFEST,
+  entryFor,
+  type HubId,
+  type HubManifestEntry,
+  type RouteManifestEntry,
+} from './routeManifest'
 
 export type IconComponent = ComponentType<{
   className?: string
@@ -163,46 +169,46 @@ export const ROUTES: RouteDef[] = ROUTE_MANIFEST.map((entry) => {
   return { ...entry, icon: runtime.icon, component: runtime.component }
 })
 
-/** Nav entries use the short sidebar labels rather than the page titles. */
-export const NAV_LABELS: Record<string, MessageKey> = {
-  '/': 'nav.chat',
-  '/sessions': 'nav.sessions',
-  '/providers': 'nav.providers',
-  '/tools': 'nav.tools',
-  '/memory': 'nav.memory',
-  '/skills': 'nav.skills',
-  '/roles': 'nav.roles',
-  '/content-creator': 'creator.title',
-  '/soul': 'nav.soul',
-  '/cron': 'nav.cron',
-  '/channels': 'nav.channels',
-  '/autopilot': 'nav.autopilot',
-  '/engagement': 'nav.engagement',
-  '/board': 'nav.board',
-  '/intercept': 'nav.intercept',
-  '/mcp': 'nav.mcp',
-  '/plugins': 'nav.plugins',
-  '/proxies': 'nav.proxies',
-  '/vps': 'nav.vps',
-  '/analytics': 'nav.analytics',
-  '/files': 'nav.files',
-  '/logs': 'nav.logs',
-  '/config': 'nav.config',
-  '/system': 'nav.system',
-  '/social-media': 'nav.socialMedia',
+export interface HubDef extends HubManifestEntry {
+  icon: IconComponent
+  /** Pages in tab order; the first is where the sidebar entry links. */
+  tabs: RouteDef[]
 }
 
-export const PRIMARY_ROUTES = ROUTES.filter((r) => r.primary)
+/** Single-page hubs reuse their page's icon; multi-tab hubs get their own. */
+const HUB_ICONS: Partial<Record<HubId, IconComponent>> = {
+  agent: Robot,
+  capabilities: Toolbox,
+  automation: Kanban,
+  security: ShieldCheck,
+  studio: FilmStrip,
+  system: Gear,
+}
+
+/**
+ * Sidebar entries, composed from {@link HUB_MANIFEST} like ROUTES is from the
+ * route manifest. A hub with no pages or no icon throws at startup.
+ */
+export const HUBS: HubDef[] = HUB_MANIFEST.map((hub) => {
+  const tabs = ROUTES.filter((r) => r.hub === hub.id)
+  if (tabs.length === 0) {
+    throw new Error(`routes.ts: hub "${hub.id}" has no routes`)
+  }
+  const icon = HUB_ICONS[hub.id] ?? (tabs.length === 1 ? tabs[0].icon : undefined)
+  if (!icon) {
+    throw new Error(`routes.ts: no icon registered for hub "${hub.id}"`)
+  }
+  return { ...hub, icon, tabs }
+})
+
+const HUB_BY_ID = new Map(HUBS.map((h) => [h.id, h]))
+
+export function hubById(id: HubId): HubDef | undefined {
+  return HUB_BY_ID.get(id)
+}
 
 /** Resolve the route definition for a pathname. */
 export function routeFor(pathname: string): RouteDef | undefined {
-  const exact = ROUTES.find((r) => r.path === pathname)
-  if (exact) return exact
-  // Alias segments are matched by their static prefix (e.g. /c/<id>).
-  return ROUTES.find((r) =>
-    r.aliases?.some((a) => {
-      const prefix = a.split('/:')[0]
-      return prefix !== '' && pathname.startsWith(prefix + '/')
-    }),
-  )
+  const entry = entryFor(pathname)
+  return entry ? ROUTES.find((r) => r.id === entry.id) : undefined
 }

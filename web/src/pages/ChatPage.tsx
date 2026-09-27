@@ -599,7 +599,7 @@ export default function ChatPage() {
             if (r.action.value) navigate(`/c/${r.action.value}`)
             return
           case 'setup':
-            navigate('/config')
+            navigate('/system/settings')
             return
           case 'stop':
             stop()

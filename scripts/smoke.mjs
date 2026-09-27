@@ -12,6 +12,10 @@
 // seeds that session row directly in SQLite before booting the server so
 // /c/<id> loads a real conversation instead of a 404.
 //
+// smokeRedirects() lists every retired path (/cron, /config, …) and bare hub
+// root (/agent) with the canonical path it must land on; each is visited too,
+// so a dropped redirect fails here instead of silently bouncing to "/".
+//
 // The caller MUST supply SMOKE_BASE pointing at an isolated server it owns.
 // SMOKE_TOKEN, when present, is written to localStorage as antares.token so
 // the LoginGate resolves. SMOKE_PASSWORD (never stored) is exchanged for a
@@ -35,9 +39,14 @@ const manifestModule = await import(
   pathToFileURL(new URL('../web/src/lib/routeManifest.ts', import.meta.url).pathname).href
 )
 const smokeTargets = manifestModule.smokeTargets
+const smokeRedirects = manifestModule.smokeRedirects
 const SMOKE_FIXTURE_SESSION_ID = manifestModule.SMOKE_FIXTURE_SESSION_ID
 if (typeof smokeTargets !== 'function') {
   console.error('routeManifest.ts did not export smokeTargets()')
+  process.exit(2)
+}
+if (typeof smokeRedirects !== 'function') {
+  console.error('routeManifest.ts did not export smokeRedirects()')
   process.exit(2)
 }
 
@@ -71,6 +80,9 @@ const USER_DATA_DIR = mkdtempSync(join(tmpdir(), 'antares-smoke-chrome-'))
 const CDP_TIMEOUT_MS = 30_000
 
 const TARGETS = smokeTargets()
+const REDIRECTS = smokeRedirects()
+// Old bookmarks carry state (/vps?x=1#y); every redirect must keep it.
+const REDIRECT_SUFFIX = '?smoke=1#smoke'
 // Standalone gates redirect once auth is short-circuited: /login and /setup
 // both bounce to "/" when a valid session/token is present. We still visit
 // them so the surfaces themselves are exercised, but the finalPath check
@@ -294,11 +306,14 @@ const extraAllowedHosts = new Set(
 const isLoopbackHost = (h) =>
   h === 'localhost' || h.startsWith('127.') || h === '[::1]' || h === '::1'
 
-const routeCheck = async (route, viewport) => {
+// `expected` is where the browser must end up: the route itself for a
+// canonical path, or the destination for a legacy redirect. `suffix` (a query
+// and hash) is appended to the request and must survive the redirect intact.
+const routeCheck = async (route, viewport, expected = route, suffix = '') => {
   events = []
   outboundHosts.clear()
   const problems = []
-  const url = BASE + route
+  const url = BASE + route + suffix
 
   try {
     await send('Page.navigate', { url }, sid)
@@ -342,8 +357,12 @@ const routeCheck = async (route, viewport) => {
   // the explicitly permitted post-auth destinations. No blanket exemption:
   // /login bouncing to /sessions would still be a failure.
   const gateOK = STANDALONE_GATES.has(route) && STANDALONE_ACCEPTED.has(finalPath)
-  if (finalPath !== route && !gateOK) {
-    problems.push(`REDIRECT: expected ${route} got ${finalPath}`)
+  if (finalPath !== expected && !gateOK) {
+    problems.push(`REDIRECT: expected ${expected} got ${finalPath}`)
+  }
+  if (suffix) {
+    const kept = (await evaluate('location.search + location.hash')) ?? ''
+    if (kept !== suffix) problems.push(`REDIRECT: dropped query/hash, expected ${suffix} got ${kept || '(none)'}`)
   }
 
   // Horizontal overflow: catches layouts that break out of the mobile viewport.
@@ -376,6 +395,17 @@ for (const viewport of VIEWPORTS) {
       for (const p of problems) console.log(`       ${p}`)
     } else {
       console.log(`ok   ${route}`)
+    }
+  }
+  for (const { from, to } of REDIRECTS) {
+    checks++
+    const problems = await routeCheck(from, viewport, to, REDIRECT_SUFFIX)
+    if (problems.length) {
+      failures++
+      console.log(`FAIL ${from} -> ${to}`)
+      for (const p of problems) console.log(`       ${p}`)
+    } else {
+      console.log(`ok   ${from} -> ${to}`)
     }
   }
 }

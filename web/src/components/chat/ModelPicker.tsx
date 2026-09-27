@@ -172,7 +172,7 @@ export function ModelPicker({
               {pickError}{" "}
               {pickGate ? (
                 <Link
-                  to="/config"
+                  to="/system/settings"
                   className="font-medium underline underline-offset-2"
                 >
                   {t("sensitive.setPassword")}

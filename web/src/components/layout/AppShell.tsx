@@ -1,12 +1,14 @@
 import { Suspense, useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { List, Moon, Sun, Translate, X } from '@phosphor-icons/react'
+import { Link, Outlet, useLocation } from 'react-router-dom'
+import { DotsThreeOutline, List, Moon, Sun, Translate, X } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { useLocalStorage, useMediaQuery } from '@/lib/hooks'
 import { LANGUAGES, useI18n } from '@/lib/i18n'
-import { NAV_LABELS, PRIMARY_ROUTES, ROUTES, routeFor } from '@/lib/routes'
+import { HUBS, hubById, routeFor, type HubDef } from '@/lib/routes'
+import { hubFor } from '@/lib/routeManifest'
 import { Button } from '@/components/ui/button'
-import { TooltipProvider } from '@/components/ui/primitives'
+import { Separator, TooltipProvider } from '@/components/ui/primitives'
+import { HubTabs } from '@/components/layout/HubTabs'
 import { StatusPill } from '@/components/layout/StatusPill'
 import { UpdateBanner } from '@/components/layout/UpdateBanner'
 import { PageChromeProvider, usePageChrome } from '@/components/layout/PageChrome'
@@ -37,40 +39,50 @@ function AntaresMark({ className }: { className?: string }) {
   )
 }
 
-function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+function HubLink({ hub, active, onNavigate }: { hub: HubDef; active: boolean; onNavigate?: () => void }) {
   const { t } = useI18n()
-  const location = useLocation()
+  const Icon = hub.icon
   return (
-    <nav className="flex flex-col gap-0.5">
-      {ROUTES.map(({ path, icon: Icon }) => (
-        <NavLink
-          key={path}
-          to={path}
-          end={path === '/'}
-          onClick={onNavigate}
-          className={({ isActive }) => {
-            // The chat lives at "/" but a resumed conversation is "/c/:id";
-            // keep Chat highlighted there too.
-            const active = isActive || (path === '/' && location.pathname.startsWith('/c/'))
-            return cn(
-              'flex items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-sm transition-colors',
-              active
-                ? 'bg-primary/12 font-medium text-primary'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-            )
-          }}
-        >
-          {({ isActive }) => {
-            const active = isActive || (path === '/' && location.pathname.startsWith('/c/'))
-            return (
-              <>
-                <Icon className="size-4.5 shrink-0" weight={active ? 'fill' : 'regular'} />
-                <span className="truncate">{t(NAV_LABELS[path])}</span>
-              </>
-            )
-          }}
-        </NavLink>
+    <Link
+      to={hub.tabs[0].path}
+      onClick={onNavigate}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'flex items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-sm transition-colors',
+        active
+          ? 'bg-primary/12 font-medium text-primary'
+          : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+      )}
+    >
+      <Icon className="size-4.5 shrink-0" weight={active ? 'fill' : 'regular'} />
+      <span className="truncate">{t(hub.titleKey)}</span>
+    </Link>
+  )
+}
+
+/**
+ * One entry per hub. A hub stays highlighted on any of its tabs (and Chat on a
+ * resumed /c/:id), so activeness comes from hubFor() rather than NavLink's own
+ * path match. The system tier sits apart at the bottom.
+ */
+function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+  const location = useLocation()
+  const activeHub = hubFor(location.pathname)
+  const main = HUBS.filter((h) => h.tier !== 'system')
+  const system = HUBS.filter((h) => h.tier === 'system')
+  return (
+    <nav className="flex min-h-full flex-col gap-0.5">
+      {main.map((hub) => (
+        <HubLink key={hub.id} hub={hub} active={hub.id === activeHub} onNavigate={onNavigate} />
       ))}
+      {system.length ? (
+        <div className="mt-auto flex flex-col gap-0.5 pt-4">
+          <Separator className="mb-2" />
+          {system.map((hub) => (
+            <HubLink key={hub.id} hub={hub} active={hub.id === activeHub} onNavigate={onNavigate} />
+          ))}
+        </div>
+      ) : null}
     </nav>
   )
 }
@@ -137,6 +149,10 @@ function PageFrame() {
   const { t } = useI18n()
   const { actions } = usePageChrome()
   const route = routeFor(location.pathname)
+  const hub = route ? hubById(route.hub) : undefined
+  // Hubs with several pages get the compact header: hub title, tab strip, and
+  // actions on one row. The page description moves to the tab tooltip.
+  const tabbed = hub && hub.tabs.length > 1 ? hub : undefined
 
   const labels = {
     title: t('error.pageTitle'),
@@ -173,7 +189,24 @@ function PageFrame() {
         fill && 'lg:flex lg:h-dvh lg:flex-col lg:overflow-hidden',
       )}
     >
-      {route ? (
+      {tabbed ? (
+        <header
+          className={cn(
+            'mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4',
+            fill && 'lg:shrink-0',
+          )}
+        >
+          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+            <h1 className="shrink-0 text-lg font-semibold leading-tight tracking-tight sm:text-xl">
+              {t(tabbed.titleKey)}
+            </h1>
+            <HubTabs hub={tabbed} className="flex-1" />
+          </div>
+          {actions ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+          ) : null}
+        </header>
+      ) : route ? (
         <header
           className={cn(
             'mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4',
@@ -207,6 +240,9 @@ function PageFrame() {
   )
 }
 
+/** Hubs pinned to the mobile bottom bar: those owning a `primary` route. */
+const BOTTOM_BAR_HUBS = HUBS.filter((h) => h.tabs.some((r) => r.primary))
+
 export function AppShell() {
   const { theme, setTheme } = useTheme()
   const { t } = useI18n()
@@ -215,6 +251,10 @@ export function AppShell() {
   const location = useLocation()
 
   useEffect(() => setDrawerOpen(false), [location.pathname])
+
+  const activeHub = hubFor(location.pathname)
+  // More reads as active on any hub the bar does not show directly.
+  const moreActive = activeHub !== undefined && !BOTTOM_BAR_HUBS.some((h) => h.id === activeHub)
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -295,30 +335,37 @@ export function AppShell() {
 
             {/* Mobile bottom navigation */}
             <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-background/95 backdrop-blur-md lg:hidden">
-              {PRIMARY_ROUTES.map(({ path, icon: Icon }) => (
-                <NavLink
-                  key={path}
-                  to={path}
-                  end={path === '/'}
-                  className={({ isActive }) => {
-                    const active = isActive || (path === '/' && location.pathname.startsWith('/c/'))
-                    return cn(
+              {BOTTOM_BAR_HUBS.map((hub) => {
+                const active = hub.id === activeHub
+                const Icon = hub.icon
+                return (
+                  <Link
+                    key={hub.id}
+                    to={hub.tabs[0].path}
+                    aria-current={active ? 'page' : undefined}
+                    className={cn(
                       'flex flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium leading-none transition-colors',
                       active ? 'text-primary' : 'text-muted-foreground',
-                    )
-                  }}
-                >
-                  {({ isActive }) => {
-                    const active = isActive || (path === '/' && location.pathname.startsWith('/c/'))
-                    return (
-                      <>
-                        <Icon className="size-5" weight={active ? 'fill' : 'regular'} />
-                        <span className="max-w-full truncate">{t(NAV_LABELS[path])}</span>
-                      </>
-                    )
-                  }}
-                </NavLink>
-              ))}
+                    )}
+                  >
+                    <Icon className="size-5" weight={active ? 'fill' : 'regular'} />
+                    <span className="max-w-full truncate">{t(hub.titleKey)}</span>
+                  </Link>
+                )
+              })}
+              {/* Everything else lives in the drawer, which lists every hub. */}
+              <button
+                type="button"
+                onClick={() => setDrawerOpen(true)}
+                aria-expanded={drawerOpen}
+                className={cn(
+                  'flex flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium leading-none transition-colors',
+                  moreActive ? 'text-primary' : 'text-muted-foreground',
+                )}
+              >
+                <DotsThreeOutline className="size-5" weight={moreActive ? 'fill' : 'regular'} />
+                <span className="max-w-full truncate">{t('nav.more')}</span>
+              </button>
             </nav>
           </div>
         </div>

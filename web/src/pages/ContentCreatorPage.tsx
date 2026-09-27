@@ -1175,7 +1175,7 @@ export default function ContentCreatorPage() {
                     </Field>
                     <Link
                       className="text-sm text-primary underline"
-                      to="/social-media"
+                      to="/studio/social"
                     >
                       Manage accounts and browser in Social Media
                     </Link>
@@ -1402,7 +1402,7 @@ export default function ContentCreatorPage() {
                           </Button>
                         </div>
                       ))}
-                    <Link to="/cron" className="text-sm text-primary underline">
+                    <Link to="/automation/schedules" className="text-sm text-primary underline">
                       Open scheduler and run history
                     </Link>
                   </div>
