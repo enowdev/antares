@@ -269,6 +269,7 @@ const zh: Dict = {
   'common.search': '搜索',
   'common.delete': '删除',
   'common.close': '关闭',
+  'common.cancel': '取消',
   'common.previous': '上一页',
   'common.next': '下一页',
   'skills.libraryTitle': '安全库 —— {n} 个测试流程',

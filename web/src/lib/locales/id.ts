@@ -290,6 +290,7 @@ const id: Dict = {
   'common.search': 'Cari',
   'common.delete': 'Hapus',
   'common.close': 'Tutup',
+  'common.cancel': 'Batal',
   'common.previous': 'Sebelumnya',
   'common.next': 'Berikutnya',
   'common.showingRange': '{from}–{to} dari {total}',

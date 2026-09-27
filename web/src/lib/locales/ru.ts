@@ -269,6 +269,7 @@ const ru: Dict = {
   'common.search': 'Поиск',
   'common.delete': 'Удалить',
   'common.close': 'Закрыть',
+  'common.cancel': 'Отмена',
   'common.previous': 'Назад',
   'common.next': 'Далее',
   'skills.libraryTitle': 'Библиотека безопасности — {n} процедур',

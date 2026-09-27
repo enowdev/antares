@@ -269,6 +269,7 @@ const ja: Dict = {
   'common.search': '検索',
   'common.delete': '削除',
   'common.close': '閉じる',
+  'common.cancel': 'キャンセル',
   'common.previous': '前へ',
   'common.next': '次へ',
   'skills.libraryTitle': 'セキュリティライブラリ — {n} 件の手順',
