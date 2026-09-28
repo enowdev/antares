@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   appendSeg,
+  carryRenderKeys,
   hydrate,
   mergeHydratedWithLocalErrors,
   normalizeErrorPayload,
@@ -284,5 +285,138 @@ describe('mergeHydratedWithLocalErrors', () => {
     const hydrated = [{ id: 'srv_1', role: 'user', content: 'earlier' }]
     const merged = mergeHydratedWithLocalErrors(hydrated, [...hydrated, user, err])
     expect(merged.map((m) => m.id)).toEqual(['srv_1', 'local_u', 'local_err'])
+  })
+})
+
+const row = (over) => ({ created_at: '', tokens_in: 0, tokens_out: 0, content: '', ...over })
+
+describe('hydrate groups a turn into one assistant view', () => {
+  // A turn with a tool iteration is persisted as one assistant row per model
+  // call. Live it is one message; hydrated it must be one too, or the end-of-
+  // turn refresh changes the row count and the virtualised list jumps.
+  const detail = {
+    session: { id: 's1', title: '', model: '', provider: '' },
+    messages: [
+      row({ id: 'u1', role: 'user', content: 'look around' }),
+      row({ id: 'a1', role: 'assistant', content: 'Checking files.', tokens_in: 10, tokens_out: 4,
+        tool_calls: JSON.stringify([{ id: 'c1', name: 'list_files', arguments: '{}' }]) }),
+      row({ id: 't1', role: 'tool', content: 'readme.txt', tool_call_id: 'c1' }),
+      row({ id: 'a2', role: 'assistant', content: 'There is one file.', tokens_in: 20, tokens_out: 6, created_at: '2026-09-28T00:00:02Z' }),
+      row({ id: 'u2', role: 'user', content: 'thanks' }),
+      row({ id: 'a3', role: 'assistant', content: 'Anytime.' }),
+    ],
+  }
+
+  test('one user row and one assistant row per turn', () => {
+    const out = hydrate(detail)
+    expect(out.map((m) => `${m.role}:${m.id}`)).toEqual(['user:u1', 'assistant:a1', 'user:u2', 'assistant:a3'])
+  })
+
+  test('segments run in order across the iterations, like the live stream', () => {
+    const turn = hydrate(detail)[1]
+    expect(turn.segments?.map((s) => (s.kind === 'tool' ? `tool:${s.call.name}` : `${s.kind}:${s.text}`))).toEqual([
+      'text:Checking files.',
+      'tool:list_files',
+      'text:There is one file.',
+    ])
+    expect(turn.toolCalls?.[0]).toMatchObject({ id: 'c1', result: 'readme.txt', running: false })
+    expect(turn.content).toBe('Checking files.\n\nThere is one file.')
+  })
+
+  test('usage is summed and the time is the last row, matching the live totals', () => {
+    const turn = hydrate(detail)[1]
+    expect(turn.tokensIn).toBe(30)
+    expect(turn.tokensOut).toBe(10)
+    expect(turn.createdAt).toBe('2026-09-28T00:00:02Z')
+  })
+
+  test('a persisted error row lands on its turn instead of a separate bubble', () => {
+    const out = hydrate({
+      session: detail.session,
+      messages: [
+        row({ id: 'u1', role: 'user', content: 'go' }),
+        row({ id: 'a1', role: 'assistant', content: 'Working.' }),
+        row({ id: 'a2', role: 'assistant', content: '{"error":"provider refused"}', meta: { is_error: true } }),
+      ],
+    })
+    expect(out).toHaveLength(2)
+    expect(out[1].content).toBe('Working.')
+    expect(out[1].error).toBe(JSON.stringify({ error: 'provider refused' }, null, 2))
+    expect(out[1].errorSource).toBe('server')
+  })
+
+  test('a hidden user row (a sub-agent result) still starts a new turn', () => {
+    const out = hydrate({
+      session: detail.session,
+      messages: [
+        row({ id: 'u1', role: 'user', content: 'delegate it' }),
+        row({ id: 'a1', role: 'assistant', content: 'Started a sub-agent.' }),
+        row({ id: 'h1', role: 'user', content: '[Background sub-agent finished]', hidden: true }),
+        row({ id: 'a2', role: 'assistant', content: 'The sub-agent is done.' }),
+      ],
+    })
+    expect(out.map((m) => m.id)).toEqual(['u1', 'a1', 'a2'])
+  })
+})
+
+describe('carryRenderKeys', () => {
+  test('the turn that just finished keeps the keys it was rendered under', () => {
+    const prev = [
+      { id: 'u0', role: 'user', content: 'earlier' },
+      { id: 'a0', role: 'assistant', content: 'earlier reply' },
+      { id: 'local_1', role: 'user', content: 'now' },
+      { id: 'local_1_a', role: 'assistant', content: 'streamed' },
+    ]
+    const next = [
+      { id: 'u0', role: 'user', content: 'earlier' },
+      { id: 'a0', role: 'assistant', content: 'earlier reply' },
+      { id: 'msg_u', role: 'user', content: 'now' },
+      { id: 'msg_a', role: 'assistant', content: 'streamed' },
+    ]
+    const out = carryRenderKeys(next, prev)
+    expect(out.map((m) => m.key ?? m.id)).toEqual(['u0', 'a0', 'local_1', 'local_1_a'])
+    // The server id is what edit and retry use.
+    expect(out[2].id).toBe('msg_u')
+    expect(out[3].id).toBe('msg_a')
+  })
+
+  test('a carried key survives the next refresh too', () => {
+    const prev = [{ id: 'msg_a', key: 'local_1_a', role: 'assistant', content: 'x' }]
+    const out = carryRenderKeys([{ id: 'msg_a', role: 'assistant', content: 'x' }], prev)
+    expect(out[0].key).toBe('local_1_a')
+  })
+
+  test('an attached live turn keeps its key when it gets a server id', () => {
+    const prev = [
+      { id: 'u0', role: 'user', content: 'q' },
+      { id: 'live_9_a', role: 'assistant', content: 'partial' },
+    ]
+    const next = [
+      { id: 'u0', role: 'user', content: 'q' },
+      { id: 'msg_a', role: 'assistant', content: 'full' },
+    ]
+    expect(carryRenderKeys(next, prev).map((m) => m.key ?? m.id)).toEqual(['u0', 'live_9_a'])
+  })
+
+  test('rows are not paired across a role mismatch', () => {
+    const prev = [{ id: 'local_1_a', role: 'assistant', content: '' }]
+    const next = [{ id: 'msg_u', role: 'user', content: 'x' }]
+    expect(carryRenderKeys(next, prev)[0].key).toBeUndefined()
+  })
+
+  test('no key is handed out twice', () => {
+    const prev = [
+      { id: 'local_1', role: 'user', content: 'a' },
+      { id: 'local_1_a', role: 'assistant', content: 'b' },
+    ]
+    const next = [
+      { id: 'msg_u0', role: 'user', content: 'older' },
+      { id: 'msg_a0', role: 'assistant', content: 'older' },
+      { id: 'msg_u1', role: 'user', content: 'a' },
+      { id: 'msg_a1', role: 'assistant', content: 'b' },
+    ]
+    const keys = carryRenderKeys(next, prev).map((m) => m.key ?? m.id)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(keys.slice(-2)).toEqual(['local_1', 'local_1_a'])
   })
 })

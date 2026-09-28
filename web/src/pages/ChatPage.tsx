@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Virtuoso, type IndexLocationWithAlign, type VirtuosoHandle } from 'react-virtuoso'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowUp,
@@ -129,6 +129,35 @@ function pickErrorText(err: Error): string {
     }
   }
   return err.message
+}
+
+interface TranscriptFooterContext {
+  approvals: ApprovalView[]
+  error?: string
+  onDecided: (id: string, decision: 'allowed' | 'refused' | 'expired') => void
+  /** Called when the footer changes height, so a pinned list stays pinned. */
+  onResize: () => void
+}
+
+/** The transcript's footer: pending approvals and the page error. Declared once
+ *  at module level so Virtuoso never sees a new component type. */
+function TranscriptFooter({ context }: { context?: TranscriptFooterContext }) {
+  const approvals = context?.approvals ?? []
+  const error = context?.error
+  const onResize = context?.onResize
+  const onDecided = context?.onDecided
+  const shape = `${approvals.map((a) => `${a.id}:${a.decided ?? ''}`).join(',')}|${error ?? ''}`
+  useLayoutEffect(() => {
+    onResize?.()
+  }, [shape, onResize])
+  return (
+    <div className="mx-auto w-full max-w-3xl space-y-5 px-4 pb-6 sm:px-6">
+      {onDecided
+        ? approvals.map((a) => <ApprovalCard key={a.id} approval={a} onDecided={onDecided} />)
+        : null}
+      {error ? <ErrorBanner message={error} /> : null}
+    </div>
+  )
 }
 
 export default function ChatPage() {
@@ -377,10 +406,108 @@ export default function ChatPage() {
   }, [sessionId])
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  // Where the list opens. Captured once per mount: Virtuoso treats this as the
-  // initial anchor, so recomputing it from messages.length on every render
-  // re-anchors the list mid-stream and fights followOutput.
-  const initialIndexRef = useRef(0)
+  // Where the list opens: the bottom of the newest message. Captured once per
+  // mount and kept as one object, because Virtuoso treats a changed value as a
+  // new anchor and would re-anchor the list mid-stream.
+  const initialIndexRef = useRef<IndexLocationWithAlign>({ index: 0, align: 'end' })
+
+  // Pinning to the bottom. The page does it rather than Virtuoso's followOutput,
+  // which is off: that only reacts when the item count changes (a streaming
+  // turn is one item that grows), and whenever the viewport shrinks — the
+  // streaming indicator changing its label — it scrolls to the bottom even
+  // while the user is scrolling up, undoing their scroll.
+  //
+  // So the page decides: the list stays pinned until a scroll moves the view
+  // up and leaves it more than STICK_PX from the bottom, and re-pins whenever
+  // a scroll lands within STICK_PX of it. The page's own pinning writes are
+  // recognised and ignored, so they can never re-pin a view the user just
+  // scrolled away from.
+  const STICK_PX = 80
+  const stickRef = useRef(true)
+  const scrollerRef = useRef<HTMLElement | null>(null)
+  const unbindScrollerRef = useRef<(() => void) | null>(null)
+  // scrollTop the last pin produced, until its scroll event is seen.
+  const ownScrollTopRef = useRef<number | null>(null)
+  const pinToBottom = useCallback(() => {
+    const el = scrollerRef.current
+    if (!el || !stickRef.current) return
+    const before = el.scrollTop
+    el.scrollTop = el.scrollHeight
+    ownScrollTopRef.current = el.scrollTop !== before ? el.scrollTop : null
+  }, [])
+  // Content growth pins only while a turn streams, or briefly after a turn
+  // ends or a session opens (the refresh and first measurements land then).
+  // Otherwise expanding a tool card in the last message would drag the list
+  // down and push the card the user just opened out of view.
+  const followGrowthRef = useRef(false)
+  const followGrowthUntilRef = useRef(0)
+  const followGrowthFor = useCallback((ms: number) => {
+    followGrowthUntilRef.current = performance.now() + ms
+  }, [])
+  const pinOnGrowth = useCallback(() => {
+    if (followGrowthRef.current || performance.now() < followGrowthUntilRef.current) pinToBottom()
+  }, [pinToBottom])
+  const bindScroller = useCallback(
+    (el: HTMLElement | Window | null) => {
+      unbindScrollerRef.current?.()
+      unbindScrollerRef.current = null
+      scrollerRef.current = el instanceof HTMLElement ? el : null
+      if (!(el instanceof HTMLElement)) return
+      let lastTop = el.scrollTop
+      // Scrolling up with the wheel or keys unpins at once. The browser may
+      // apply a wheel scroll before this handler runs; onScroll covers that.
+      const onWheel = (e: WheelEvent) => {
+        if (e.deltaY < 0) stickRef.current = false
+      }
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home') stickRef.current = false
+      }
+      const onScroll = () => {
+        const top = el.scrollTop
+        const own = ownScrollTopRef.current
+        if (own !== null && Math.abs(top - own) <= 1) {
+          ownScrollTopRef.current = null
+          lastTop = top
+          return
+        }
+        const dist = el.scrollHeight - top - el.clientHeight
+        if (dist <= STICK_PX) stickRef.current = true
+        else if (top < lastTop - 1) stickRef.current = false
+        lastTop = top
+      }
+      // The composer growing, or the streaming indicator appearing, shrinks the
+      // viewport; stay on the last line when that happens.
+      const resize = new ResizeObserver(() => pinToBottom())
+      resize.observe(el)
+      el.addEventListener('wheel', onWheel, { passive: true })
+      el.addEventListener('keydown', onKey)
+      el.addEventListener('scroll', onScroll, { passive: true })
+      // Virtuoso places the initial item after measuring, aligning the last
+      // message's end rather than the list's, so settle on the true bottom
+      // once it is done. A user scroll in the meantime unpins and wins.
+      const settle = [0, 80, 250, 500].map((ms) => window.setTimeout(pinToBottom, ms))
+      unbindScrollerRef.current = () => {
+        settle.forEach((h) => window.clearTimeout(h))
+        resize.disconnect()
+        el.removeEventListener('wheel', onWheel)
+        el.removeEventListener('keydown', onKey)
+        el.removeEventListener('scroll', onScroll)
+      }
+    },
+    [pinToBottom],
+  )
+  useEffect(() => () => unbindScrollerRef.current?.(), [])
+  // A different conversation opens at its bottom.
+  useEffect(() => {
+    stickRef.current = true
+    followGrowthFor(2000)
+  }, [sessionId, followGrowthFor])
+  // Follow growth for the whole streaming turn, and a little past its end so
+  // the final flush and the persisted refresh land pinned too.
+  useEffect(() => {
+    followGrowthRef.current = streaming
+    if (!streaming) followGrowthFor(2500)
+  }, [streaming, followGrowthFor])
 
   // Ref mirroring "a foreground turn is currently streaming" so the standing
   // attach can retry-later without re-rendering. Kept in step with abortRef,
@@ -499,7 +626,7 @@ export default function ChatPage() {
         const restored = hydrate(d)
         // Open a restored transcript at its newest message. Set before the list
         // mounts (it is still `loading`), so Virtuoso reads the final value once.
-        initialIndexRef.current = Math.max(0, restored.length - 1)
+        initialIndexRef.current = { index: Math.max(0, restored.length - 1), align: 'end' }
         setMessages(restored)
         setTitle(d.session.title || t('chat.conversation'))
         setProjectDir(d.session.meta?.project_dir ?? '')
@@ -664,6 +791,8 @@ export default function ChatPage() {
       docs: attachedDocs.length > 0 ? attachedDocs : undefined,
     }
     const assistantId = `local_${Date.now()}_a`
+    // Sending means following the reply, wherever the user had scrolled to.
+    stickRef.current = true
     setMessages((prev) => [...prev, userMsg, { id: assistantId, role: 'assistant', content: '' }])
     // Remember what was sent for ↑/↓ (composer history).
     if (text) {
@@ -1030,39 +1159,18 @@ export default function ChatPage() {
     setInput(value)
   }, [historyPos])
 
-  // Virtuoso's `components` must keep a stable identity. Declared inline it was a
-  // fresh object — and a fresh Footer component type — on every render, so the
-  // list unmounted and remounted the footer on each streaming tick, resizing the
-  // scroller under itself. Footer reads live values through refs so the component
-  // type never has to change.
-  const approvalsRef = useRef(approvals)
-  approvalsRef.current = approvals
-  const errorRef = useRef(error)
-  errorRef.current = error
-  // Re-render the footer when its contents actually change (not per token).
-  const footerTick = `${approvals.map((a) => `${a.id}:${a.decided ?? ''}`).join(',')}|${error ?? ''}`
-  const virtuosoComponents = useMemo(
-    () => ({
-      Footer: () => (
-        <div className="mx-auto w-full max-w-3xl space-y-5 px-4 pb-6 sm:px-6">
-          {approvalsRef.current.map((a) => (
-            <ApprovalCard
-              key={a.id}
-              approval={a}
-              onDecided={(id, decision) =>
-                setApprovals((prev) =>
-                  prev.map((x) => (x.id === id ? { ...x, decided: decision } : x)),
-                )
-              }
-            />
-          ))}
-          {errorRef.current ? <ErrorBanner message={errorRef.current} /> : null}
-        </div>
-      ),
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [footerTick],
+  // Virtuoso's `components` must keep a stable identity: a new Footer type
+  // unmounts and remounts the footer, resizing the scroller under itself. The
+  // footer is one component for the page's life and gets its data through
+  // Virtuoso's `context`, which re-renders it in place.
+  const decideApproval = useCallback((id: string, decision: 'allowed' | 'refused' | 'expired') => {
+    setApprovals((prev) => prev.map((x) => (x.id === id ? { ...x, decided: decision } : x)))
+  }, [])
+  const footerContext = useMemo<TranscriptFooterContext>(
+    () => ({ approvals, error, onDecided: decideApproval, onResize: pinToBottom }),
+    [approvals, error, decideApproval, pinToBottom],
   )
+  const virtuosoComponents = useMemo(() => ({ Footer: TranscriptFooter }), [])
 
   const newChat = () => {
     stop()
@@ -1267,14 +1375,10 @@ export default function ChatPage() {
         </div>
       ) : (
         // Virtualised transcript: only on-screen messages are in the DOM, so a
-        // very long session stays light. followOutput keeps it pinned to the
-        // newest message only while the user is at the bottom — scroll up and it
-        // stops, scroll back and it resumes.
-        //
-        // followOutput is `true`, not "auto": "auto" scrolls only *after* it has
-        // re-measured, so while a message is streaming (its height grows on every
-        // token) the list plays catch-up — measure, scroll, content grows, measure
-        // again — which reads as the viewport juddering near the bottom.
+        // very long session stays light. The page pins it to the bottom (see
+        // stickRef): totalListHeightChanged covers new rows and a row that grows
+        // while it streams, followOutput stays off. computeItemKey prefers the
+        // carried render key, so the end-of-turn refresh keeps every row mounted.
         //
         // initialTopMostItemIndex is deliberately NOT derived from messages.length
         // here: it only defines the *initial* position, but recomputing it on every
@@ -1283,10 +1387,13 @@ export default function ChatPage() {
           ref={virtuosoRef}
           className="min-h-0 flex-1"
           data={messages}
-          followOutput={true}
+          followOutput={false}
           initialTopMostItemIndex={initialIndexRef.current}
           components={virtuosoComponents}
-          computeItemKey={(_, m) => m.id}
+          context={footerContext}
+          scrollerRef={bindScroller}
+          totalListHeightChanged={pinOnGrowth}
+          computeItemKey={(_, m) => m.key ?? m.id}
           itemContent={(_, m) => (
             <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip px-4 sm:px-6">
               <div className="min-w-0 py-2.5">

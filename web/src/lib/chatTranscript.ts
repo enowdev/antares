@@ -16,6 +16,11 @@ export type Segment =
 
 export interface ChatMessage {
   id: string
+  /** Render identity for the virtualised list, when it differs from `id`. A
+   *  hydrate swaps local ids for server ids; carrying the key over keeps the
+   *  row mounted and its measured height, so the transcript does not jump.
+   *  Never sent to the server. */
+  key?: string
   role: 'user' | 'assistant' | 'tool' | 'system'
   content: string
   reasoning?: string
@@ -177,15 +182,28 @@ export interface SessionDetail {
   }>
 }
 
-/** Rebuild view models from the persisted message log. */
+/** Rebuild view models from the persisted message log.
+ *
+ *  One turn is one assistant view, the same shape the live stream builds: a
+ *  turn with tool iterations is persisted as one assistant row per model call,
+ *  and those rows fold into a single message whose segments run in order.
+ *  Keeping the live and hydrated shapes identical is what lets the end-of-turn
+ *  refresh replace the transcript without changing how many rows it has. */
 export function hydrate(detail: SessionDetail): ChatMessage[] {
   const out: ChatMessage[] = []
   const pending = new Map<string, ToolCallView>()
+  // The assistant view the current turn's rows fold into; any user row
+  // (hidden or not) or system row starts the next turn.
+  let turn: ChatMessage | null = null
 
   for (const m of detail.messages) {
     // Hidden messages (e.g. an injected sub-agent result) are context for the
     // model, not something to render — the agent's continuation shows instead.
-    if (m.hidden) continue
+    // A hidden user row still opens a new turn, as the live stream does.
+    if (m.hidden) {
+      if (m.role === 'user') turn = null
+      continue
+    }
     if (m.role === 'tool') {
       const call = pending.get(m.tool_call_id ?? '')
       if (call) {
@@ -253,7 +271,65 @@ export function hydrate(detail: SessionDetail): ChatMessage[] {
       }
     }
     if (msg.role === 'assistant' && segments.length > 0) msg.segments = segments
+    if (msg.role === 'assistant') {
+      if (turn) {
+        foldInto(turn, msg)
+        continue
+      }
+      turn = msg
+    } else {
+      turn = null
+    }
     out.push(msg)
+  }
+  return out
+}
+
+/** Append one persisted assistant row to its turn's view. Usage is summed, as
+ *  the live `usage` event reports the turn's running total. */
+function foldInto(turn: ChatMessage, row: ChatMessage) {
+  const join = (a?: string, b?: string) => [a, b].filter((v) => v && v.trim() !== '').join('\n\n')
+  turn.content = join(turn.content, row.content)
+  turn.reasoning = join(turn.reasoning, row.reasoning) || undefined
+  const segments = [...(turn.segments ?? []), ...(row.segments ?? [])]
+  turn.segments = segments.length > 0 ? segments : undefined
+  if (row.toolCalls) turn.toolCalls = [...(turn.toolCalls ?? []), ...row.toolCalls]
+  if (row.images) turn.images = [...(turn.images ?? []), ...row.images]
+  turn.tokensIn = (turn.tokensIn ?? 0) + (row.tokensIn ?? 0)
+  turn.tokensOut = (turn.tokensOut ?? 0) + (row.tokensOut ?? 0)
+  if (row.createdAt) turn.createdAt = row.createdAt
+  if (row.error) {
+    turn.error = row.error
+    turn.errorSource = row.errorSource
+  }
+}
+
+/**
+ * Carry render keys from the transcript on screen to its refreshed copy.
+ *
+ * Rows keep their key when the id is unchanged. The rest — the turn that just
+ * finished, still under local ids on screen and under server ids in `next` —
+ * are paired from the newest end by role, so each keeps the key it was
+ * rendered under. Without this every row of that turn remounts, the list's
+ * per-index height cache no longer matches, and the viewport jumps.
+ */
+export function carryRenderKeys(next: ChatMessage[], prev: ChatMessage[]): ChatMessage[] {
+  if (prev.length === 0 || next.length === 0) return next
+  const keyOf = (m: ChatMessage) => m.key ?? m.id
+  const prevById = new Map(prev.map((m) => [m.id, m]))
+  const nextIds = new Set(next.map((m) => m.id))
+  const out = next.map((m) => {
+    const same = prevById.get(m.id)
+    if (!same || keyOf(same) === m.id) return m
+    return { ...m, key: keyOf(same) }
+  })
+  const spare = prev.filter((m) => !nextIds.has(m.id))
+  let j = spare.length - 1
+  for (let i = out.length - 1; i >= 0 && j >= 0; i--) {
+    if (prevById.has(out[i].id)) continue
+    if (out[i].role !== spare[j].role) break
+    out[i] = { ...out[i], key: keyOf(spare[j]) }
+    j--
   }
   return out
 }
