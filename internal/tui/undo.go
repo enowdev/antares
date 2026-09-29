@@ -371,20 +371,7 @@ func (m *Model) reloadTranscript(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	m.blocks = m.blocks[:0]
-	for _, msg := range msgs {
-		switch msg.Role {
-		case "user":
-			m.blocks = append(m.blocks, block{kind: blockUser, text: msg.Content})
-		case "assistant":
-			if strings.TrimSpace(msg.Reasoning) != "" && m.showReasoning {
-				m.blocks = append(m.blocks, block{kind: blockReasoning, text: msg.Reasoning, done: true})
-			}
-			if strings.TrimSpace(msg.Content) != "" {
-				m.blocks = append(m.blocks, block{kind: blockAssistant, text: msg.Content, done: true})
-			}
-		}
-	}
+	m.blocks = blocksFromMessages(msgs, m.showReasoning)
 	m.refreshTranscript()
 }
 

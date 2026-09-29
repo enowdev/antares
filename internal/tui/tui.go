@@ -19,7 +19,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/enowdev/antares/internal/agent"
+	"github.com/enowdev/antares/internal/commands"
 	"github.com/enowdev/antares/internal/config"
+	"github.com/enowdev/antares/internal/mcp"
 	"github.com/enowdev/antares/internal/store"
 )
 
@@ -44,6 +46,8 @@ type block struct {
 	streaming bool
 	done      bool
 	isError   bool
+	// markdown renders a system block through Glamour — command output.
+	markdown bool
 }
 
 // agent-event bridge messages.
@@ -77,8 +81,8 @@ type Model struct {
 	cancel context.CancelFunc
 	msgCh  chan tea.Msg
 
-	tokensIn, tokensOut  int
-	ctxUsed, ctxWindow   int
+	tokensIn, tokensOut int
+	ctxUsed, ctxWindow  int
 	showReasoning       bool
 	status              string
 	themeName           string
@@ -94,6 +98,32 @@ type Model struct {
 	// check cheap (nil vs zero-valued struct).
 	pending *pendingRevert
 
+	// confirm is any other staged yes/no (/delete), handled like pending.
+	confirm *pendingConfirm
+
+	// ask and approvals are a running turn paused on the person: an
+	// ask_user question, and tool calls waiting for approval (oldest first).
+	ask       *pendingAsk
+	approvals []pendingApproval
+
+	// Per-turn options the web composer sends too. role is the session's
+	// specialist (stored per session by /role; held here until a new
+	// session exists), effort the reasoning effort ("" is auto), projectDir
+	// the folder bound on a session's first turn, attachments the files
+	// that go with the next message.
+	role        string
+	effort      string
+	projectDir  string
+	attachments []attachment
+
+	// after is a command a picker's commit queued; the picker path has no
+	// other way to return one. Drained by modalCmd.
+	after tea.Cmd
+
+	// carry is command output held back while a transcript reload it
+	// triggered is in flight, so the reload does not wipe it.
+	carry string
+
 	cache map[string]string // memoised block renders, keyed by content+width
 
 	welcomeFrame int // animation frame for the empty-state splash
@@ -104,6 +134,10 @@ type Model struct {
 	// roles, gateway, MCP) from the on-disk desired config. Wired by the
 	// runtime via SetReload; nil in the demo and in tests.
 	reload func() error
+
+	// mcp is the runtime's MCP manager, for /mcp. Wired by SetMCP; nil
+	// makes /mcp say MCP is not enabled.
+	mcp *mcp.Manager
 }
 
 // New builds a TUI bound to a running agent.
@@ -149,6 +183,10 @@ func New(ag *agent.Agent, cfg *config.Config, db store.Store) *Model {
 // (the TUI falls back to a config-only refresh and notes what a restart
 // would apply).
 func (m *Model) SetReload(fn func() error) { m.reload = fn }
+
+// SetMCP wires the runtime's MCP manager so /mcp can list server state. Call
+// once after New; nil is fine.
+func (m *Model) SetMCP(mgr *mcp.Manager) { m.mcp = mgr }
 
 // Run takes over the terminal until the user quits.
 func (m *Model) Run(ctx context.Context) error {
@@ -222,11 +260,66 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		m.cancel = nil
 		m.closeStreaming()
+		m.clearPauses()
+		var next tea.Cmd
 		if msg.err != nil && !strings.Contains(msg.err.Error(), "context canceled") {
 			m.blocks = append(m.blocks, block{kind: blockError, text: msg.err.Error()})
+		} else if msg.err == nil {
+			// An autonomous goal drives the next turn itself; the terminal
+			// is its host, so ask whether it wants one.
+			next = m.goalCheckCmd()
+		}
+		m.refreshTranscript()
+		return m, next
+
+	case cmdResultMsg:
+		quit, cmd := m.applyCommandResult(msg)
+		m.refreshTranscript()
+		if quit {
+			return m, tea.Quit
+		}
+		return m, cmd
+
+	case sessionLoadedMsg:
+		m.adoptSession(msg)
+		m.refreshTranscript()
+		m.vp.GotoBottom()
+		return m, nil
+
+	case clipboardMsg:
+		m.setStatus(msg.note)
+		return m, nil
+
+	case goalContinueMsg:
+		cmd := m.continueGoal(msg)
+		m.refreshTranscript()
+		return m, cmd
+
+	case attachedMsg:
+		if msg.err != nil {
+			m.pushSystem("Attach: " + msg.err.Error())
+		} else {
+			m.attachments = append(m.attachments, msg.att)
+			m.setStatus("attached " + msg.att.name)
 		}
 		m.refreshTranscript()
 		return m, nil
+
+	case searchResultMsg:
+		m.showSearchResults(msg)
+		m.refreshTranscript()
+		return m, nil
+
+	case sessionDeletedMsg:
+		if msg.err != nil {
+			m.pushSystem("Delete failed: " + msg.err.Error())
+			m.refreshTranscript()
+			return m, nil
+		}
+		cmd := m.newSession()
+		m.setStatus("deleted " + shortID(msg.id))
+		m.refreshTranscript()
+		return m, cmd
 
 	case tea.KeyMsg:
 		return m.onKey(msg)
@@ -263,6 +356,47 @@ func (m *Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.picker.active {
 		m.picker.onKey(m, msg)
 		return m, m.modalCmd()
+	}
+
+	// A tool waiting for approval takes "y" / "n" / Esc on an empty
+	// composer. Other keys pass through: the request stays queued (it times
+	// out on its own) and typing is never swallowed.
+	if len(m.approvals) > 0 && m.ta.Value() == "" {
+		r := msg.Runes
+		if len(r) == 1 && (r[0] == 'y' || r[0] == 'Y') {
+			m.decideApproval(true)
+			m.refreshTranscript()
+			return m, nil
+		}
+		if (len(r) == 1 && (r[0] == 'n' || r[0] == 'N')) || msg.Type == tea.KeyEsc {
+			m.decideApproval(false)
+			m.refreshTranscript()
+			return m, nil
+		}
+	}
+
+	// A staged /delete works like the staged /undo below: "y" on an empty
+	// composer commits, anything else cancels and still lands.
+	if m.confirm != nil {
+		c := m.confirm
+		m.confirm = nil
+		if r := msg.Runes; m.ta.Value() == "" && len(r) == 1 && (r[0] == 'y' || r[0] == 'Y') {
+			cmd := c.onYes(m)
+			m.refreshTranscript()
+			return m, cmd
+		}
+		m.pushSystem(c.cancelled)
+		m.refreshTranscript()
+		if msg.Type == tea.KeyEsc {
+			return m, nil
+		}
+	}
+
+	// An open question: Esc on an empty composer puts it aside.
+	if m.ask != nil && !m.ask.aside && msg.Type == tea.KeyEsc && m.ta.Value() == "" && len(m.palette) == 0 {
+		m.putAskAside()
+		m.refreshTranscript()
+		return m, nil
 	}
 
 	// A staged /undo or /revert intercepts the next keystroke: "y" (with
@@ -345,11 +479,22 @@ func (m *Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		text := strings.TrimSpace(m.ta.Value())
 		if text == "" {
-			return m, nil
+			if len(m.attachments) == 0 || m.busy || m.demo {
+				return m, nil
+			}
+			// Attachments alone are a message, as in the web composer.
+			return m, m.startTurn("")
 		}
 		if len(m.palette) > 0 {
-			// Enter runs the highlighted command straight away — no second Enter.
-			name := m.palette[m.paletteSel].Name
+			// Enter runs the highlighted command straight away — no second
+			// Enter — unless it needs an argument, which it then waits for.
+			c := m.palette[m.paletteSel]
+			if strings.HasPrefix(c.Args, "<") {
+				m.acceptCompletion()
+				m.refreshTranscript()
+				return m, nil
+			}
+			name := c.Name
 			m.palette = nil
 			m.ta.Reset()
 			m.syncCursor()
@@ -360,14 +505,12 @@ func (m *Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
-		if m.busy {
-			m.setStatus("still working — Ctrl+C to interrupt")
-			return m, nil
-		}
-		m.ta.Reset()
-		m.syncCursor()
-		m.vp.GotoBottom()
-		if strings.HasPrefix(text, "/") {
+		// Commands run even mid-turn — /stop, /steer and /answer are for
+		// exactly then.
+		if _, _, isCmd := commands.Parse(text); isCmd {
+			m.ta.Reset()
+			m.syncCursor()
+			m.vp.GotoBottom()
 			quit, cmd := m.runCommand(text)
 			m.refreshTranscript()
 			if quit {
@@ -375,6 +518,21 @@ func (m *Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
+		if m.ask != nil && !m.ask.aside {
+			m.ta.Reset()
+			m.syncCursor()
+			m.answerAsk(text)
+			m.refreshTranscript()
+			m.vp.GotoBottom()
+			return m, nil
+		}
+		if m.busy {
+			m.setStatus("still working — Ctrl+C to interrupt")
+			return m, nil
+		}
+		m.ta.Reset()
+		m.syncCursor()
+		m.vp.GotoBottom()
 		if m.demo {
 			m.ta.Reset()
 			m.demoReply(text)
@@ -383,6 +541,18 @@ func (m *Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.startTurn(text)
+	}
+
+	// Several runes in one message are text that arrived together — fast
+	// typing while a render was slow, or a paste without bracketed paste.
+	// Insert them as text: handed to the textarea as a key, "up" or "left"
+	// would match its cursor bindings by name and vanish.
+	if msg.Type == tea.KeyRunes && len(msg.Runes) > 1 && !msg.Alt {
+		m.ta.InsertString(string(msg.Runes))
+		m.updatePalette()
+		m.syncCursor()
+		m.refreshTranscript()
+		return m, nil
 	}
 
 	// Normal editing. Re-flow the transcript so the viewport resizes when the
@@ -396,8 +566,49 @@ func (m *Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // startTurn runs one agent turn, bridging its events onto the Bubble Tea loop.
+// The turn carries the options the web composer sends: role, reasoning effort,
+// the project folder (first turn only), and any attachments.
 func (m *Model) startTurn(text string) tea.Cmd {
-	m.blocks = append(m.blocks, block{kind: blockUser, text: text})
+	req := m.turnRequest(text)
+	shown := text
+	if len(m.attachments) > 0 {
+		names := make([]string, len(m.attachments))
+		for i, a := range m.attachments {
+			names[i] = a.name
+		}
+		shown = strings.TrimSpace(text + "\n[attached: " + strings.Join(names, ", ") + "]")
+	}
+	m.attachments = nil
+	m.blocks = append(m.blocks, block{kind: blockUser, text: shown})
+
+	ag := m.ag
+	return m.runStream(func(ctx context.Context, emit agent.Emit) error {
+		_, err := ag.Run(ctx, req, emit)
+		return err
+	})
+}
+
+// turnRequest builds the request for a message typed now.
+func (m *Model) turnRequest(text string) agent.Request {
+	message, images := buildMessage(text, m.attachments)
+	req := agent.Request{
+		SessionID:       m.sessionID,
+		Message:         message,
+		Images:          images,
+		Platform:        "tui",
+		Role:            m.role,
+		ReasoningEffort: m.effort,
+	}
+	if m.sessionID == "" {
+		// Only a new session takes a binding; an existing one carries its own.
+		req.ProjectDir = m.projectDir
+	}
+	return req
+}
+
+// runStream runs fn — a turn, a compaction — on its own goroutine, bridging
+// the events it emits onto the Bubble Tea loop.
+func (m *Model) runStream(fn func(ctx context.Context, emit agent.Emit) error) tea.Cmd {
 	m.busy = true
 	m.refreshTranscript()
 
@@ -405,18 +616,16 @@ func (m *Model) startTurn(text string) tea.Cmd {
 	m.cancel = cancel
 	m.msgCh = make(chan tea.Msg, 128)
 	ch := m.msgCh
-	sess := m.sessionID
 
 	go func() {
-		_, err := m.ag.Run(runCtx, agent.Request{SessionID: sess, Message: text, Platform: "tui"},
-			func(e agent.Event) error {
-				select {
-				case ch <- evMsg{e}:
-				case <-runCtx.Done():
-					return runCtx.Err()
-				}
-				return nil
-			})
+		err := fn(runCtx, func(e agent.Event) error {
+			select {
+			case ch <- evMsg{e}:
+			case <-runCtx.Done():
+				return runCtx.Err()
+			}
+			return nil
+		})
 		ch <- doneMsg{err: err}
 	}()
 	return tea.Batch(m.listen(), m.spin.Tick)
@@ -440,6 +649,7 @@ func (m *Model) interrupt() {
 	if m.sessionID != "" && m.ag != nil {
 		m.ag.Interrupt(m.sessionID)
 	}
+	m.clearPauses()
 	m.setStatus("interrupted")
 }
 
@@ -447,7 +657,12 @@ func (m *Model) interrupt() {
 func (m *Model) applyEvent(e agent.Event) {
 	switch e.Type {
 	case agent.EventSession:
-		if e.ID != "" {
+		if e.ID != "" && e.ID != m.sessionID {
+			if m.sessionID == "" && m.role != "" {
+				// A role picked before the first turn is remembered against
+				// the new session, as the web does, so later turns keep it.
+				m.persistRole(e.ID, m.role)
+			}
 			m.sessionID = e.ID
 		}
 		if e.Title != "" {
@@ -472,6 +687,16 @@ func (m *Model) applyEvent(e agent.Event) {
 				break
 			}
 		}
+	case agent.EventAsk:
+		m.closeStreaming()
+		if a := askFromEvent(e); a != nil {
+			m.ask = a
+			m.pushSystem(askPrompt(a))
+			m.setStatus("waiting for your answer")
+		}
+	case agent.EventApproval:
+		m.closeStreaming()
+		m.queueApproval(approvalFromEvent(e))
 	case agent.EventNotice:
 		m.blocks = append(m.blocks, block{kind: blockNotice, text: e.Message})
 	case agent.EventReset:
@@ -599,12 +824,31 @@ func (m *Model) saveConfig() {
 	}
 }
 
-// modalCmd keeps the input modal's caret blinking while it is open.
+// modalCmd keeps the input modal's caret blinking while it is open, and hands
+// back any command a picker commit queued.
 func (m *Model) modalCmd() tea.Cmd {
-	if m.input.active {
-		return textinput.Blink
+	var cmds []tea.Cmd
+	if m.after != nil {
+		cmds = append(cmds, m.after)
+		m.after = nil
 	}
-	return nil
+	if m.input.active {
+		cmds = append(cmds, textinput.Blink)
+	}
+	return tea.Batch(cmds...)
+}
+
+// persistRole stores a session's role off the update loop.
+func (m *Model) persistRole(sessionID, role string) {
+	db := m.db
+	if db == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = db.SetKV(ctx, "role:"+sessionID, role)
+	}()
 }
 
 func onOff(b bool) string {

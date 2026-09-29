@@ -12,7 +12,9 @@ single registration rather than three.
 ## Using them
 
 **In the terminal.** Type `/`. The palette filters as you type; arrow keys move,
-Tab completes, Enter runs a command that is already whole.
+Tab completes, Enter runs a command that is already whole (one that needs an
+argument is completed instead). Commands run even while a turn is going, which
+is what `/stop`, `/steer` and `/answer` are for. Output appears as its own block.
 
 **In the web chat.** The same, in the composer. Command output appears as its
 own block in the transcript, marked so it is never mistaken for the model
@@ -128,6 +130,44 @@ See [roles](roles.md) for what these do.
 | `/cost [days]` | The same thing |
 | `/setup` | Open the setup wizard |
 | `/quit` | Leave the terminal interface |
+
+### Terminal only
+
+The terminal interface lists everything above plus these, which need a screen
+and a keyboard, or change options only the terminal holds. Where a name also
+exists in the shared registry, the terminal's version is the one that runs.
+
+| Command | What it does |
+|---|---|
+| `/model` / `/provider` / `/theme` | Open a picker (`/model <id>` still sets it directly) |
+| `/undo` | Undo the last turn and restore the files it changed, after a `y` to confirm |
+| `/revert [message-id]` | The same, back to any earlier turn, picked from a list |
+| `/reasoning` | Show or hide thinking blocks on screen (Ctrl+R) |
+| `/effort [level]` | Reasoning effort for the next turns — the levels the active model accepts, or `auto` |
+| `/project [dir\|clear]` | Bind a folder to a new session, as the web's project picker does |
+| `/attach [path\|clear]` | Attach a file to the next message: images go inline, other files are copied where `read_document` can read them |
+| `/search <text>` | Search past messages and resume the conversation you pick |
+| `/delete` | Delete this conversation, after a `y` to confirm |
+| `/answer [text]` | Answer a question the agent put aside with Esc |
+
+A role picked with `/role` before the first message is held and applied when
+the session starts. The active role, effort, bound project, and attachments
+show in the status line.
+
+**When the agent stops to ask.** An `ask_user` question appears in the
+transcript with its choices numbered; the next thing you send is the answer (a
+number picks a choice). Esc puts the question aside — the turn stays paused
+until `/answer <text>` or `/stop`. With `tools.approval_mode: prompt`, a tool
+that changes something shows what it wants to do: `y` allows it, `n` or Esc
+refuses. Several requests are decided in the order they arrived.
+
+**Actions.** `/clear` wipes the screen and keeps the session (like Ctrl+L);
+`/new` starts over. `/retry` resends the last message. `/copy` sends the last
+reply to the clipboard through OSC 52 and, when installed, `pbcopy`, `wl-copy`,
+`xclip`, `xsel` or `clip`. `/compact` summarises the session now, streaming like
+a turn. `/setup` tells you to quit and run `antares setup`. A confident goal
+(`/goal auto …`) starts working at once, and the terminal keeps starting its
+next turn until the goal is met, paused, or out of iterations.
 
 ## Which work where
 

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -53,9 +54,40 @@ func (m *Model) layout() {
 func (m *Model) chromeHeight() int {
 	h := 2 + 3 + 1 // header + input box + status
 	if len(m.palette) > 0 {
-		h += len(m.palette) + 2 // palette rows + its border
+		lo, hi := paletteWindow(len(m.palette), m.paletteSel, m.paletteRows())
+		h += hi - lo + 2 // palette rows + its border
 	}
 	return h
+}
+
+// paletteRows caps how many palette rows show at once. With the shared
+// registry the palette holds about sixty commands, which would otherwise push
+// the transcript off a normal terminal.
+func (m *Model) paletteRows() int {
+	rows := (m.height - 2 - 3 - 1 - 2) / 2
+	if rows > 10 {
+		rows = 10
+	}
+	if rows < 3 {
+		rows = 3
+	}
+	return rows
+}
+
+// paletteWindow is the [lo, hi) slice of n palette rows to show so that sel
+// stays visible, at most rows tall.
+func paletteWindow(n, sel, rows int) (lo, hi int) {
+	if n <= rows {
+		return 0, n
+	}
+	lo = sel - rows/2
+	if lo < 0 {
+		lo = 0
+	}
+	if lo+rows > n {
+		lo = n - rows
+	}
+	return lo, lo + rows
 }
 
 // resizeViewport gives the transcript exactly the rows left after the fixed
@@ -231,6 +263,24 @@ func (m *Model) statusBar() string {
 	} else {
 		parts = append(parts, m.st.stDone.Render("●")+m.st.status.Render(" ready"))
 	}
+	// The options the next turn goes with, when any differ from the default.
+	if m.role != "" {
+		parts = append(parts, m.st.accent.Render("role "+m.role))
+	}
+	if m.effort != "" {
+		parts = append(parts, m.st.status.Render("effort "+m.effort))
+	}
+	if m.projectDir != "" {
+		parts = append(parts, m.st.status.Render("project "+filepath.Base(m.projectDir)))
+	}
+	if n := len(m.attachments); n > 0 {
+		parts = append(parts, m.st.accent.Render(fmt.Sprintf("%d attached", n)))
+	}
+	if n := len(m.approvals); n > 0 {
+		parts = append(parts, m.st.accent.Render(fmt.Sprintf("approve? y/n (%d)", n)))
+	} else if m.ask != nil {
+		parts = append(parts, m.st.accent.Render("question waiting"))
+	}
 	if m.status != "" {
 		parts = append(parts, m.st.statusSep.Render("·")+" "+m.st.status.Render(m.status))
 	}
@@ -248,7 +298,9 @@ func (m *Model) statusBar() string {
 
 func (m *Model) paletteView() string {
 	var rows []string
-	for i, c := range m.palette {
+	lo, hi := paletteWindow(len(m.palette), m.paletteSel, m.paletteRows())
+	for i := lo; i < hi; i++ {
+		c := m.palette[i]
 		marker := "  "
 		name := m.st.paletteName.Render("/" + c.Name)
 		if i == m.paletteSel {
@@ -295,7 +347,7 @@ func (m *Model) renderBlockCached(bl block) string {
 	if bl.streaming || (bl.kind == blockAssistant && !bl.done) {
 		return m.renderBlock(bl)
 	}
-	key := fmt.Sprintf("%d|%d|%v|%v|%s|%s", bl.kind, m.vp.Width, bl.done, bl.isError, bl.title, bl.text)
+	key := fmt.Sprintf("%d|%d|%v|%v|%v|%s|%s", bl.kind, m.vp.Width, bl.done, bl.isError, bl.markdown, bl.title, bl.text)
 	if m.cache == nil {
 		m.cache = map[string]string{}
 	}
@@ -333,6 +385,9 @@ func (m *Model) renderBlock(bl block) string {
 			m.st.errBar.Render(m.st.errText.Render(wrap(bl.text, cw-3)))
 
 	case blockSystem:
+		if bl.markdown {
+			return m.markdown(bl.text, cw-1)
+		}
 		return m.st.system.Render(wrap(bl.text, cw))
 	}
 	return bl.text

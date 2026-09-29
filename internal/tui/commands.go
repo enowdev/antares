@@ -10,43 +10,81 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/enowdev/antares/internal/store"
+	"github.com/enowdev/antares/internal/commands"
+	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/version"
 )
 
-// Command is one slash command.
+// Command is one slash command offered in the palette. Native commands carry a
+// Run; the rest come from the shared registry in internal/commands and are
+// dispatched through commands.Run.
 type Command struct {
 	Name    string
+	Args    string
 	Summary string
 	Run     func(m *Model, args string) (quit bool, cmd tea.Cmd)
 }
 
-var commands []Command
+// native lists the commands the terminal carries out itself. Most are here
+// because the terminal can do more than print text — a picker, a staged
+// confirmation, a clipboard — and a few because they read or change state only
+// this Model holds (the reasoning display, the next turn's options). Everything
+// else is the registry's, so it behaves as it does in the web chat.
+var native []Command
 
 func init() {
-	commands = []Command{
-		{"help", "Show every command", (*Model).cmdHelp},
-		{"new", "Start a fresh session", (*Model).cmdNew},
-		{"sessions", "List recent sessions", (*Model).cmdSessions},
-		{"resume", "Resume a session by id", (*Model).cmdResume},
-		{"model", "Pick the active model", (*Model).cmdModel},
-		{"provider", "Connect or switch a provider", (*Model).cmdProvider},
-		{"theme", "Pick the colour theme (Ctrl+T)", (*Model).cmdTheme},
-		{"reasoning", "Toggle reasoning display", (*Model).cmdReasoning},
-		{"clear", "Clear the transcript", (*Model).cmdClear},
-		{"revert", "Revert to an earlier turn (picker)", (*Model).cmdRevert},
-		{"stop", "Interrupt the current turn", (*Model).cmdStop},
-		{"undo", "Undo the last turn", (*Model).cmdUndo},
-		{"status", "Runtime summary", (*Model).cmdStatus},
-		{"web", "Print the dashboard URL", (*Model).cmdWeb},
-		{"version", "Show the version", (*Model).cmdVersion},
-		{"quit", "Leave the TUI", func(*Model, string) (bool, tea.Cmd) { return true, nil }},
+	native = []Command{
+		{"help", "", "Show every command", (*Model).cmdHelp},
+		{"model", "[id]", "Pick the active model", (*Model).cmdModel},
+		{"provider", "[id]", "Connect or switch a provider", (*Model).cmdProvider},
+		{"theme", "[name]", "Pick the colour theme (Ctrl+T)", (*Model).cmdTheme},
+		{"reasoning", "", "Toggle reasoning display (Ctrl+R)", (*Model).cmdReasoning},
+		{"revert", "[message-id]", "Revert to an earlier turn (picker)", (*Model).cmdRevert},
+		{"undo", "", "Undo the last turn, restoring files", (*Model).cmdUndo},
+		{"web", "", "Print the dashboard URL", (*Model).cmdWeb},
+		{"quit", "", "Leave the TUI", func(*Model, string) (bool, tea.Cmd) { return true, nil }},
+		{"effort", "[level]", "Pick the reasoning effort for the next turns", (*Model).cmdEffort},
+		{"project", "[dir|clear]", "Bind a folder to the new session", (*Model).cmdProject},
+		{"attach", "[path|clear]", "Attach a file or image to the next message", (*Model).cmdAttach},
+		{"search", "<text>", "Search past messages and resume one", (*Model).cmdSearch},
+		{"delete", "", "Delete this conversation", (*Model).cmdDelete},
+		{"answer", "<text>", "Answer the question the agent is waiting on", (*Model).cmdAnswer},
 	}
-	sort.Slice(commands, func(i, j int) bool { return commands[i].Name < commands[j].Name })
+	sort.Slice(native, func(i, j int) bool { return native[i].Name < native[j].Name })
+}
+
+// paletteCommands is the union shown in the palette and by /help: every native
+// command, then every registry command offered in the terminal that no native
+// one already covers. Sorted by name.
+func paletteCommands() []Command {
+	out := make([]Command, 0, len(native)+64)
+	seen := make(map[string]bool, len(native))
+	for _, c := range native {
+		out = append(out, c)
+		seen[c.Name] = true
+	}
+	for _, s := range commands.Catalogue(commands.SurfaceTUI) {
+		if seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		out = append(out, Command{Name: s.Name, Args: s.Args, Summary: s.Summary})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func nativeCommand(name string) (Command, bool) {
+	for _, c := range native {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	return Command{}, false
 }
 
 func commandExists(name string) bool {
-	for _, c := range commands {
+	for _, c := range paletteCommands() {
 		if c.Name == name {
 			return true
 		}
@@ -61,9 +99,9 @@ func (m *Model) updatePalette() {
 		m.palette = nil
 		return
 	}
-	prefix := strings.TrimPrefix(text, "/")
+	prefix := strings.ToLower(strings.TrimPrefix(text, "/"))
 	var out []Command
-	for _, c := range commands {
+	for _, c := range paletteCommands() {
 		if strings.HasPrefix(c.Name, prefix) {
 			out = append(out, c)
 		}
@@ -85,51 +123,100 @@ func (m *Model) acceptCompletion() {
 	m.palette = nil
 }
 
-// runCommand parses and runs a slash command.
+// runCommand parses and runs a slash command: a native one in place, anything
+// else through the shared registry on a background command.
 func (m *Model) runCommand(line string) (bool, tea.Cmd) {
-	line = strings.TrimSpace(strings.TrimPrefix(line, "/"))
-	name, args, _ := strings.Cut(line, " ")
-	args = strings.TrimSpace(args)
-	for _, c := range commands {
-		if c.Name == name {
-			return c.Run(m, args)
-		}
+	name, args, ok := commands.Parse(line)
+	if !ok {
+		m.pushSystem("Not a command. Try /help.")
+		return false, nil
 	}
-	m.pushSystem("Unknown command /" + name + ". Try /help.")
-	return false, nil
+	if c, ok := nativeCommand(name); ok {
+		return c.Run(m, args)
+	}
+	if name == "role" && args != "" && m.sessionID == "" {
+		// The registry attaches a role to an existing session; before the
+		// first turn there is none, so hold it and send it with that turn —
+		// the same thing the web's role picker does.
+		return false, m.stageRole(args)
+	}
+	if _, ok := commands.Lookup(name); !ok {
+		m.pushSystem("Unknown command /" + name + ". Try /help.")
+		return false, nil
+	}
+	return false, m.runRegistry(name, args)
+}
+
+// cmdResultMsg carries a registry command's outcome back to the update loop.
+type cmdResultMsg struct {
+	name string
+	res  commands.Result
+	err  error
+}
+
+// runRegistry runs one registry command off the update loop — /models, /learn
+// and /panel call a model and can take a while.
+func (m *Model) runRegistry(name, args string) tea.Cmd {
+	deps := m.commandDeps()
+	in := commands.Input{
+		Name:      name,
+		Args:      args,
+		SessionID: m.sessionID,
+		Surface:   commands.SurfaceTUI,
+		Platform:  "tui",
+	}
+	m.setStatus("/" + name + "…")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		res, err := commands.Run(ctx, deps, in)
+		return cmdResultMsg{name: name, res: res, err: err}
+	}
+}
+
+// commandDeps hands the registry what the terminal holds. The config is
+// captured by value so the command goroutine never reads m.cfg while the
+// update loop swaps it.
+func (m *Model) commandDeps() commands.Deps {
+	cfg := m.cfg
+	d := commands.Deps{
+		Config:  func() *config.Config { return cfg },
+		Agent:   m.ag,
+		Store:   m.db,
+		MCP:     m.mcp,
+		Reload:  m.reload,
+		Version: version.Version,
+		WebURL:  m.webURL(),
+	}
+	if m.ag != nil {
+		d.Skills = m.ag.Skills()
+	}
+	return d
 }
 
 func (m *Model) pushSystem(text string) {
 	m.blocks = append(m.blocks, block{kind: blockSystem, text: text})
 }
 
+// pushOutput shows command output, which the registry writes as markdown.
+func (m *Model) pushOutput(text string) {
+	m.blocks = append(m.blocks, block{kind: blockSystem, text: text, markdown: true})
+}
+
 // ---- command implementations ------------------------------------------------
 
 func (m *Model) cmdHelp(string) (bool, tea.Cmd) {
 	var b strings.Builder
-	b.WriteString("Commands:\n")
-	for _, c := range commands {
-		b.WriteString(fmt.Sprintf("  /%-10s %s\n", c.Name, c.Summary))
+	b.WriteString("**Commands**\n\n")
+	for _, c := range paletteCommands() {
+		name := "/" + c.Name
+		if c.Args != "" {
+			name += " " + c.Args
+		}
+		fmt.Fprintf(&b, "- `%s` — %s\n", name, c.Summary)
 	}
-	m.pushSystem(strings.TrimRight(b.String(), "\n"))
+	m.pushOutput(b.String())
 	return false, nil
-}
-
-func (m *Model) cmdNew(string) (bool, tea.Cmd) {
-	m.sessionID = ""
-	m.title = ""
-	m.tokensIn, m.tokensOut = 0, 0
-	m.ctxUsed, m.ctxWindow = 0, 0
-	m.blocks = nil
-	m.greet()
-	m.setStatus("new session")
-	return false, m.welcomeTick()
-}
-
-func (m *Model) cmdClear(string) (bool, tea.Cmd) {
-	m.blocks = nil
-	m.greet()
-	return false, m.welcomeTick()
 }
 
 func (m *Model) cmdTheme(args string) (bool, tea.Cmd) {
@@ -147,32 +234,28 @@ func (m *Model) cmdTheme(args string) (bool, tea.Cmd) {
 	return false, nil
 }
 
+// cmdReasoning stays native: the registry's /reasoning flips agent.verbose in
+// the config, which this display does not read. Here it shows or hides the
+// thinking blocks, the same toggle as Ctrl+R.
 func (m *Model) cmdReasoning(string) (bool, tea.Cmd) {
 	m.showReasoning = !m.showReasoning
 	m.setStatus("reasoning " + onOff(m.showReasoning))
 	return false, nil
 }
 
-func (m *Model) cmdStop(string) (bool, tea.Cmd) {
-	if m.busy {
-		m.interrupt()
-	} else {
-		m.setStatus("nothing running")
+func (m *Model) webURL() string {
+	if m.cfg != nil && strings.TrimSpace(m.cfg.Server.PublicURL) != "" {
+		return m.cfg.Server.PublicURL
 	}
-	return false, nil
-}
-
-func (m *Model) cmdVersion(string) (bool, tea.Cmd) {
-	m.pushSystem(version.Display + " " + version.Version)
-	return false, nil
-}
-
-func (m *Model) cmdWeb(string) (bool, tea.Cmd) {
 	port := 8787
 	if m.cfg != nil && m.cfg.Server.Port > 0 {
 		port = m.cfg.Server.Port
 	}
-	m.pushSystem(fmt.Sprintf("Dashboard: http://localhost:%d", port))
+	return fmt.Sprintf("http://localhost:%d", port)
+}
+
+func (m *Model) cmdWeb(string) (bool, tea.Cmd) {
+	m.pushSystem("Dashboard: " + m.webURL())
 	return false, nil
 }
 
@@ -199,107 +282,6 @@ func (m *Model) cmdProvider(args string) (bool, tea.Cmd) {
 		return false, nil
 	}
 	m.selectProvider(args)
-	return false, nil
-}
-
-func (m *Model) cmdStatus(string) (bool, tea.Cmd) {
-	model, provider := "—", ""
-	if m.cfg != nil {
-		model, provider = m.cfg.Model.Default, m.cfg.Model.Provider
-	}
-	sess := m.sessionID
-	if sess == "" {
-		sess = "(new)"
-	}
-	ctx := "—"
-	if m.ctxWindow > 0 {
-		pct := 0
-		if m.ctxUsed > 0 {
-			pct = m.ctxUsed * 100 / m.ctxWindow
-		}
-		ctx = fmt.Sprintf("%d / %d (%d%%)", m.ctxUsed, m.ctxWindow, pct)
-	}
-	m.pushSystem(fmt.Sprintf("Model: %s · %s\nSession: %s\nContext: %s\nTokens: %d in / %d out\nReasoning: %s",
-		model, provider, sess, ctx, m.tokensIn, m.tokensOut, onOff(m.showReasoning)))
-	return false, nil
-}
-
-func (m *Model) cmdSessions(string) (bool, tea.Cmd) {
-	if m.db == nil {
-		m.pushSystem("No store available.")
-		return false, nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	list, _, err := m.db.ListSessions(ctx, store.SessionFilter{Limit: 15})
-	if err != nil {
-		m.pushSystem("Could not list sessions: " + err.Error())
-		return false, nil
-	}
-	if len(list) == 0 {
-		m.pushSystem("No saved sessions yet.")
-		return false, nil
-	}
-	var b strings.Builder
-	b.WriteString("Recent sessions (use /resume <id>):\n")
-	for _, s := range list {
-		title := s.Title
-		if title == "" {
-			title = "(untitled)"
-		}
-		b.WriteString(fmt.Sprintf("  %s  %s  (%d msgs)\n", shortID(s.ID), truncate(title, 40), s.MessageCount))
-	}
-	m.pushSystem(strings.TrimRight(b.String(), "\n"))
-	return false, nil
-}
-
-func (m *Model) cmdResume(args string) (bool, tea.Cmd) {
-	if args == "" {
-		m.pushSystem("Usage: /resume <id> — see /sessions for ids.")
-		return false, nil
-	}
-	if m.db == nil {
-		return false, nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	list, _, err := m.db.ListSessions(ctx, store.SessionFilter{Limit: 200})
-	if err != nil {
-		m.pushSystem("Could not load sessions: " + err.Error())
-		return false, nil
-	}
-	var found *store.Session
-	for i := range list {
-		if strings.HasPrefix(list[i].ID, args) {
-			found = &list[i]
-			break
-		}
-	}
-	if found == nil {
-		m.pushSystem("No session matching " + args)
-		return false, nil
-	}
-	msgs, err := m.db.ListMessages(ctx, found.ID, 0, 0)
-	if err != nil {
-		m.pushSystem("Could not load messages: " + err.Error())
-		return false, nil
-	}
-	m.sessionID = found.ID
-	m.title = found.Title
-	m.blocks = nil
-	for _, msg := range msgs {
-		switch msg.Role {
-		case store.RoleUser:
-			m.blocks = append(m.blocks, block{kind: blockUser, text: msg.Content})
-		case store.RoleAssistant:
-			if strings.TrimSpace(msg.Content) != "" {
-				m.blocks = append(m.blocks, block{kind: blockAssistant, text: msg.Content, done: true})
-			}
-		case store.RoleTool:
-			m.blocks = append(m.blocks, block{kind: blockTool, title: msg.ToolName, text: msg.Content, done: true})
-		}
-	}
-	m.setStatus("resumed " + shortID(found.ID))
 	return false, nil
 }
 
