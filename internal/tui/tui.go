@@ -129,7 +129,11 @@ type Model struct {
 
 	cache map[string]string // memoised block renders, keyed by content+width
 
-	welcomeFrame int // animation frame for the empty-state splash
+	welcomeFrame int // animation frame for the home screen's opening
+
+	// chrome is the layout's own state: side column, tabs, per-session
+	// counters, and where things were drawn (chrome.go, sidebar.go).
+	chrome chromeState
 
 	demo bool
 
@@ -255,6 +259,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.welcomeTick()
 
 	case evMsg:
+		m.observe(msg.e) // the side column's counters
 		m.applyEvent(msg.e)
 		m.refreshTranscript()
 		return m, m.listen()
@@ -334,6 +339,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.picker.active {
 			m.picker.onMouse(m, msg)
 			return m, m.modalCmd()
+		}
+		// The side column takes the wheel and clicks over it.
+		if m.chromeMouse(msg) {
+			return m, nil
 		}
 		// Mouse wheel scrolls the transcript; the input keeps focus.
 		var cmd tea.Cmd
@@ -423,6 +432,11 @@ func (m *Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cancelPending()
 		m.refreshTranscript()
 		// fall through so the keystroke still routes as normal input
+	}
+
+	// The layout's own keys: Ctrl+B, F1–F4 / Alt+1–4, the QUESTION box.
+	if m.chromeKey(msg) {
+		return m, nil
 	}
 
 	// Palette navigation takes priority.
@@ -765,17 +779,14 @@ func (m *Model) closeStreaming() {
 
 func (m *Model) setStatus(s string) { m.status = s }
 
-// applyTheme switches the active theme live (styles, Markdown renderer, caret)
-// without persisting it — used for both the /theme command and modal previews.
+// applyTheme switches the active theme live (styles, caret) without
+// persisting it — used for both the /theme command and modal previews.
 func (m *Model) applyTheme(name string) {
 	if _, ok := themes[name]; !ok {
 		return
 	}
 	m.themeName = name
 	m.st = newStyles(themeByName(name))
-	if m.vp.Width > 0 {
-		m.buildRenderer(m.vp.Width - 4)
-	}
 	m.cache = nil
 	m.ta.Cursor.Style = lipgloss.NewStyle().Foreground(themeByName(name).Accent)
 }

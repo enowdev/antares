@@ -219,6 +219,10 @@ func cmdTUI() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// The TUI owns the terminal: a log line on stderr would print over it.
+	// Logs go to the log file (and the dashboard's buffer) only.
+	logToConsole = false
+
 	rt, err := bootstrap(ctx)
 	if err != nil {
 		return err
@@ -271,6 +275,28 @@ type runtimeServices struct {
 	skillsDone       chan struct{}
 }
 
+// logToConsole is whether log lines also go to stderr. Off for the TUI,
+// which draws on the terminal the logs would print over.
+var logToConsole = true
+
+// setupLogging starts the logger. logx.Setup always writes to os.Stderr as
+// well as the log file, so with logToConsole off, stderr is swapped for the
+// null device while the logger takes its writers, and restored straight
+// after: only the logger loses the terminal, nothing else that prints to it.
+func setupLogging(cfg *config.Config) error {
+	if logToConsole {
+		return logx.Setup(cfg.Logging.Level, cfg.Logging.File, cfg.Logging.JSON)
+	}
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		return logx.Setup(cfg.Logging.Level, cfg.Logging.File, cfg.Logging.JSON)
+	}
+	stderr := os.Stderr
+	os.Stderr = null
+	defer func() { os.Stderr = stderr }()
+	return logx.Setup(cfg.Logging.Level, cfg.Logging.File, cfg.Logging.JSON)
+}
+
 func bootstrap(ctx context.Context) (*runtimeServices, error) {
 	if err := config.EnsureHome(); err != nil {
 		return nil, fmt.Errorf("preparing %s: %w", config.Home(), err)
@@ -283,7 +309,7 @@ func bootstrap(ctx context.Context) (*runtimeServices, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := logx.Setup(cfg.Logging.Level, cfg.Logging.File, cfg.Logging.JSON); err != nil {
+	if err := setupLogging(cfg); err != nil {
 		return nil, fmt.Errorf("setting up logging: %w", err)
 	}
 	// Kick off the background models.dev refresh. The bundled snapshot
