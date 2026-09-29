@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/enowdev/antares/internal/agent"
 	"github.com/enowdev/antares/internal/config"
+	"github.com/enowdev/antares/internal/store"
 )
 
 // Tools in one batch are announced together and report in any order. A
@@ -41,5 +43,19 @@ func TestToolResultsMatchTheirCall(t *testing.T) {
 		if b.callID == "b" && (!b.isError || b.text != "refused") {
 			t.Fatalf("call b was overwritten: %+v", b)
 		}
+	}
+}
+
+func TestBlocksFromMessagesCarriesToolArgs(t *testing.T) {
+	msgs := []store.Message{
+		{Role: store.RoleAssistant, ToolCalls: `[{"id":"c1","name":"read_file","arguments":"{\"path\":\"main.go\"}"}]`},
+		{Role: store.RoleTool, ToolCallID: "c1", ToolName: "read_file", Content: "package main"},
+	}
+	bs := blocksFromMessages(msgs, false)
+	if len(bs) != 1 || bs[0].kind != blockTool {
+		t.Fatalf("blocks = %+v", bs)
+	}
+	if bs[0].name != "read_file" || !strings.Contains(bs[0].args, "main.go") {
+		t.Fatalf("tool block lost its call: name=%q args=%q", bs[0].name, bs[0].args)
 	}
 }

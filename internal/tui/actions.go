@@ -9,6 +9,7 @@ package tui
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,6 +22,7 @@ import (
 	"github.com/enowdev/antares/internal/agent"
 	"github.com/enowdev/antares/internal/commands"
 	"github.com/enowdev/antares/internal/config"
+	"github.com/enowdev/antares/internal/llm"
 	"github.com/enowdev/antares/internal/store"
 )
 
@@ -296,6 +298,20 @@ func (m *Model) adoptSession(msg sessionLoadedMsg) {
 // they do in the web chat.
 func blocksFromMessages(msgs []store.Message, showReasoning bool) []block {
 	out := make([]block, 0, len(msgs))
+	// Tool results carry only the tool's name; its arguments live on the
+	// assistant message that made the call, so the row can show its target.
+	calls := map[string]llm.ToolCall{}
+	for _, msg := range msgs {
+		if msg.Role != store.RoleAssistant || msg.ToolCalls == "" {
+			continue
+		}
+		var tcs []llm.ToolCall
+		if json.Unmarshal([]byte(msg.ToolCalls), &tcs) == nil {
+			for _, tc := range tcs {
+				calls[tc.ID] = tc
+			}
+		}
+	}
 	for _, msg := range msgs {
 		if msg.Hidden {
 			continue
@@ -311,7 +327,11 @@ func blocksFromMessages(msgs []store.Message, showReasoning bool) []block {
 				out = append(out, block{kind: blockAssistant, text: msg.Content, done: true})
 			}
 		case store.RoleTool:
-			out = append(out, block{kind: blockTool, title: msg.ToolName, text: msg.Content, done: true})
+			b := block{kind: blockTool, title: msg.ToolName, name: msg.ToolName, text: msg.Content, done: true, callID: msg.ToolCallID}
+			if tc, ok := calls[msg.ToolCallID]; ok {
+				b.args = tc.Arguments
+			}
+			out = append(out, b)
 		}
 	}
 	return out
