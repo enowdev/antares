@@ -48,6 +48,9 @@ type block struct {
 	isError   bool
 	// markdown renders a system block through Glamour — command output.
 	markdown bool
+	// callID ties a tool block to its call, so progress and the result land on
+	// the right block when a turn runs several tools at once.
+	callID string
 }
 
 // agent-event bridge messages.
@@ -674,18 +677,19 @@ func (m *Model) applyEvent(e agent.Event) {
 		m.appendTo(blockReasoning, e.Delta)
 	case agent.EventToolCall:
 		m.closeStreaming()
-		m.blocks = append(m.blocks, block{kind: blockTool, title: toolHeadline(e.Name, e.Arguments), streaming: true})
+		m.blocks = append(m.blocks, block{kind: blockTool, title: toolHeadline(e.Name, e.Arguments), streaming: true, callID: e.ID})
 	case agent.EventToolProgress:
-		m.appendTo(blockTool, e.Chunk)
+		if i := m.toolBlock(e.ID); i >= 0 {
+			m.blocks[i].text += e.Chunk
+		} else {
+			m.appendTo(blockTool, e.Chunk)
+		}
 	case agent.EventToolResult:
-		for i := len(m.blocks) - 1; i >= 0; i-- {
-			if m.blocks[i].kind == blockTool && !m.blocks[i].done {
-				m.blocks[i].text = e.Content
-				m.blocks[i].done = true
-				m.blocks[i].isError = e.IsError
-				m.blocks[i].streaming = false
-				break
-			}
+		if i := m.toolBlock(e.ID); i >= 0 {
+			m.blocks[i].text = e.Content
+			m.blocks[i].done = true
+			m.blocks[i].isError = e.IsError
+			m.blocks[i].streaming = false
 		}
 	case agent.EventAsk:
 		m.closeStreaming()
@@ -716,6 +720,33 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.ctxWindow = e.ContextWindow
 		}
 	}
+}
+
+// toolBlock finds the unfinished tool block for a call. Tools in one batch
+// run in parallel and report in any order, so the call id decides; a result
+// without an id falls back to the newest unfinished tool block.
+func (m *Model) toolBlock(callID string) int {
+	fallback := -1
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		b := m.blocks[i]
+		if b.kind != blockTool || b.done {
+			continue
+		}
+		if callID != "" && b.callID == callID {
+			return i
+		}
+		if fallback < 0 {
+			fallback = i
+		}
+	}
+	if callID != "" {
+		for _, b := range m.blocks {
+			if b.kind == blockTool && b.callID == callID {
+				return -1 // already finished; a late duplicate changes nothing
+			}
+		}
+	}
+	return fallback
 }
 
 func (m *Model) appendTo(kind blockKind, text string) {

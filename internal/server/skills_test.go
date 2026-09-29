@@ -296,8 +296,21 @@ func TestSkillConsumersSeeInPlaceReconfigure(t *testing.T) {
 		Output string `json:"output"`
 	}
 	decodeServerJSON(t, command, &commandBody)
-	if !commandBody.OK || !strings.Contains(commandBody.Output, "new-catalog") || !strings.Contains(commandBody.Output, "new-library") ||
+	// With no filter /skills lists the everyday catalogue, as the dashboard
+	// does; the bundled library is only searched when a filter is given.
+	if !commandBody.OK || !strings.Contains(commandBody.Output, "new-catalog") || strings.Contains(commandBody.Output, "new-library") ||
 		strings.Contains(commandBody.Output, "old-catalog") || strings.Contains(commandBody.Output, "old-library") || strings.Contains(commandBody.Output, "fallback-only") {
 		t.Fatalf("command did not use the reconfigured live catalog: %+v", commandBody)
+	}
+
+	filtered := httptest.NewRecorder()
+	s.handleCommandRun(filtered, httptest.NewRequest(http.MethodPost, "/api/commands/run", strings.NewReader(`{"input":"/skills library","surface":"web"}`)))
+	var filteredBody struct {
+		OK     bool   `json:"ok"`
+		Output string `json:"output"`
+	}
+	decodeServerJSON(t, filtered, &filteredBody)
+	if !filteredBody.OK || !strings.Contains(filteredBody.Output, "new-library") || strings.Contains(filteredBody.Output, "old-library") {
+		t.Fatalf("filtered command did not search the reconfigured library: %+v", filteredBody)
 	}
 }

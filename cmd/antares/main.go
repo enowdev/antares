@@ -247,6 +247,8 @@ func cmdTUI() error {
 
 	ui := tui.New(rt.agent, rt.cfg, rt.db)
 	ui.SetReload(rt.reload)
+	// /mcp reads live server status from the runtime's manager.
+	ui.SetMCP(rt.mcp)
 	return ui.Run(ctx)
 }
 
