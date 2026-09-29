@@ -51,6 +51,15 @@ type block struct {
 	// callID ties a tool block to its call, so progress and the result land on
 	// the right block when a turn runs several tools at once.
 	callID string
+	// name and args are the tool call as made — its tool and JSON arguments —
+	// from which the row takes its verb, target and metric. A block rebuilt
+	// from a stored session has only title.
+	name, args string
+	// started and ended time a thought ("Thought for 6s") or a tool call.
+	started, ended time.Time
+	// open shows a tool's body, or a thought's text, framed under its row;
+	// groupOpen opens the run of read-only calls this block heads.
+	open, groupOpen bool
 }
 
 // agent-event bridge messages.
@@ -472,6 +481,11 @@ func (m *Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openThemePicker()
 		return m, nil
 
+	case tea.KeyCtrlO:
+		m.toggleOpen()
+		m.refreshTranscript()
+		return m, nil
+
 	case tea.KeyPgUp:
 		m.vp.HalfViewUp()
 		return m, nil
@@ -677,7 +691,10 @@ func (m *Model) applyEvent(e agent.Event) {
 		m.appendTo(blockReasoning, e.Delta)
 	case agent.EventToolCall:
 		m.closeStreaming()
-		m.blocks = append(m.blocks, block{kind: blockTool, title: toolHeadline(e.Name, e.Arguments), streaming: true, callID: e.ID})
+		m.blocks = append(m.blocks, block{
+			kind: blockTool, title: toolHeadline(e.Name, e.Arguments), streaming: true, callID: e.ID,
+			name: e.Name, args: e.Arguments, started: now(),
+		})
 	case agent.EventToolProgress:
 		if i := m.toolBlock(e.ID); i >= 0 {
 			m.blocks[i].text += e.Chunk
@@ -690,6 +707,9 @@ func (m *Model) applyEvent(e agent.Event) {
 			m.blocks[i].done = true
 			m.blocks[i].isError = e.IsError
 			m.blocks[i].streaming = false
+			m.blocks[i].ended = now()
+			// A failure opens: its error is what the reader needs next.
+			m.blocks[i].open = m.blocks[i].open || e.IsError
 		}
 	case agent.EventAsk:
 		m.closeStreaming()
@@ -754,12 +774,29 @@ func (m *Model) appendTo(kind blockKind, text string) {
 		m.blocks[n-1].text += text
 		return
 	}
-	m.blocks = append(m.blocks, block{kind: kind, text: text, streaming: true})
+	// Something else started, so a thought still streaming has finished.
+	m.endThoughts()
+	b := block{kind: kind, text: text, streaming: true}
+	if kind == blockReasoning {
+		b.started = now()
+	}
+	m.blocks = append(m.blocks, b)
 }
 
 func (m *Model) closeStreaming() {
+	m.endThoughts()
 	for i := range m.blocks {
 		m.blocks[i].streaming = false
+	}
+}
+
+// endThoughts stamps the end time on thoughts still streaming. Their
+// streaming flag stays, so a retry's reset still drops them with the reply.
+func (m *Model) endThoughts() {
+	for i := range m.blocks {
+		if b := &m.blocks[i]; b.kind == blockReasoning && b.streaming && b.ended.IsZero() {
+			b.ended = now()
+		}
 	}
 }
 
