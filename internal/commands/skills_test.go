@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,5 +127,45 @@ func TestSkillCommandSessionIsolation(t *testing.T) {
 		if strings.Contains(result.Output, id+"_ONLY_MARKER") || strings.Contains(result.Output, id+"_COLLISION_MARKER") {
 			t.Fatalf("normalization failure leaked project %s: %s", id, result.Output)
 		}
+	}
+}
+
+func TestSkillsListKeepsTheBundledLibraryOutOfTheDefaultListing(t *testing.T) {
+	base := t.TempDir()
+	everyday, pack := filepath.Join(base, "skills"), filepath.Join(base, "pack")
+	write := func(root, name, description string) {
+		t.Helper()
+		path := filepath.Join(root, name, "SKILL.md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("---\nname: "+name+"\ndescription: "+description+"\n---\nbody\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(everyday, "daily-notes", "Everyday note taking")
+	for i := 0; i < 60; i++ {
+		write(pack, fmt.Sprintf("pack-skill-%02d", i), "library entry")
+	}
+	mgr := skills.NewManager(skills.Options{Dirs: []string{everyday}, PackDirs: []string{pack}})
+	if err := mgr.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	deps := Deps{Skills: mgr}
+
+	res, err := Run(context.Background(), deps, Input{Name: "skills", Surface: SurfaceTUI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Output, "**1 skill(s)**") || strings.Contains(res.Output, "pack-skill") {
+		t.Fatalf("default listing should show only everyday skills:\n%s", res.Output)
+	}
+
+	res, err = Run(context.Background(), deps, Input{Name: "skills", Args: "library", Surface: SurfaceTUI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Output, "**60 skill(s)**") || !strings.Contains(res.Output, "and 10 more") {
+		t.Fatalf("a filter should search the library, capped:\n%s", res.Output)
 	}
 }

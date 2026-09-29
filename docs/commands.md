@@ -176,6 +176,17 @@ cannot carry out: `/quit` only means something in a terminal, and `/resume` and
 `/copy` need a screen. `/help` lists what is available where you are, so it is
 always accurate.
 
+## From the shell
+
+The commands that do not need an open conversation also run straight from a
+shell, without the slash: `antares usage 30`, `antares roles`, `antares skills`,
+`antares memory search editor`, `antares mcp search github`. They print plain
+text when piped and rendered markdown on a terminal. Commands tied to a
+conversation (`/title`, `/undo`, `/goal`, `/role`, …) and the ones a screen
+carries out (`/new`, `/copy`, …) say so instead of running. See
+[cli.md](cli.md) for the full list and for the shell-only subcommands such as
+`antares ask` and `antares sessions`.
+
 ## Adding one
 
 ```go

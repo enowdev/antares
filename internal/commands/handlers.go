@@ -260,12 +260,23 @@ func cmdSkills(ctx context.Context, d Deps, in Input) (Result, error) {
 		return hubSkillInstall(ctx, d, strings.TrimSpace(rest))
 	}
 
-	list := d.Skills.List()
+	// With no filter, list the everyday catalogue: the bundled security
+	// library is thousands strong and would bury it. A filter looks across
+	// everything, capped so a broad word does not print the whole library.
 	q := strings.ToLower(in.Args)
+	list := d.Skills.Everyday()
+	if q != "" {
+		list = d.Skills.List()
+	}
+	const maxShown = 50
 	var b strings.Builder
-	shown := 0
+	matched := 0
 	for _, s := range list {
 		if q != "" && !strings.Contains(strings.ToLower(s.Name+" "+s.Description), q) {
+			continue
+		}
+		matched++
+		if matched > maxShown {
 			continue
 		}
 		state := ""
@@ -273,13 +284,15 @@ func cmdSkills(ctx context.Context, d Deps, in Input) (Result, error) {
 			state = " _(off)_"
 		}
 		fmt.Fprintf(&b, "- `%s`%s — %s\n", s.Name, state, s.Description)
-		shown++
 	}
-	if shown == 0 {
+	if matched == 0 {
 		return Result{Output: "No skills match."}, nil
 	}
+	if matched > maxShown {
+		fmt.Fprintf(&b, "- … and %d more; narrow the filter\n", matched-maxShown)
+	}
 	b.WriteString("\nFind more with `/skills search <words>`.")
-	return Result{Output: fmt.Sprintf("**%d skill(s)**\n\n", shown) + b.String()}, nil
+	return Result{Output: fmt.Sprintf("**%d skill(s)**\n\n", matched) + b.String()}, nil
 }
 
 func cmdMemory(ctx context.Context, d Deps, in Input) (Result, error) {
@@ -325,7 +338,9 @@ func cmdRemember(ctx context.Context, d Deps, in Input) (Result, error) {
 	if k, rest, ok := strings.Cut(in.Args, ":"); ok && len(k) <= 40 && !strings.Contains(k, " ") {
 		key, content = strings.TrimSpace(k), strings.TrimSpace(rest)
 	}
-	m := &store.Memory{Scope: "global", Key: key, Content: content}
+	// A fresh id every time: the store upserts on id, so an empty one made
+	// each /remember overwrite the previous memory.
+	m := &store.Memory{ID: randomID("mem"), Scope: "global", Key: key, Content: content, Source: "command"}
 	if err := d.Store.PutMemory(ctx, m); err != nil {
 		return Result{}, err
 	}

@@ -243,7 +243,10 @@ authorized penetration testing, gated on a scope you control. See
 **Slash commands.** `/status`, `/model`, `/skills`, `/goal`, and two dozen more
 work identically in the terminal, in the web chat, and in a Telegram or Discord
 thread, because all three dispatch through one definition. The web composer
-completes them as you type. See [docs/commands.md](docs/commands.md).
+completes them as you type. See [docs/commands.md](docs/commands.md). From a
+shell, `antares ask "…"` runs a one-shot turn for scripts, and sessions, skills,
+memory, and the daemon log have their own subcommands — see
+[docs/cli.md](docs/cli.md).
 
 **A hub.** Skills and MCP servers have a browsable catalogue with one-click
 install. Eight skills ship inside the binary; beyond those, a skill can come
@@ -381,6 +384,7 @@ credentials, and RAG backend in one pass.
 | [Plugins](docs/plugins.md) | Hooks for external programs |
 | [Sandboxing](docs/sandbox.md) | Confining what commands can reach |
 | [Commands](docs/commands.md) | Every slash command |
+| [Command line](docs/cli.md) | Scripting Antares from a shell: `ask`, sessions, skills, memory, logs |
 | [Harness](docs/harness.md) | Goals, steering, verification, repetition guard |
 | [Memory and RAG](docs/memory-and-rag.md) | What is remembered, and retrieval |
 | [Channels](docs/channels.md) | Telegram and Discord |
