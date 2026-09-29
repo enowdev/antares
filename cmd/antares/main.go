@@ -108,6 +108,18 @@ func run() error {
 		return cmdRag(args)
 	case "backup":
 		return cmdBackup(args)
+	case "ask":
+		return cmdAsk(args)
+	case "logs", "log":
+		return cmdLogs(args)
+	case "soul":
+		return cmdSoul(args)
+	case "sessions", "session":
+		return cmdSessions(args)
+	case "skills", "skill":
+		return cmdSkillsCLI(args)
+	case "memory", "memories":
+		return cmdMemoryCLI(args)
 	case "doctor":
 		return cmdDoctor()
 	case "version", "--version", "-v":
@@ -117,6 +129,11 @@ func run() error {
 		printUsage()
 		return nil
 	default:
+		// Any other shell-safe slash command from the shared registry
+		// (`antares usage 30`, `antares roles`, …). Dedicated cases above win.
+		if handled, err := runPassthrough(command, args); handled {
+			return err
+		}
 		printUsage()
 		return fmt.Errorf("unknown command: %s", command)
 	}
@@ -130,23 +147,64 @@ Usage:
   antares --foreground     Run attached to this terminal (debug/systemd/Docker)
   antares stop             Stop the background server
   antares status           Show background server status
+  antares logs [-f] [-n N] Print (and follow) the background server's log
   antares tui              Open the terminal UI
   antares setup            Configure Antares (web or terminal wizard)
+  antares doctor           Check configuration and connectivity
+  antares version
+
+Chat from scripts:
+  antares ask ["prompt"]   One-shot turn; reply on stdout, session id on stderr
+      [--session <id>|--new] [--role r] [--model m] [--effort e]
+      [--project dir] [--attach path]... [-q]     Prompt may come on stdin
+
+Sessions:
+  antares sessions [list] [--limit N] [--json]
+  antares sessions show <id> [--json]
+  antares sessions rename <id> <title>
+  antares sessions delete <id>... [--yes]
+  antares sessions export <id> [--md|--json] [-o file]
+
+Model and configuration:
   antares model [id]       Show, list, or change the active model
   antares model list       List every configured model
+  antares models [provider]      List the models a provider offers
   antares provider         List providers and their connection status
   antares provider add <id> [api-key]   Connect a provider
   antares provider use <id>             Switch to a connected provider
+  antares toolset [name]   Show or switch the active toolset
+  antares reasoning [on|off]     Toggle reasoning display
   antares theme [name]     Show or set the colour theme
   antares config get <path>
   antares config set <path> <value>
+  antares soul [show|edit|set <file>|reset|path]   The agent's identity (SOUL.md)
+
+Skills, memory, tools:
+  antares skills [list] [--json [--all]] List installed skills
+  antares skills show <name>             Print a skill's instructions
+  antares skills enable|disable <name>   Turn a skill on or off
+  antares skills search|install [id]     Browse or install from the hub
+  antares memory [list] [--json]         Recent long-term memories
+  antares memory search|add|forget ...   Search, save, or delete one
+  antares remember <text>  Save a memory (alias of memory add)
+  antares forget <key>     Delete a memory (alias of memory forget)
+  antares tools            Tools available to the agent (connects MCP servers)
+  antares mcp [search|install] [id]      MCP server status, catalogue, install
+  antares roles            List the specialist roles
+  antares team             How the specialist roles have performed
+  antares panel <question> Ask several models and synthesise one answer
+  antares usage [days]     Token and cost summary (alias: cost)
+  antares web              Print the dashboard URL
+
+Automation:
   antares cron list|add|run|rm   Manage scheduled jobs
   antares autopilot add|list|run Run a queue of tasks unattended
   antares auth copilot           Sign in to GitHub Copilot
   antares rag index <path>       Index files into semantic search
   antares backup           Archive everything; also list, restore, prune
-  antares doctor           Check configuration and connectivity
-  antares version
+
+Changes made from the shell are written to config.yaml; a running server
+applies them on restart. See docs/cli.md.
 
 Environment:
   ANTARES_HOME             State directory (default ~/.antares)
