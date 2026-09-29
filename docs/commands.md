@@ -148,6 +148,10 @@ exists in the shared registry, the terminal's version is the one that runs.
 | `/attach [path\|clear]` | Attach a file to the next message: images go inline, other files are copied where `read_document` can read them |
 | `/search <text>` | Search past messages and resume the conversation you pick |
 | `/delete` | Delete this conversation, after a `y` to confirm |
+
+Ctrl+P opens a settings menu with the same controls in one place: model,
+provider, reasoning effort, theme, the reasoning display, the side column and
+the project folder, each with its current value.
 | `/answer [text]` | Answer a question the agent put aside with Esc |
 
 A role picked with `/role` before the first message is held and applied when

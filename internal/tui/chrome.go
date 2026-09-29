@@ -704,9 +704,9 @@ func (m *Model) statusRight(figures bool) (figs, keys []string) {
 	case len(m.palette) > 0:
 		pairs = [][2]string{{"Enter", "run"}, {"Tab", "complete"}, {"Esc", "close"}}
 	case m.isHome():
-		pairs = [][2]string{{"/", "commands"}, {"Ctrl+J", "newline"}, {"Ctrl+C", "quit"}}
+		pairs = [][2]string{{"/", "commands"}, {"Ctrl+P", "settings"}, {"Ctrl+J", "newline"}, {"Ctrl+C", "quit"}}
 	default:
-		pairs = [][2]string{{"/", "commands"}, {"Ctrl+O", "tool output"}, {"Ctrl+B", "side"}, {"Ctrl+C", "quit"}}
+		pairs = [][2]string{{"/", "commands"}, {"Ctrl+P", "settings"}, {"Ctrl+O", "tool output"}, {"Ctrl+B", "side"}, {"Ctrl+C", "quit"}}
 	}
 	for _, k := range pairs {
 		keys = append(keys, fg(t.Muted).Bold(true).Render(k[0])+fg(t.Faint).Render(" "+k[1]))

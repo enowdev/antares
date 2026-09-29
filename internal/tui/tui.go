@@ -495,6 +495,10 @@ func (m *Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openThemePicker()
 		return m, nil
 
+	case tea.KeyCtrlP:
+		m.openSettings("")
+		return m, nil
+
 	case tea.KeyCtrlO:
 		m.toggleOpen()
 		m.refreshTranscript()

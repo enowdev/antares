@@ -335,3 +335,25 @@ func TestDumpFrames(t *testing.T) {
 	h.welcomeFrame = 100
 	t.Logf("\n%s", strings.Join(screen(h), "\n"))
 }
+
+// Ctrl+P opens the settings menu; a toggle flips in place and reopens the
+// menu on the same row so several can be changed in a row.
+func TestCtrlPOpensSettings(t *testing.T) {
+	m := sized(140, 38)
+	m.onKey(tea.KeyMsg{Type: tea.KeyCtrlP})
+	if !m.picker.active || m.picker.title != "Settings" {
+		t.Fatal("Ctrl+P should open the settings menu")
+	}
+	m.picker.setQuery(m, "side")
+	m.onKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.chrome.sideHidden {
+		t.Fatal("the Side column row should hide the side column")
+	}
+	if !m.picker.active || m.picker.items[m.picker.cursor].id != "side" {
+		t.Fatal("a toggle should reopen the menu on its own row")
+	}
+	m.onKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.picker.active {
+		t.Fatal("Esc should close the menu")
+	}
+}
