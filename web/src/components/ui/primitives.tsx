@@ -8,13 +8,20 @@ import { cn } from '@/lib/utils'
 
 /* ---------- Card ---------- */
 
-export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+/**
+ * A square panel with a marker in each corner. Cards reveal themselves the
+ * first time they scroll into view (lib/motion.ts); pass reveal={false} for a
+ * card that is redrawn often, such as one inside a streaming transcript.
+ */
+export function Card({
+  className,
+  reveal = true,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & { reveal?: boolean }) {
   return (
     <div
-      className={cn(
-        'rounded-[var(--radius-lg)] border border-border bg-card text-card-foreground shadow-xs',
-        className,
-      )}
+      data-reveal={reveal ? '' : undefined}
+      className={cn('tp-panel border border-border bg-card text-card-foreground', className)}
       {...props}
     />
   )
@@ -25,7 +32,7 @@ export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDiv
 }
 
 export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
-  return <h3 className={cn('text-sm font-semibold tracking-tight sm:text-base', className)} {...props} />
+  return <h3 className={cn('text-[15px] font-medium tracking-[-0.2px]', className)} {...props} />
 }
 
 export function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
@@ -47,10 +54,11 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        'flex h-9 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 py-1 text-sm transition-colors',
-        'placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50',
+        'flex h-9 w-full border border-input bg-transparent px-3 py-1 font-mono transition-[border-color,background-color] duration-200',
+        'placeholder:text-[color-mix(in_oklch,var(--muted-foreground)_70%,transparent)] focus-visible:border-ring focus-visible:bg-card focus-visible:outline-none',
+        'disabled:cursor-not-allowed disabled:opacity-50',
         // 16px on mobile prevents iOS Safari from zooming on focus.
-        'text-base sm:text-sm',
+        'text-base sm:text-xs',
         className,
       )}
       {...props}
@@ -66,8 +74,9 @@ export const Textarea = React.forwardRef<
   <textarea
     ref={ref}
     className={cn(
-      'flex w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 py-2 text-base transition-colors sm:text-sm',
-      'placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50',
+      'flex w-full border border-input bg-transparent px-3 py-2 text-base transition-[border-color,background-color] duration-200 sm:text-sm',
+      'placeholder:text-[color-mix(in_oklch,var(--muted-foreground)_70%,transparent)] focus-visible:border-ring focus-visible:bg-card focus-visible:outline-none',
+      'disabled:cursor-not-allowed disabled:opacity-50',
       className,
     )}
     {...props}
@@ -78,7 +87,7 @@ Textarea.displayName = 'Textarea'
 export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
   return (
     <label
-      className={cn('text-xs font-medium text-foreground/90 sm:text-sm', className)}
+      className={cn('text-[13px] font-medium text-foreground', className)}
       {...props}
     />
   )
@@ -87,12 +96,12 @@ export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLab
 /* ---------- Badge ---------- */
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4 whitespace-nowrap',
+  'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium leading-4 whitespace-nowrap',
   {
     variants: {
       variant: {
-        default: 'border-transparent bg-primary/15 text-primary',
-        secondary: 'border-transparent bg-secondary text-secondary-foreground',
+        default: 'border-transparent bg-raised text-foreground',
+        secondary: 'border-transparent bg-raised text-muted-foreground',
         outline: 'border-border text-muted-foreground',
         success: 'border-transparent bg-[color-mix(in_oklch,var(--success)_18%,transparent)] text-[var(--success)]',
         warning: 'border-transparent bg-[color-mix(in_oklch,var(--warning)_18%,transparent)] text-[var(--warning)]',
@@ -118,12 +127,12 @@ export function Switch({ className, ...props }: React.ComponentProps<typeof Swit
     <SwitchPrimitive.Root
       className={cn(
         'peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors',
-        'data-[state=checked]:bg-primary data-[state=unchecked]:bg-input disabled:cursor-not-allowed disabled:opacity-50',
+        'data-[state=checked]:bg-primary data-[state=unchecked]:bg-raised data-[state=unchecked]:border-border disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="pointer-events-none block size-4 rounded-full bg-background shadow-sm transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0" />
+      <SwitchPrimitive.Thumb className="pointer-events-none block size-4 rounded-full bg-background shadow-sm transition-transform duration-300 ease-[var(--m-ease)] data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0 data-[state=unchecked]:bg-muted-foreground" />
     </SwitchPrimitive.Root>
   )
 }
@@ -156,7 +165,7 @@ export function TabsList({ className, ...props }: React.ComponentProps<typeof Ta
   return (
     <TabsPrimitive.List
       className={cn(
-        'inline-flex h-9 items-center gap-1 overflow-x-auto rounded-[var(--radius-sm)] bg-muted p-1 text-muted-foreground',
+        'inline-flex h-10 items-center gap-0.5 overflow-x-auto rounded-full border border-border bg-card px-1.5 py-1 text-muted-foreground',
         className,
       )}
       {...props}
@@ -168,8 +177,8 @@ export function TabsTrigger({ className, ...props }: React.ComponentProps<typeof
   return (
     <TabsPrimitive.Trigger
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--radius-xs)] px-3 py-1 text-xs font-medium transition-all',
-        'data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm',
+        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs transition-[background-color,color] duration-200',
+        'hover:text-foreground data-[state=active]:bg-nav-active data-[state=active]:text-foreground',
         'disabled:pointer-events-none disabled:opacity-50',
         className,
       )}
@@ -202,7 +211,7 @@ export function Tooltip({
         <TooltipPrimitive.Content
           side={side}
           sideOffset={6}
-          className="z-50 rounded-[var(--radius-xs)] border border-border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+          className="z-50 border border-border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-[0_10px_28px_-14px_#00000080]"
         >
           {label}
         </TooltipPrimitive.Content>
@@ -229,13 +238,13 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center gap-3 rounded-[var(--radius-lg)] border border-dashed border-border px-6 py-14 text-center',
+        'tp-panel flex flex-col items-center justify-center gap-3 border border-border px-6 py-14 text-center',
         className,
       )}
     >
       {icon ? <div className="text-muted-foreground/70">{icon}</div> : null}
       <div className="space-y-1">
-        <p className="text-sm font-medium">{title}</p>
+        <p className="text-[17px] font-medium tracking-[-0.3px]">{title}</p>
         {description ? (
           <p className="mx-auto max-w-sm text-xs text-muted-foreground sm:text-sm">{description}</p>
         ) : null}
@@ -247,22 +256,33 @@ export function EmptyState({
 
 /* ---------- Page header ---------- */
 
+/**
+ * The site's page heading: a small uppercase eyebrow, a light title, and a
+ * line of description, with actions on the right.
+ */
 export function PageHeader({
   title,
   description,
   actions,
+  eyebrow,
 }: {
   title: string
   description?: string
   actions?: React.ReactNode
+  eyebrow?: string
 }) {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-      <div className="min-w-0 space-y-1.5">
-        <h1 className="text-lg font-semibold leading-tight tracking-tight text-balance sm:text-xl">{title}</h1>
-        {description ? <p className="text-xs text-muted-foreground sm:text-sm">{description}</p> : null}
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
+      <div className="min-w-0">
+        {eyebrow ? <p className="eyebrow mb-2">{eyebrow}</p> : null}
+        <h1 className="text-[clamp(22px,2.2vw,28px)] font-medium leading-tight tracking-[-0.6px] text-balance">
+          {title}
+        </h1>
+        {description ? (
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p>
+        ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2.5">{actions}</div> : null}
     </div>
   )
 }

@@ -206,6 +206,8 @@ const ja: Dict = {
   'nav.subtitle': 'AI エージェント',
   'nav.language': '言語',
   'nav.more': 'その他',
+  'nav.groupWorkspace': 'ワークスペース',
+  'nav.groupSystem': 'システム',
   'hub.agent': 'エージェント',
   'hub.capabilities': '機能',
   'hub.automation': '自動化',

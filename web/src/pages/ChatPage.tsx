@@ -1259,7 +1259,7 @@ export default function ChatPage() {
   // starter prompts — no bottom-anchored bar on an otherwise blank page.
   if (isEmpty) {
     return (
-      <div className="flex min-h-[calc(100dvh-8rem)] flex-col lg:min-h-dvh">
+      <div className="flex min-h-[calc(100dvh-8rem)] flex-col lg:min-h-[calc(100dvh-4rem)]">
         {analyzeDialog}
         <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
           <div className="w-full max-w-3xl space-y-6">
@@ -1310,7 +1310,7 @@ export default function ChatPage() {
   const isProject = Boolean(projectDir)
 
   return (
-    <div className="flex h-[calc(100dvh-8rem)] overflow-hidden lg:h-dvh">
+    <div className="flex h-[calc(100dvh-8rem)] overflow-hidden lg:h-[calc(100dvh-4rem)]">
       <div className="relative flex min-w-0 flex-1 flex-col overflow-x-hidden">
       {analyzeDialog}
       <EditMessageDialog

@@ -206,6 +206,8 @@ const ru: Dict = {
   'nav.subtitle': 'ИИ-агент',
   'nav.language': 'Язык',
   'nav.more': 'Ещё',
+  'nav.groupWorkspace': 'Рабочее место',
+  'nav.groupSystem': 'Система',
   'hub.agent': 'Агент',
   'hub.capabilities': 'Возможности',
   'hub.automation': 'Автоматизация',

@@ -1,0 +1,255 @@
+/* Surfaces and motion after the enowx site.
+
+   Surfaces: square panels carry a 10px marker in each corner, actions an 8px
+   marker at two opposite corners; the markers brighten on hover. They are
+   drawn as background images so they sit inside the border and never change
+   an element's size.
+
+   Motion: only opacity and transform move, by a few pixels, over half a
+   second to a second, easing out. Nothing bounces or flashes, and nothing
+   listens to scroll: blocks marked data-reveal play their entrance once, the
+   first time they come into view (lib/motion.ts). Every animated state sits
+   behind prefers-reduced-motion: no-preference, and the reveal also behind
+   [data-motion], which motion.ts sets only when it can reveal; otherwise
+   everything is drawn in its final state. */
+
+:root {
+  --m-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --m-ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* Surfaces ------------------------------------------------------------------ */
+
+.tp-panel {
+  background-image:
+    linear-gradient(var(--marker), var(--marker)), linear-gradient(var(--marker), var(--marker)),
+    linear-gradient(var(--marker), var(--marker)), linear-gradient(var(--marker), var(--marker)),
+    linear-gradient(var(--marker), var(--marker)), linear-gradient(var(--marker), var(--marker)),
+    linear-gradient(var(--marker), var(--marker)), linear-gradient(var(--marker), var(--marker));
+  background-repeat: no-repeat;
+  background-size:
+    10px 1px, 1px 10px, 10px 1px, 1px 10px,
+    10px 1px, 1px 10px, 10px 1px, 1px 10px;
+  background-position:
+    0 0, 0 0, 100% 0, 100% 0,
+    0 100%, 0 100%, 100% 100%, 100% 100%;
+}
+
+.tp-btn {
+  background-image:
+    linear-gradient(var(--tp-btn-marker, var(--marker)), var(--tp-btn-marker, var(--marker))),
+    linear-gradient(var(--tp-btn-marker, var(--marker)), var(--tp-btn-marker, var(--marker))),
+    linear-gradient(var(--tp-btn-marker, var(--marker)), var(--tp-btn-marker, var(--marker))),
+    linear-gradient(var(--tp-btn-marker, var(--marker)), var(--tp-btn-marker, var(--marker)));
+  background-repeat: no-repeat;
+  background-size: 8px 1px, 1px 8px, 8px 1px, 1px 8px;
+  background-position: 0 0, 0 0, 100% 100%, 100% 100%;
+}
+.tp-btn:hover:not(:disabled) {
+  --tp-btn-marker: var(--marker-hover);
+}
+/* A filled action carries its markers in the page's ink, not the fill's. */
+.tp-btn-solid {
+  --tp-btn-marker: transparent;
+}
+
+/* Small uppercase label above a title, and the rule that draws under a
+   section heading. */
+.eyebrow {
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.m-rule {
+  position: relative;
+}
+.m-rule::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--line);
+  transform-origin: left center;
+  pointer-events: none;
+}
+
+/* The mark: a 5 by 5 grid of cells, lit from the centre out. */
+.brand-mark .mark-dim {
+  fill: currentColor;
+  opacity: 0.14;
+}
+.brand-mark .mark-cell {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.brand-mark .mark-core {
+  fill: var(--brand-core);
+}
+
+/* The field of nodes behind empty and sign-in screens. */
+.agent-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse 75% 70% at 50% 45%, #000 30%, transparent 100%);
+  mask-image: radial-gradient(ellipse 75% 70% at 50% 45%, #000 30%, transparent 100%);
+}
+
+/* The pill behind the active tab of a navigation strip (HubTabs), measured
+   from the tab itself so it can slide between tabs. */
+.nav-mark {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  border-radius: 999px;
+  background: var(--nav-active);
+  opacity: 0;
+  pointer-events: none;
+}
+.nav-mark[data-on] {
+  opacity: 1;
+}
+
+/* Keyframes ----------------------------------------------------------------- */
+
+@keyframes m-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--m-y, 12px));
+  }
+}
+@keyframes m-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes m-slide {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+@keyframes m-rule {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes m-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+@keyframes m-sheet {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+@keyframes mark-lit {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+}
+
+/* Motion -------------------------------------------------------------------- */
+
+@media screen and (prefers-reduced-motion: no-preference) {
+  /* The mark lights up ring by ring. */
+  .brand-mark .mark-cell {
+    animation: mark-lit 0.42s cubic-bezier(0.3, 1.45, 0.5, 1) both;
+  }
+  .brand-mark .mark-ring-1 {
+    animation-delay: 0.14s;
+  }
+  .brand-mark .mark-ring-2 {
+    animation-delay: 0.28s;
+  }
+
+  /* A page arrives: its header first, the rule under it draws from the
+     left, then the content settles. PageFrame is keyed by route, so this
+     plays on every navigation. */
+  .m-page-head > * {
+    --m-y: 10px;
+    animation: m-rise 700ms var(--m-ease) backwards;
+  }
+  .m-page-head > *:nth-child(2) {
+    animation-delay: 80ms;
+  }
+  .m-page-head > *:nth-child(3) {
+    animation-delay: 160ms;
+  }
+  .m-page-head.m-rule::after {
+    animation: m-rule 1100ms var(--m-ease-io) 120ms backwards;
+  }
+  .m-page-body {
+    --m-y: 14px;
+    animation: m-rise 800ms var(--m-ease) 180ms backwards;
+  }
+
+  /* Blocks marked data-reveal: once, on first sight, staggered in reading
+     order among siblings that arrive together (--rv, set by motion.ts). */
+  [data-motion] [data-reveal]:not([data-shown]) {
+    opacity: 0;
+  }
+  [data-motion] [data-reveal][data-shown] {
+    --m-y: 10px;
+    animation: m-rise 700ms var(--m-ease) calc(min(var(--rv, 0), 8) * 70ms) backwards;
+  }
+
+  /* Things that open arrive rather than appear. */
+  .m-open {
+    animation: m-pop 180ms var(--m-ease);
+  }
+  .m-fade {
+    animation: m-fade 220ms ease-out;
+  }
+  .m-rise {
+    --m-y: 10px;
+    animation: m-rise 600ms var(--m-ease) backwards;
+  }
+  .m-slide {
+    animation: m-slide 500ms var(--m-ease) backwards;
+  }
+  [data-radix-popper-content-wrapper] > [data-state='open'],
+  [data-radix-popper-content-wrapper] > [data-side] {
+    animation: m-pop 160ms var(--m-ease);
+  }
+  .m-dialog-overlay[data-state='open'] {
+    animation: m-fade 220ms ease-out;
+  }
+  /* Tailwind's translate utilities use the translate property, so this
+     transform composes with the dialog's centring instead of replacing it. */
+  .m-dialog[data-state='open'] {
+    animation: m-sheet 320ms var(--m-ease);
+  }
+
+  /* The nav mark slides between tabs; it only fades when it first appears,
+     so it never slides in from the left edge. */
+  .nav-mark {
+    transition:
+      transform 450ms var(--m-ease),
+      width 450ms var(--m-ease),
+      opacity 250ms ease;
+  }
+  .nav-mark[data-instant] {
+    transition: opacity 250ms ease;
+  }
+}
+
+@media print {
+  [data-reveal] {
+    opacity: 1 !important;
+    animation: none !important;
+  }
+}

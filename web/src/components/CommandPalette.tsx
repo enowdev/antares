@@ -313,13 +313,14 @@ function Kbd({ children, className }: { children: React.ReactNode; className?: s
  * Opens the palette. `sidebar` is the full-width search field under the logo;
  * `icon` is the compact button for the mobile header.
  */
-export function CommandPaletteTrigger({ variant }: { variant: 'sidebar' | 'icon' }) {
+export function CommandPaletteTrigger({ variant }: { variant: 'sidebar' | 'icon' | 'topbar' }) {
   const { t } = useI18n()
   if (variant === 'icon') {
     return (
       <Button
         variant="ghost"
         size="icon"
+        className="rounded-full"
         aria-label={t('palette.open')}
         aria-keyshortcuts={SHORTCUT_ARIA}
         onClick={openCommandPalette}
@@ -334,7 +335,11 @@ export function CommandPaletteTrigger({ variant }: { variant: 'sidebar' | 'icon'
       onClick={openCommandPalette}
       aria-label={t('palette.open')}
       aria-keyshortcuts={SHORTCUT_ARIA}
-      className="flex h-9 w-full items-center gap-2 rounded-[var(--radius-sm)] border border-border bg-background/60 px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+      className={
+        variant === 'topbar'
+          ? 'flex h-9 w-56 items-center gap-2 rounded-full border border-border bg-card px-3.5 text-xs text-muted-foreground transition-[border-color,color] duration-200 hover:border-line hover:text-foreground xl:w-64'
+          : 'flex h-9 w-full items-center gap-2 border border-border bg-transparent px-3 text-sm text-muted-foreground transition-colors hover:bg-raised hover:text-foreground'
+      }
     >
       <MagnifyingGlass className="size-4 shrink-0" />
       <span className="flex-1 truncate text-left">{t('palette.search')}</span>

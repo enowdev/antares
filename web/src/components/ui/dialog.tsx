@@ -21,27 +21,25 @@ export function DialogContent({
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay
         className={cn(
-          'fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]',
-          'data-[state=open]:animate-in data-[state=closed]:animate-out',
-          'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
+          'm-dialog-overlay fixed inset-0 z-50 bg-[#04050699] backdrop-blur-[4px]',
         )}
       />
       <DialogPrimitive.Content
         className={cn(
-          'fixed z-50 flex flex-col bg-card text-card-foreground shadow-2xl',
+          'm-dialog tp-panel fixed z-50 flex flex-col bg-card text-card-foreground shadow-[0_28px_100px_#0009]',
           // Phone: full-width sheet pinned to the bottom, capped so the list
           // behind stays partly visible.
-          'safe-bottom inset-x-0 bottom-0 max-h-[88dvh] rounded-t-[var(--radius-xl)] border-t border-border',
+          'safe-bottom inset-x-0 bottom-0 max-h-[88dvh] border-t border-border',
           // Desktop: a centred panel.
           'sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-h-[85dvh] sm:w-full sm:max-w-lg',
-          'sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--radius-xl)] sm:border',
+          'sm:-translate-x-1/2 sm:-translate-y-1/2 sm:border',
           className,
         )}
         {...props}
       >
         {children}
         <DialogPrimitive.Close
-          className="absolute right-3 top-3 rounded-[var(--radius-xs)] p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="absolute right-3 top-3 rounded-full p-2 text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
           aria-label="Close"
         >
           <X className="size-4" />
@@ -66,7 +64,7 @@ export function DialogTitle({
 }: React.ComponentProps<typeof DialogPrimitive.Title>) {
   return (
     <DialogPrimitive.Title
-      className={cn('text-base font-semibold tracking-tight', className)}
+      className={cn('text-xl font-medium tracking-[-0.5px]', className)}
       {...props}
     />
   )

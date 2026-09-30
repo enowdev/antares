@@ -1,72 +1,92 @@
 @import 'tailwindcss';
 
-/* Antares design tokens. Antares is a red supergiant: near-black surfaces with
-   a soft red accent, tuned to stay readable in both themes. */
+/* Antares design tokens, after the enowx site: near-black surfaces, one light
+   ink, square panels with corner markers, IBM Plex Sans for reading and a
+   monospace voice for actions. Colour is kept for meaning (state, the mark's
+   core); everything else is greys. */
 @theme {
-  --font-sans: 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --font-sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'SFMono-Regular', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 
-  --radius-xs: 0.375rem;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.625rem;
-  --radius-lg: 0.875rem;
-  --radius-xl: 1.125rem;
+  /* Square by default: panels, fields and actions have hard corners. Pills
+     (navigation, badges, switches) use rounded-full explicitly. */
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
 }
 
 @layer base {
   :root {
-    --background: oklch(0.99 0.003 25);
-    --foreground: oklch(0.2 0.008 25);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.2 0.008 25);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.2 0.008 25);
-    /* Soft red, muted enough to sit under long-form text all day. */
-    --primary: oklch(0.55 0.15 24);
-    --primary-foreground: oklch(0.99 0.01 25);
-    --secondary: oklch(0.965 0.005 25);
-    --secondary-foreground: oklch(0.28 0.01 25);
-    --muted: oklch(0.965 0.005 25);
-    --muted-foreground: oklch(0.52 0.015 25);
-    --accent: oklch(0.955 0.018 25);
-    --accent-foreground: oklch(0.32 0.06 24);
-    --destructive: oklch(0.55 0.2 27);
-    --destructive-foreground: oklch(0.99 0.01 25);
-    --success: oklch(0.58 0.13 152);
-    --warning: oklch(0.7 0.15 70);
-    --border: oklch(0.9 0.006 25);
-    --input: oklch(0.9 0.006 25);
-    --ring: oklch(0.55 0.15 24);
-    --sidebar: oklch(0.975 0.004 25);
-    --sidebar-foreground: oklch(0.28 0.01 25);
+    --background: #f7f7f8;
+    --foreground: #111214;
+    --card: #ffffff;
+    --card-foreground: #111214;
+    --popover: #ffffff;
+    --popover-foreground: #111214;
+    --primary: #111214;
+    --primary-foreground: #f7f7f8;
+    --secondary: #eceef1;
+    --secondary-foreground: #1b1d21;
+    --muted: #f0f1f3;
+    --muted-foreground: #5c626d;
+    --accent: #eceef1;
+    --accent-foreground: #111214;
+    --destructive: #b4383d;
+    --destructive-foreground: #ffffff;
+    --success: #2f7a45;
+    --warning: #8a6414;
+    --border: #dcdfe4;
+    --input: #d3d7dd;
+    --ring: #111214;
+    --sidebar: #f0f1f3;
+    --sidebar-foreground: #1b1d21;
+
+    /* enowx extras */
+    --raised: #e6e8ec;
+    --line: #dcdfe4;
+    --dim: #6b717c;
+    --marker: rgba(0, 0, 0, 0.26);
+    --marker-hover: #111214;
+    --brand-core: #ff5a36;
+    --nav-active: #e2e4e8;
+    --field-ink: 17, 18, 20;
   }
 
   .dark {
-    /* Near-black with a trace of red so the whole surface reads warm. */
-    --background: oklch(0.135 0.006 22);
-    --foreground: oklch(0.94 0.004 25);
-    --card: oklch(0.175 0.008 22);
-    --card-foreground: oklch(0.94 0.004 25);
-    --popover: oklch(0.185 0.009 22);
-    --popover-foreground: oklch(0.94 0.004 25);
-    /* Soft red — bright enough to read on black, never neon. */
-    --primary: oklch(0.66 0.155 24);
-    --primary-foreground: oklch(0.14 0.01 22);
-    --secondary: oklch(0.235 0.01 22);
-    --secondary-foreground: oklch(0.92 0.004 25);
-    --muted: oklch(0.22 0.009 22);
-    --muted-foreground: oklch(0.66 0.014 25);
-    --accent: oklch(0.26 0.035 22);
-    --accent-foreground: oklch(0.91 0.03 25);
-    --destructive: oklch(0.62 0.19 27);
-    --destructive-foreground: oklch(0.97 0.01 25);
-    --success: oklch(0.68 0.14 152);
-    --warning: oklch(0.76 0.14 70);
-    --border: oklch(0.26 0.01 22);
-    --input: oklch(0.29 0.012 22);
-    --ring: oklch(0.66 0.155 24);
-    --sidebar: oklch(0.115 0.006 22);
-    --sidebar-foreground: oklch(0.9 0.004 25);
+    --background: #08090a;
+    --foreground: #f4f4f5;
+    --card: #0d0e10;
+    --card-foreground: #f4f4f5;
+    --popover: #101113;
+    --popover-foreground: #f4f4f5;
+    --primary: #f0f1f2;
+    --primary-foreground: #111214;
+    --secondary: #191b1e;
+    --secondary-foreground: #f0f2f6;
+    --muted: #141518;
+    --muted-foreground: #9aa1ae;
+    --accent: #191b1e;
+    --accent-foreground: #f4f4f5;
+    --destructive: #f2b7b3;
+    --destructive-foreground: #2b1e20;
+    --success: #b4d3ae;
+    --warning: #e8cd97;
+    --border: #26292f;
+    --input: #26292f;
+    --ring: #f0f2f6;
+    --sidebar: #101113;
+    --sidebar-foreground: #f4f4f5;
+
+    --raised: #191b1e;
+    --line: #303339;
+    --dim: #8b91a0;
+    --marker: rgba(255, 255, 255, 0.24);
+    --marker-hover: #f5f7fa;
+    --brand-core: #ff5a36;
+    --nav-active: #262a2f;
+    --field-ink: 244, 244, 245;
   }
 }
 
@@ -94,6 +114,11 @@
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-dim: var(--dim);
+  --color-brand-core: var(--brand-core);
+  --color-nav-active: var(--nav-active);
 }
 
 @layer base {
@@ -110,13 +135,14 @@
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
+    font-feature-settings: 'ss02';
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     overscroll-behavior-y: none;
   }
 
   ::selection {
-    background-color: color-mix(in oklch, var(--primary) 30%, transparent);
+    background-color: color-mix(in oklch, var(--foreground) 22%, transparent);
   }
 
   /* Slim scrollbars that match the theme. */
@@ -140,7 +166,7 @@
 
   :focus-visible {
     outline: 2px solid var(--ring);
-    outline-offset: 2px;
+    outline-offset: 3px;
   }
 }
 

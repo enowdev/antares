@@ -206,6 +206,8 @@ const zh: Dict = {
   'nav.subtitle': 'AI 智能体',
   'nav.language': '语言',
   'nav.more': '更多',
+  'nav.groupWorkspace': '工作区',
+  'nav.groupSystem': '系统',
   'hub.agent': '智能体',
   'hub.capabilities': '能力',
   'hub.automation': '自动化',

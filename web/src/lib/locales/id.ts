@@ -216,6 +216,8 @@ const id: Dict = {
   'nav.subtitle': 'Agen AI',
   'nav.language': 'Bahasa',
   'nav.more': 'Lainnya',
+  'nav.groupWorkspace': 'Ruang kerja',
+  'nav.groupSystem': 'Sistem',
   'hub.agent': 'Agen',
   'hub.capabilities': 'Kapabilitas',
   'hub.automation': 'Otomasi',

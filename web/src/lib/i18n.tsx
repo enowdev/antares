@@ -236,6 +236,8 @@ const en = {
   'nav.subtitle': 'AI agent',
   'nav.language': 'Language',
   'nav.more': 'More',
+  'nav.groupWorkspace': 'Workspace',
+  'nav.groupSystem': 'System',
   'hub.agent': 'Agent',
   'hub.capabilities': 'Capabilities',
   'hub.automation': 'Automation',

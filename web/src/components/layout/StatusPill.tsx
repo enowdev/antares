@@ -34,7 +34,7 @@ export function StatusPill({ className, compact }: { className?: string; compact
   }, [reload])
 
   if (loading && !data) {
-    return <Skeleton className={cn('h-9 w-full rounded-[var(--radius-sm)]', className)} />
+    return <Skeleton className={cn('h-[54px] w-full rounded-[12px]', className, compact && 'h-10')} />
   }
 
   const offline = !!error || !data
@@ -50,8 +50,8 @@ export function StatusPill({ className, compact }: { className?: string; compact
   return (
     <div
       className={cn(
-        'flex items-center gap-2 rounded-[var(--radius-sm)] border border-border px-2.5 py-1.5',
-        compact && 'h-9 justify-center px-0',
+        'flex items-center gap-2.5 rounded-[12px] border border-line bg-raised px-2.5 py-2.5',
+        compact && 'h-10 justify-center border-transparent bg-transparent px-0',
         className,
       )}
       title={
@@ -63,11 +63,13 @@ export function StatusPill({ className, compact }: { className?: string; compact
       }
       aria-label={compact ? label : undefined}
     >
-      <Icon className={cn('size-4 shrink-0', tone)} weight="fill" />
+      <span className="grid size-[30px] shrink-0 place-items-center rounded-[8px] border border-line bg-nav-active">
+        <Icon className={cn('size-4', tone)} weight="fill" />
+      </span>
       <div className={cn('min-w-0 flex-1', compact && 'sr-only')}>
-        <p className="truncate text-[11px] font-medium leading-tight">{label}</p>
+        <p className="truncate text-xs font-medium leading-tight">{label}</p>
         {data ? (
-          <p className="truncate text-[10px] leading-tight text-muted-foreground">
+          <p className="mt-0.5 truncate font-mono text-[10.5px] leading-tight text-muted-foreground">
             {data.model || t('status.noModel')}
           </p>
         ) : null}
