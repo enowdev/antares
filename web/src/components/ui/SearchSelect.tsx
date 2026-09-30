@@ -83,7 +83,7 @@ export function SearchSelect({
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex h-9 w-full items-center gap-2 rounded-[var(--radius-sm)] border border-input bg-background px-3 text-sm transition-colors',
+          'flex h-9 w-full items-center gap-2 border border-input bg-transparent px-3 text-sm transition-[border-color,background-color] duration-200 hover:border-line',
           'focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50',
         )}
       >
@@ -94,7 +94,7 @@ export function SearchSelect({
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-full z-30 mt-1 flex max-h-72 w-full flex-col rounded-[var(--radius-sm)] border border-border bg-card p-1 shadow-lg">
+        <div className="absolute left-0 top-full z-30 mt-1 m-open flex max-h-72 w-full flex-col border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
           <div className="relative p-1">
             <MagnifyingGlass className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -111,12 +111,12 @@ export function SearchSelect({
                 type="button"
                 onClick={() => pick('')}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-accent',
-                  value === '' && 'bg-accent',
+                  'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-raised',
+                  value === '' && 'bg-raised',
                 )}
               >
                 {value === '' ? (
-                  <Check className="size-3.5 shrink-0 text-primary" />
+                  <Check className="size-3.5 shrink-0 text-foreground" />
                 ) : (
                   <span className="w-3.5 shrink-0" />
                 )}
@@ -136,19 +136,19 @@ export function SearchSelect({
                     type="button"
                     onClick={() => pick(o.value)}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors hover:bg-accent',
-                      isActive && 'bg-accent',
+                      'flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
+                      isActive && 'bg-raised',
                     )}
                   >
                     {isActive ? (
-                      <Check className="size-3.5 shrink-0 text-primary" />
+                      <Check className="size-3.5 shrink-0 text-foreground" />
                     ) : (
                       <span className="w-3.5 shrink-0" />
                     )}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs font-medium">{o.label}</span>
                       {o.hint ? (
-                        <span className="block truncate text-[10px] text-muted-foreground">{o.hint}</span>
+                        <span className="block truncate font-mono text-[10px] text-dim">{o.hint}</span>
                       ) : null}
                     </span>
                   </button>
@@ -207,7 +207,7 @@ export function SearchMultiSelect({
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex min-h-9 w-full items-center gap-2 rounded-[var(--radius-sm)] border border-input bg-background px-3 py-1 text-sm transition-colors',
+          'flex min-h-9 w-full items-center gap-2 border border-input bg-transparent px-3 py-1 text-sm transition-[border-color,background-color] duration-200 hover:border-line',
           'focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50',
         )}
       >
@@ -228,7 +228,7 @@ export function SearchMultiSelect({
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-full z-30 mt-1 flex max-h-72 w-full flex-col rounded-[var(--radius-sm)] border border-border bg-card p-1 shadow-lg">
+        <div className="absolute left-0 top-full z-30 mt-1 m-open flex max-h-72 w-full flex-col border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
           <div className="relative p-1">
             <MagnifyingGlass className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -243,7 +243,7 @@ export function SearchMultiSelect({
             <button
               type="button"
               onClick={() => onChange([])}
-              className="mx-1 mb-1 inline-flex items-center gap-1 self-start rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="mx-1 mb-1 inline-flex items-center gap-1 self-start px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
             >
               <X className="size-3" />
               {t('common.clear')}
@@ -263,19 +263,19 @@ export function SearchMultiSelect({
                     type="button"
                     onClick={() => toggle(o.value)}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors hover:bg-accent',
-                      isActive && 'bg-accent',
+                      'flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
+                      isActive && 'bg-raised',
                     )}
                   >
                     {isActive ? (
-                      <Check className="size-3.5 shrink-0 text-primary" weight="bold" />
+                      <Check className="size-3.5 shrink-0 text-foreground" weight="bold" />
                     ) : (
-                      <span className="size-3.5 shrink-0 rounded-[3px] border border-border" />
+                      <span className="size-3.5 shrink-0 border border-border" />
                     )}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs font-medium">{o.label}</span>
                       {o.hint ? (
-                        <span className="block truncate text-[10px] text-muted-foreground">{o.hint}</span>
+                        <span className="block truncate font-mono text-[10px] text-dim">{o.hint}</span>
                       ) : null}
                     </span>
                   </button>

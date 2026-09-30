@@ -7,7 +7,7 @@ import { formatCount } from '@/lib/utils'
 import { PageLayout } from '@/components/layout/PageLayout'
 import { Pagination } from '@/components/ui/Pagination'
 import { Button } from '@/components/ui/button'
-import { Badge, Card, EmptyState, Input, Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives'
+import { Badge, EmptyState, Input, Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { SkeletonList } from '@/components/ui/skeleton'
 import { useI18n, useTimeAgo } from '@/lib/i18n'
@@ -186,22 +186,22 @@ export default function SessionsPage() {
       }
     >
       {hits && hits.length > 0 ? (
-        <section className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">
+        <section className="m-rise space-y-2">
+          <p className="eyebrow">
             {t('sessions.contentMatches', { n: hits.length })}
           </p>
           {hits.map((h, i) => (
-            <Link key={`${h.session_id}-${i}`} to={`/c/${h.session_id}`}>
-              <Card className="p-3.5 transition-colors hover:border-primary/40">
+            <Link key={`${h.session_id}-${i}`} to={`/c/${h.session_id}`} className="block">
+              <div className="border border-border bg-transparent transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised p-3.5">
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">{h.role}</Badge>
                   <span className="truncate text-xs font-medium">{h.session_title || h.session_id}</span>
-                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                  <span className="ml-auto shrink-0 font-mono text-[11px] text-dim">
                     {timeAgo(h.created_at)}
                   </span>
                 </div>
-                <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">{h.snippet}</p>
-              </Card>
+                <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{h.snippet}</p>
+              </div>
             </Link>
           ))}
         </section>
@@ -227,13 +227,13 @@ export default function SessionsPage() {
               ? s.meta.project_dir.split('/').filter(Boolean).pop()
               : ''
             return (
-            <Card key={s.id} className="group flex items-center gap-3 p-3.5 transition-colors hover:border-primary/40">
+            <div key={s.id} data-reveal className="group flex items-center gap-3 border border-border bg-transparent transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised px-4 py-3.5">
               <Link to={`/c/${s.id}`} className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{s.title || t('sessions.untitled')}</p>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] tabular-nums text-muted-foreground">
                   {projectName ? (
                     <span
-                      className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-1.5 py-0.5 text-primary"
+                      className="inline-flex items-center gap-1 rounded-full bg-raised px-2 py-0.5 font-mono text-foreground"
                       title={s.meta?.project_dir}
                     >
                       <FolderOpen className="size-3" />
@@ -259,7 +259,7 @@ export default function SessionsPage() {
               >
                 <Trash className="size-4" />
               </Button>
-            </Card>
+            </div>
             )
           })}
         </div>

@@ -18,16 +18,17 @@ interface LogEntry {
 
 const LEVELS = ['ALL', 'DEBUG', 'INFO', 'WARN', 'ERROR']
 
+// Only warnings and errors carry colour; routine lines stay in greys.
 const LEVEL_TONE: Record<string, string> = {
-  DEBUG: 'text-muted-foreground',
-  INFO: 'text-[var(--success)]',
+  DEBUG: 'text-dim',
+  INFO: 'text-muted-foreground',
   WARN: 'text-[var(--warning)]',
   ERROR: 'text-destructive',
 }
 
 const LEVEL_DOT: Record<string, string> = {
-  DEBUG: 'bg-muted-foreground',
-  INFO: 'bg-[var(--success)]',
+  DEBUG: 'bg-line',
+  INFO: 'bg-muted-foreground',
   WARN: 'bg-[var(--warning)]',
   ERROR: 'bg-destructive',
 }
@@ -132,17 +133,17 @@ export default function LogsPage() {
               {LEVELS.map((l) => {
                 const n = l === 'ALL' ? entries.length : (counts[l] ?? 0)
                 return (
-                  <TabsTrigger key={l} value={l} className="gap-1.5">
+                  <TabsTrigger key={l} value={l} className="gap-1.5 font-mono text-[11px] lowercase">
                     {l}
                     {n > 0 ? (
                       <span
                         className={cn(
-                          'rounded-full px-1.5 text-[10px] font-medium tabular-nums',
+                          'rounded-full px-1.5 text-[10px] tabular-nums',
                           l === 'ERROR' && counts.ERROR
                             ? 'bg-destructive/15 text-destructive'
                             : l === 'WARN' && counts.WARN
-                              ? 'bg-[var(--warning)]/15 text-[var(--warning)]'
-                              : 'bg-muted text-muted-foreground',
+                              ? 'bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] text-[var(--warning)]'
+                              : 'bg-raised text-muted-foreground',
                         )}
                       >
                         {n}
@@ -163,35 +164,35 @@ export default function LogsPage() {
       }
     >
       {loading ? (
-        <div className="space-y-2">
+        <div className="space-y-2 border border-border bg-card p-4">
           {Array.from({ length: 12 }).map((_, i) => (
-            <Skeleton key={i} className="h-4 w-full" />
+            <Skeleton key={i} className="h-4" style={{ width: `${60 + ((i * 37) % 40)}%` }} />
           ))}
         </div>
       ) : visible.length === 0 ? (
         <EmptyState icon={<Terminal className="size-8" />} title={t('logs.none')} />
       ) : (
-        <div className="overflow-hidden rounded-[var(--radius-lg)] border border-border bg-card">
-          <div className="p-3 font-mono text-[11px] leading-relaxed">
+        <div className="tp-panel overflow-hidden border border-border bg-card">
+          <div className="px-4 py-3 font-mono text-[11px] leading-relaxed">
             {visible.map((e, i) => (
-              <div key={i} className="flex items-baseline gap-2 py-0.5">
+              <div key={i} className="-mx-2 flex items-baseline gap-2.5 px-2 py-0.5 transition-colors duration-150 hover:bg-raised">
                 <span
                   className={cn(
                     'mt-1.5 size-1.5 shrink-0 self-start rounded-full',
                     LEVEL_DOT[e.level] ?? 'bg-muted-foreground',
                   )}
                 />
-                <span className="shrink-0 text-muted-foreground">
+                <span className="shrink-0 tabular-nums text-dim">
                   {new Date(e.time).toLocaleTimeString(locale, { hour12: false })}
                 </span>
-                <span className={cn('w-12 shrink-0 font-medium', LEVEL_TONE[e.level] ?? '')}>
+                <span className={cn('w-12 shrink-0 lowercase', LEVEL_TONE[e.level] ?? '')}>
                   {e.level}
                 </span>
-                <span className="min-w-0 break-words">
+                <span className="min-w-0 break-words text-foreground">
                   {e.message}
                   {e.attrs
                     ? Object.entries(e.attrs).map(([k, v]) => (
-                        <span key={k} className="ml-2 text-muted-foreground">
+                        <span key={k} className="ml-2 text-dim">
                           {k}={String(v)}
                         </span>
                       ))
@@ -203,7 +204,7 @@ export default function LogsPage() {
           </div>
         </div>
       )}
-      <p className="text-[11px] text-muted-foreground">
+      <p className="font-mono text-[11px] tabular-nums text-dim">
         {t('logs.lines', { n: visible.length, time: timeAgo(new Date()) })}
       </p>
     </PageLayout>

@@ -68,17 +68,13 @@ interface SessionRow {
   intel: number
 }
 
+// A square per phase: filled once complete, outlined in ink while in
+// progress, amber when blocked, a faint outline before it starts.
 const PHASE_MARK: Record<Phase['status'], string> = {
-  complete: '●',
-  in_progress: '◐',
-  blocked: '▲',
-  not_started: '○',
-}
-const PHASE_COLOR: Record<Phase['status'], string> = {
-  complete: 'text-[var(--success)]',
-  in_progress: 'text-primary',
-  blocked: 'text-[var(--warning)]',
-  not_started: 'text-muted-foreground/50',
+  complete: 'bg-foreground',
+  in_progress: 'shadow-[inset_0_0_0_1px_var(--foreground)]',
+  blocked: 'bg-[var(--warning)]',
+  not_started: 'shadow-[inset_0_0_0_1px_var(--line)]',
 }
 const SEV_VARIANT: Record<string, 'destructive' | 'warning' | 'secondary' | 'outline'> = {
   critical: 'destructive',
@@ -157,7 +153,7 @@ export default function EngagementPage() {
   const header = (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-xs text-muted-foreground">{t('engagement.pickSession')}</label>
+        <label className="eyebrow">{t('engagement.pickSession')}</label>
         <div className="min-w-0 flex-1 sm:min-w-[18rem] sm:flex-none">
           <SearchSelect
             value={active}
@@ -225,19 +221,44 @@ function Overview({ eng }: { eng: Engagement | null }) {
   const chains = eng?.chains ?? []
   const pct = eng?.coverage_percent ?? 0
 
+  const stats: { label: string; value: string; tone?: string }[] = [
+    { label: t('engagement.findings'), value: String(findings.length) },
+    { label: t('engagement.intel'), value: String(intel.length) },
+    { label: t('engagement.coverage'), value: `${pct}%` },
+    {
+      label: t('engagement.chains'),
+      value: String(chains.length),
+      tone: chains.length ? 'text-destructive' : undefined,
+    },
+  ]
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {stats.map((s) => (
+          <div key={s.label} data-reveal className="border border-border px-4 py-3.5">
+            <p className="eyebrow">{s.label}</p>
+            <p className={cn('mt-2 text-2xl font-medium tabular-nums', s.tone)}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
       {/* Methodology */}
-      <Card className="p-4">
-        <CardHeader className="p-0 pb-3">
-          <CardTitle className="text-sm">{t('engagement.methodology')}</CardTitle>
+      <Card className="p-5">
+        <CardHeader className="p-0 pb-4">
+          <CardTitle>{t('engagement.methodology')}</CardTitle>
         </CardHeader>
-        <div className="space-y-2">
+        <ol className="border border-border">
           {(eng?.phases ?? []).map((p) => (
-            <div key={p.name} className="flex items-start gap-2 text-sm">
-              <span className={cn('w-4 shrink-0 text-center', PHASE_COLOR[p.status])}>
-                {PHASE_MARK[p.status]}
-              </span>
+            <li
+              key={p.name}
+              data-reveal
+              className="relative flex items-start gap-3 border-t border-border px-4 py-3 text-sm first:border-t-0"
+            >
+              {p.status === 'in_progress' ? (
+                <span aria-hidden className="absolute inset-y-0 -left-px w-px bg-foreground" />
+              ) : null}
+              <span aria-hidden className={cn('mt-[7px] size-[7px] shrink-0', PHASE_MARK[p.status])} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{p.title}</span>
@@ -246,40 +267,40 @@ function Overview({ eng }: { eng: Engagement | null }) {
                   ) : null}
                 </div>
                 {p.summary ? (
-                  <p className="text-[11px] text-muted-foreground">{p.summary}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{p.summary}</p>
                 ) : null}
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ol>
         {eng?.next ? (
-          <p className="mt-3 rounded-[var(--radius-sm)] border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-            → {eng.next}
+          <p className="mt-3 border border-border px-4 py-3 text-xs text-muted-foreground">
+            <span className="font-mono text-foreground">→</span> {eng.next}
           </p>
         ) : null}
       </Card>
 
       {/* Coverage */}
-      <Card className="p-4">
-        <CardHeader className="p-0 pb-2">
-          <CardTitle className="flex items-center justify-between text-sm">
+      <Card className="p-5">
+        <CardHeader className="p-0 pb-3">
+          <CardTitle className="flex items-center justify-between">
             {t('engagement.coverage')}
-            <span className="text-xs font-normal tabular-nums text-muted-foreground">{pct}%</span>
+            <span className="font-mono text-xs font-normal tabular-nums text-muted-foreground">{pct}%</span>
           </CardTitle>
         </CardHeader>
-        <div className="mb-3 h-2 overflow-hidden rounded-full bg-muted">
+        <div className="mb-4 h-1 overflow-hidden bg-raised">
           <div
-            className="h-full rounded-full bg-primary transition-all"
+            className="h-full bg-foreground transition-[width] duration-500"
             style={{ width: `${pct}%` }}
           />
         </div>
-        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-4">
           {(eng?.coverage ?? []).map((a) => (
-            <div key={a.name} className="flex items-center gap-1.5 text-[11px]">
+            <div key={a.name} className="flex items-center gap-2 text-xs">
               {a.covered ? (
                 <Check className="size-3.5 shrink-0 text-[var(--success)]" weight="bold" />
               ) : (
-                <span className="size-3.5 shrink-0 rounded-[3px] border border-muted-foreground/40" />
+                <span className="size-3.5 shrink-0 border border-line" />
               )}
               <span className={a.covered ? '' : 'text-muted-foreground'}>{a.title}</span>
             </div>
@@ -289,16 +310,16 @@ function Overview({ eng }: { eng: Engagement | null }) {
 
       {/* Chains */}
       {chains.length > 0 ? (
-        <Card className="border-destructive/40 p-4">
-          <CardHeader className="p-0 pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm text-destructive">
+        <Card className="border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] p-5">
+          <CardHeader className="p-0 pb-3">
+            <CardTitle className="flex items-center gap-2 text-destructive">
               <Warning className="size-4" weight="fill" />
               {t('engagement.chains')}
             </CardTitle>
           </CardHeader>
           <div className="space-y-1.5">
             {chains.map((c) => (
-              <div key={c.name} className="text-xs">
+              <div key={c.name} className="text-sm">
                 <span className="font-medium">{c.name}</span>
                 <span className="text-muted-foreground"> — {c.impact}</span>
               </div>
@@ -308,28 +329,32 @@ function Overview({ eng }: { eng: Engagement | null }) {
       ) : null}
 
       {/* Findings */}
-      <Card className="p-4">
-        <CardHeader className="p-0 pb-2">
-          <CardTitle className="text-sm">
-            {t('engagement.findings')} ({findings.length})
+      <Card className="p-5">
+        <CardHeader className="p-0 pb-3">
+          <CardTitle className="flex items-center justify-between">
+            {t('engagement.findings')}
+            <span className="font-mono text-xs font-normal tabular-nums text-muted-foreground">
+              {findings.length}
+            </span>
           </CardTitle>
         </CardHeader>
         {findings.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t('engagement.noFindings')}</p>
         ) : (
-          <div className="space-y-1.5">
+          <div className="border border-border">
             {findings.map((f) => (
               <div
                 key={f.id}
-                className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-border px-2.5 py-2 text-sm"
+                data-reveal
+                className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3 text-sm transition-colors duration-200 first:border-t-0 hover:bg-raised"
               >
                 <Badge variant={SEV_VARIANT[f.severity] ?? 'outline'}>{f.severity}</Badge>
                 <span className="min-w-0 flex-1 font-medium">{f.title}</span>
                 {f.cwe ? (
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{f.cwe}</span>
+                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{f.cwe}</span>
                 ) : null}
                 {f.target ? (
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                     {f.target}
                   </span>
                 ) : null}
@@ -344,15 +369,21 @@ function Overview({ eng }: { eng: Engagement | null }) {
 
       {/* Intel */}
       {intel.length > 0 ? (
-        <Card className="p-4">
-          <CardHeader className="p-0 pb-2">
-            <CardTitle className="text-sm">
-              {t('engagement.intel')} ({intel.length})
+        <Card className="p-5">
+          <CardHeader className="p-0 pb-3">
+            <CardTitle className="flex items-center justify-between">
+              {t('engagement.intel')}
+              <span className="font-mono text-xs font-normal tabular-nums text-muted-foreground">
+                {intel.length}
+              </span>
             </CardTitle>
           </CardHeader>
-          <div className="space-y-1">
+          <div className="border border-border">
             {intel.map((it) => (
-              <div key={it.id} className="flex items-center gap-2 text-xs">
+              <div
+                key={it.id}
+                className="flex items-center gap-2 border-t border-border px-4 py-2.5 text-xs first:border-t-0 hover:bg-raised"
+              >
                 <Badge variant="outline">{it.type}</Badge>
                 <span className="min-w-0 truncate font-mono">{it.value}</span>
                 {it.detail ? (
@@ -397,13 +428,18 @@ function RawReport({ session, title }: { session: string; title: string }) {
     }
   }
 
-  if (err) return <p className="text-xs text-destructive">{err}</p>
+  if (err)
+    return (
+      <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+        {err}
+      </p>
+    )
   if (md === null) return <Skeleton className="h-64 w-full" />
 
   return (
-    <Card className="p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <CardTitle className="text-sm">{t('engagement.rawReport')}</CardTitle>
+    <Card className="p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <CardTitle>{t('engagement.rawReport')}</CardTitle>
         <Button variant="outline" size="sm" onClick={copy} className="gap-1.5">
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           {copied ? t('common.copied') : t('common.copy')}

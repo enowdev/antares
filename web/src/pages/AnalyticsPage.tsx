@@ -10,7 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useApi } from '@/lib/hooks'
-import { formatCount } from '@/lib/utils'
+import { cn, formatCount } from '@/lib/utils'
 import { PageLayout } from '@/components/layout/PageLayout'
 import {
   Card,
@@ -48,6 +48,13 @@ interface AnalyticsResponse {
   totals: { tokens_in: number; tokens_out: number; cost: number; calls: number }
 }
 
+const TH = 'border-b border-border px-4 py-3 text-left font-mono text-[11px] font-normal lowercase tracking-[0.04em] text-dim'
+const TD = 'border-t border-border px-4 py-3.5'
+// Monochrome chart: output in ink, input in grey, so the pair reads without colour.
+const SERIES_OUT = 'var(--foreground)'
+const SERIES_IN = 'var(--muted-foreground)'
+const TICK = { fontSize: 10, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }
+
 const RANGES = [
   { id: '24h', labelKey: 'analytics.range24h', bucket: 'hour' },
   { id: '7d', labelKey: 'analytics.range7d', bucket: 'day' },
@@ -75,7 +82,7 @@ export default function AnalyticsPage() {
       {loading && !data ? (
         <>
           <SkeletonStats count={4} />
-          <Skeleton className="h-56 w-full rounded-[var(--radius-lg)]" />
+          <Skeleton className="h-56 w-full" />
         </>
       ) : !data || data.totals.calls === 0 ? (
         <EmptyState
@@ -101,35 +108,33 @@ export default function AnalyticsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('analytics.byModel')}</CardTitle>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="py-2 text-left font-medium">{t('analytics.model')}</th>
-                    <th className="py-2 text-right font-medium">{t('analytics.calls')}</th>
-                    <th className="py-2 text-right font-medium">{t('analytics.tokensIn')}</th>
-                    <th className="py-2 text-right font-medium">{t('analytics.tokensOut')}</th>
-                    <th className="py-2 text-right font-medium">{t('analytics.cost')}</th>
+          <section data-reveal className="space-y-3">
+            <h3 className="text-[15px] font-medium tracking-[-0.2px]">{t('analytics.byModel')}</h3>
+            <div className="overflow-auto border border-border bg-card">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr>
+                    <th className={TH}>{t('analytics.model')}</th>
+                    <th className={cn(TH, 'text-right')}>{t('analytics.calls')}</th>
+                    <th className={cn(TH, 'text-right')}>{t('analytics.tokensIn')}</th>
+                    <th className={cn(TH, 'text-right')}>{t('analytics.tokensOut')}</th>
+                    <th className={cn(TH, 'text-right')}>{t('analytics.cost')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.by_model.map((m) => (
-                    <tr key={`${m.provider}/${m.model}`} className="border-b border-border last:border-0">
-                      <td className="max-w-40 truncate py-2 font-mono">{m.model}</td>
-                      <td className="py-2 text-right tabular-nums">{m.calls}</td>
-                      <td className="py-2 text-right tabular-nums">{formatCount(m.tokens_in)}</td>
-                      <td className="py-2 text-right tabular-nums">{formatCount(m.tokens_out)}</td>
-                      <td className="py-2 text-right tabular-nums">${m.cost.toFixed(4)}</td>
+                    <tr key={`${m.provider}/${m.model}`} className="transition-colors duration-200 hover:bg-raised">
+                      <td className={cn(TD, 'max-w-56 truncate font-mono text-xs')}>{m.model}</td>
+                      <td className={cn(TD, 'text-right tabular-nums')}>{m.calls}</td>
+                      <td className={cn(TD, 'text-right tabular-nums')}>{formatCount(m.tokens_in)}</td>
+                      <td className={cn(TD, 'text-right tabular-nums')}>{formatCount(m.tokens_out)}</td>
+                      <td className={cn(TD, 'text-right tabular-nums')}>${m.cost.toFixed(4)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         </>
       )}
     </PageLayout>
@@ -146,24 +151,24 @@ function UsageChart({ series, t }: { series: UsagePoint[]; t: TFunc }) {
         <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
           <defs>
             <linearGradient id="gradOut" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.5} />
-              <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.04} />
+              <stop offset="0%" stopColor={SERIES_OUT} stopOpacity={0.22} />
+              <stop offset="100%" stopColor={SERIES_OUT} stopOpacity={0} />
             </linearGradient>
             <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--success)" stopOpacity={0.5} />
-              <stop offset="100%" stopColor="var(--success)" stopOpacity={0.04} />
+              <stop offset="0%" stopColor={SERIES_IN} stopOpacity={0.18} />
+              <stop offset="100%" stopColor={SERIES_IN} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" strokeOpacity={0.5} vertical={false} />
+          <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis
             dataKey="bucket"
-            tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+            tick={TICK}
             tickLine={false}
             axisLine={{ stroke: 'var(--border)' }}
             minTickGap={24}
           />
           <YAxis
-            tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+            tick={TICK}
             tickLine={false}
             axisLine={false}
             width={48}
@@ -178,7 +183,7 @@ function UsageChart({ series, t }: { series: UsagePoint[]; t: TFunc }) {
                 t={t}
               />
             )}
-            cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
+            cursor={{ stroke: 'var(--line)', strokeWidth: 1 }}
           />
           {/* Not stacked: each area is drawn from the zero baseline so the
               real gap between output and input is visible. Output is drawn
@@ -186,26 +191,26 @@ function UsageChart({ series, t }: { series: UsagePoint[]; t: TFunc }) {
           <Area
             type="monotone"
             dataKey="tokens_out"
-            stroke="var(--primary)"
-            strokeWidth={2}
+            stroke={SERIES_OUT}
+            strokeWidth={1.5}
             fill="url(#gradOut)"
             name={t('analytics.tokensOut')}
           />
           <Area
             type="monotone"
             dataKey="tokens_in"
-            stroke="var(--success)"
-            strokeWidth={2}
+            stroke={SERIES_IN}
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
             fill="url(#gradIn)"
-            fillOpacity={0.6}
             name={t('analytics.tokensIn')}
           />
         </AreaChart>
       </ResponsiveContainer>
 
-      <div className="mt-2 flex items-center justify-center gap-4 text-[10px] text-muted-foreground">
-        <Legend swatch="var(--primary)" label={t('analytics.tokensOut')} />
-        <Legend swatch="var(--success)" label={t('analytics.tokensIn')} />
+      <div className="mt-3 flex items-center justify-center gap-5 font-mono text-[11px] text-muted-foreground">
+        <Legend swatch={SERIES_OUT} label={t('analytics.tokensOut')} />
+        <Legend swatch={SERIES_IN} label={t('analytics.tokensIn')} />
       </div>
     </div>
   )
@@ -232,19 +237,19 @@ function ChartTooltip({
   if (!active || !payload?.length) return null
   const point = (payload[0] as { payload?: UsagePoint })?.payload
   return (
-    <div className="rounded-[var(--radius-sm)] border border-border bg-popover px-3 py-2 text-xs shadow-md">
-      <p className="font-mono text-[11px] font-medium text-popover-foreground">{label}</p>
-      <div className="mt-1 space-y-0.5">
+    <div className="border border-border bg-popover px-3 py-2.5 text-xs shadow-[0_10px_28px_-14px_#00000080]">
+      <p className="font-mono text-[11px] text-dim">{label}</p>
+      <div className="mt-1.5 flex flex-col gap-1">
         {payload.map((e) => (
           <Legend
             key={String(e.dataKey)}
-            swatch={e.color ?? 'var(--primary)'}
+            swatch={e.color ?? SERIES_OUT}
             label={e.name ?? ''}
             value={formatCount(Number(e.value ?? 0))}
           />
         ))}
         {point ? (
-          <p className="pt-0.5 text-muted-foreground">
+          <p className="border-t border-border pt-1.5 font-mono text-[11px] tabular-nums text-muted-foreground">
             {point.calls} {t('analytics.calls').toLowerCase()} · ${point.cost.toFixed(4)}
           </p>
         ) : null}
@@ -256,7 +261,7 @@ function ChartTooltip({
 function Legend({ swatch, label, value }: { swatch: string; label: string; value?: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="size-2 rounded-[2px]" style={{ background: swatch }} />
+      <span className="size-2" style={{ background: swatch }} />
       <span className="text-muted-foreground">{label}</span>
       {value != null ? <span className="ml-1 font-medium tabular-nums text-foreground">{value}</span> : null}
     </span>
@@ -265,9 +270,9 @@ function Legend({ swatch, label, value }: { swatch: string; label: string; value
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <Card className="p-4">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-2 text-xl font-semibold tabular-nums">{value}</p>
-    </Card>
+    <div data-reveal className="flex flex-col gap-1 border border-border px-4 py-3.5">
+      <p className="eyebrow">{label}</p>
+      <p className="text-2xl font-medium tabular-nums tracking-[-0.4px]">{value}</p>
+    </div>
   )
 }

@@ -54,19 +54,20 @@ export function UpdateBanner({ compact }: { compact?: boolean }) {
           onClick={() => setOpen(true)}
           title={`${t('update.available')} · ${info.current} → ${info.latest}`}
           aria-label={t('update.available')}
-          className="flex h-9 w-full items-center justify-center rounded-[var(--radius-md)] border border-primary/40 bg-primary/5 transition-colors hover:bg-primary/10"
+          className="m-fade relative flex h-9 w-full items-center justify-center border border-border bg-transparent transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
         >
-          <DownloadSimple className="size-4 text-primary" />
+          <DownloadSimple className="size-4 text-foreground" />
+          <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[var(--success)]" aria-hidden />
         </button>
       ) : (
         <button
           onClick={() => setOpen(true)}
-          className="flex w-full items-center gap-2 rounded-[var(--radius-md)] border border-primary/40 bg-primary/5 px-3 py-2 text-left transition-colors hover:bg-primary/10"
+          className="m-fade flex w-full items-center gap-2.5 border border-border bg-transparent px-3 py-2 text-left transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
         >
-          <DownloadSimple className="size-4 shrink-0 text-primary" />
+          <DownloadSimple className="size-4 shrink-0 text-foreground" />
           <span className="min-w-0 flex-1">
             <span className="block text-xs font-medium text-foreground">{t('update.available')}</span>
-            <span className="block truncate text-[11px] text-muted-foreground">
+            <span className="block truncate font-mono text-[11px] tabular-nums text-muted-foreground">
               {info.current} → {info.latest}
             </span>
           </span>
@@ -150,7 +151,7 @@ function UpdateDialog({
         </DialogHeader>
         <DialogBody className="space-y-3">
           {phase === 'idle' ? (
-            <div className="max-h-72 overflow-y-auto rounded-[var(--radius-md)] border border-border bg-muted/30 p-3 text-sm">
+            <div className="max-h-72 overflow-y-auto border border-border bg-transparent p-4 text-sm">
               {info.notes ? (
                 <Markdown content={info.notes} />
               ) : (
@@ -160,26 +161,26 @@ function UpdateDialog({
           ) : null}
 
           {phase === 'running' || phase === 'ok' || phase === 'error' ? (
-            <pre className="max-h-72 overflow-auto rounded-[var(--radius-md)] bg-muted p-3 font-mono text-[11px] leading-relaxed">
+            <pre className="max-h-72 overflow-auto border border-border bg-background p-3 font-mono text-[11px] leading-relaxed">
               {log || t('update.starting')}
             </pre>
           ) : null}
 
           {phase === 'ok' ? (
-            <p className="flex items-center gap-1.5 text-xs text-[var(--success)]">
+            <p className="m-rise flex items-center gap-1.5 text-xs text-[var(--success)]">
               <CheckCircle className="size-4" weight="fill" />
               {t('update.done')}
             </p>
           ) : null}
 
           {phase === 'manual' || (phase === 'error' && manualCmd) ? (
-            <div className="space-y-1.5">
+            <div className="m-rise space-y-1.5">
               <p className="flex items-center gap-1.5 text-xs text-[var(--warning)]">
                 <Warning className="size-4" />
                 {t('update.manualHint')}
               </p>
               <div className="flex items-center gap-1.5">
-                <code className="min-w-0 flex-1 truncate rounded-[var(--radius-sm)] bg-muted px-2 py-1.5 font-mono text-[11px]">
+                <code className="min-w-0 flex-1 truncate border border-border bg-background px-2.5 py-1.5 font-mono text-[11px]">
                   {manualCmd}
                 </code>
                 <Button size="icon-sm" variant="outline" onClick={copyCmd} aria-label={t('common.copy')}>
@@ -195,7 +196,7 @@ function UpdateDialog({
               href={info.url}
               target="_blank"
               rel="noreferrer noopener"
-              className="mr-auto text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              className="mr-auto self-center font-mono text-[11px] text-muted-foreground underline decoration-line underline-offset-4 transition-colors hover:text-foreground"
             >
               {t('update.viewOnGithub')}
             </a>

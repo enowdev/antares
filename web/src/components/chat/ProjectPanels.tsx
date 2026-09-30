@@ -138,7 +138,7 @@ export function FilesPanel({ projectDir, refreshKey }: { projectDir: string; ref
         <button
           onClick={() => toggle(node)}
           style={{ paddingLeft: `${depth * 12 + 4}px` }}
-          className="flex w-full items-center gap-1.5 rounded-[var(--radius-sm)] py-0.5 pr-1 text-left text-[11px] hover:bg-muted"
+          className="flex w-full items-center gap-1.5 py-0.5 pr-1 text-left font-mono text-[11px] transition-colors hover:bg-raised"
         >
           {node.is_dir ? (
             <Folder className="size-3.5 shrink-0 text-muted-foreground" weight={open[node.path] ? 'fill' : 'regular'} />
@@ -191,7 +191,7 @@ export function ScriptsPanel({
       {scripts.map((sc) => (
         <div
           key={`${sc.source}:${sc.name}`}
-          className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-border px-2 py-1.5"
+          className="flex items-center gap-2 border border-border px-2 py-1.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
         >
           <div className="min-w-0 flex-1">
             <p className="truncate text-[11px] font-medium">{sc.name}</p>
@@ -200,7 +200,7 @@ export function ScriptsPanel({
           <button
             onClick={() => onRun(sc.command)}
             title={t('scripts.run', { command: sc.command })}
-            className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-sm)] text-muted-foreground hover:bg-muted hover:text-primary"
+            className="grid size-7 shrink-0 place-items-center text-muted-foreground transition-colors hover:bg-nav-active hover:text-foreground"
           >
             <Play className="size-3.5" weight="fill" />
           </button>
@@ -214,13 +214,13 @@ export function ScriptsPanel({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{children}</p>
+    <p className="eyebrow !text-[10px]">{children}</p>
   )
 }
 
 function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-[var(--radius-sm)] bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+    <span className="rounded-full bg-raised px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
       {children}
     </span>
   )

@@ -143,17 +143,20 @@ export function ModelPicker({
           setPickError(undefined);
           setOpen((v) => !v);
         }}
-        className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-card px-2.5 text-xs transition-colors hover:border-primary/40"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={activeLabel}
+        className="flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-full border border-border bg-transparent px-2 text-xs sm:px-3 text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground aria-expanded:border-line aria-expanded:bg-nav-active aria-expanded:text-foreground"
       >
-        <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="hidden max-w-32 truncate sm:inline">
+        <Cpu className="size-3.5 shrink-0" />
+        <span className="hidden max-w-36 truncate font-mono text-[11px] sm:inline">
           {activeLabel}
         </span>
-        <CaretDown className="size-3 shrink-0 text-muted-foreground" />
+        <CaretDown className="hidden size-3 shrink-0 text-muted-foreground sm:block" />
       </button>
 
       {open ? (
-        <div className="absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-72 flex-col rounded-[var(--radius-lg)] border border-border bg-card p-1 shadow-lg">
+        <div className="m-open absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-72 max-w-[calc(100vw-2rem)] flex-col border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
           <div className="relative p-1">
             <MagnifyingGlass className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -161,19 +164,19 @@ export function ModelPicker({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("models.searchAll")}
-              className="h-8 w-full rounded-[var(--radius-sm)] border border-border bg-background pl-8 pr-2 text-xs outline-none focus:border-ring"
+              className="h-8 w-full border border-border bg-transparent pl-8 pr-2 font-mono text-xs outline-none transition-colors focus:border-foreground/60"
             />
           </div>
           {pickError ? (
             <p
               role="alert"
-              className="mx-1 mb-1 rounded-sm border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-[11px] leading-snug text-destructive"
+              className="m-rise mx-1 mb-1 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-2.5 py-2 text-[11px] leading-snug text-destructive"
             >
               {pickError}{" "}
               {pickGate ? (
                 <Link
                   to="/system/settings"
-                  className="font-medium underline underline-offset-2"
+                  className="font-medium underline underline-offset-4"
                 >
                   {t("sensitive.setPassword")}
                 </Link>
@@ -200,8 +203,8 @@ export function ModelPicker({
                     onClick={() => pick(m)}
                     disabled={!!saving}
                     className={cn(
-                      "flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left transition-colors hover:bg-muted",
-                      isActive && "bg-primary/5",
+                      "flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-raised",
+                      isActive && "bg-nav-active",
                     )}
                   >
                     <span className="min-w-0 flex-1">
@@ -213,7 +216,7 @@ export function ModelPicker({
                       </span>
                     </span>
                     {isActive ? (
-                      <span className="shrink-0 text-[10px] font-medium text-primary">
+                      <span className="shrink-0 font-mono text-[10px] lowercase text-foreground">
                         {t("common.active")}
                       </span>
                     ) : null}

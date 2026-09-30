@@ -106,12 +106,13 @@ export default function CronPage() {
           }
         />
       ) : (
-        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {jobs.map((j) => (
             <div
               key={j.id}
+              data-reveal
               className={cn(
-                'group flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5 transition-colors hover:border-primary/40',
+                'tp-panel group flex flex-col border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line',
                 !j.enabled && 'opacity-60',
               )}
             >
@@ -124,19 +125,19 @@ export default function CronPage() {
                     </Badge>
                   ) : null}
                 </div>
-                <Badge variant="outline" className="mt-1.5 font-mono">
+                <p className="mt-2 inline-block border border-border px-2 py-0.5 font-mono text-xs text-foreground">
                   {j.schedule}
-                </Badge>
-                <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">{j.prompt}</p>
-                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                </p>
+                <p className="mt-2.5 line-clamp-2 text-sm text-muted-foreground">{j.prompt}</p>
+                <p className="mt-2.5 font-mono text-[11px] text-dim">
                   {t('cron.lastRun', {
                     time: timeAgo(j.last_run),
                     next: j.next_run ? new Date(j.next_run).toLocaleString(locale) : '—',
                   })}
                 </p>
               </button>
-              <div className="mt-2.5 flex items-center justify-between border-t border-border pt-2">
-                <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="-mx-4 mt-3.5 flex items-center justify-between border-t border-border px-4 pt-2.5">
+                <label className="flex items-center gap-2 font-mono text-[11px] lowercase text-muted-foreground">
                   <Switch
                     checked={j.enabled}
                     disabled={busy === j.id}
@@ -190,7 +191,7 @@ function RunsDialog({ job, onClose }: { job: CronJob; onClose: () => void }) {
     ) : status === 'error' ? (
       <XCircle className="size-3.5 shrink-0 text-destructive" weight="fill" />
     ) : status === 'running' ? (
-      <ClockCounterClockwise className="size-3.5 shrink-0 animate-spin text-primary" />
+      <ClockCounterClockwise className="size-3.5 shrink-0 animate-spin text-foreground" />
     ) : (
       <Warning className="size-3.5 shrink-0 text-muted-foreground" />
     )
@@ -212,11 +213,11 @@ function RunsDialog({ job, onClose }: { job: CronJob; onClose: () => void }) {
           ) : (
             <div className="space-y-2">
               {runs.map((r) => (
-                <div key={r.id} className="rounded-[var(--radius-sm)] border border-border p-2.5">
+                <div key={r.id} data-reveal className="border border-border px-3.5 py-3 transition-colors duration-200 hover:border-line hover:bg-raised">
                   <div className="flex items-center gap-2">
                     {glyph(r.status)}
-                    <span className="text-xs font-medium">{r.status}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">
+                    <span className="font-mono text-xs">{r.status}</span>
+                    <span className="ml-auto font-mono text-[11px] text-dim">
                       {timeAgo(r.started_at)}
                     </span>
                   </div>
@@ -347,7 +348,7 @@ function NewJobDialog({
                     .join(' · ')}
                 </p>
               ) : (
-                <p className="text-[11px] text-destructive">{preview.error}</p>
+                <p className="m-rise text-[11px] text-destructive">{preview.error}</p>
               )
             ) : null}
           </div>
@@ -363,7 +364,11 @@ function NewJobDialog({
             />
           </div>
 
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? (
+            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
         </DialogBody>
 
         <DialogFooter>

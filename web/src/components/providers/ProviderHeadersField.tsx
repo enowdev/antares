@@ -12,7 +12,7 @@ export function ProviderHeadersField({
 }) {
   const { t } = useI18n()
   return (
-    <div className="space-y-1.5">
+    <div className="flex flex-col gap-2">
       <Label htmlFor={id}>{t('providers.headers')}</Label>
       <Textarea
         id={id}

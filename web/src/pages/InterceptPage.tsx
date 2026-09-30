@@ -207,21 +207,26 @@ export default function InterceptPage() {
       ) : (
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         {/* Capture log */}
-        <Card className="overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <span className="text-sm font-medium">
-              {t('intercept.traffic')} ({exchanges.length})
+        <Card reveal={false} className="overflow-hidden p-0">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <span className="text-[15px] font-medium">{t('intercept.traffic')}</span>
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+              {exchanges.length}
             </span>
           </div>
           {exchanges.length === 0 ? (
-            <EmptyState title={t('intercept.noTraffic')} description={t('intercept.noTrafficDesc')} />
+            <EmptyState
+              title={t('intercept.noTraffic')}
+              description={t('intercept.noTrafficDesc')}
+              className="border-0 [background-image:none]"
+            />
           ) : (
             <div className="max-h-[62vh] overflow-auto">
               {exchanges.map((e) => (
                 <button
                   key={e.id}
                   onClick={() => setSelected(e)}
-                  className="flex w-full items-center gap-2 border-b border-border px-3 py-1.5 text-left text-[12px] hover:bg-muted/40"
+                  className="flex w-full items-center gap-3 border-b border-border px-4 py-2 text-left text-xs transition-colors duration-200 last:border-b-0 hover:bg-raised"
                 >
                   <span className="w-14 shrink-0 font-mono font-medium">{e.method}</span>
                   <Badge variant={statusColor(e.status)} className="shrink-0">
@@ -232,7 +237,7 @@ export default function InterceptPage() {
                   </span>
                   {e.mocked ? <Badge variant="secondary">{t('intercept.mock')}</Badge> : null}
                   {e.blocked ? <Badge variant="destructive">{t('intercept.block')}</Badge> : null}
-                  <span className="shrink-0 tabular-nums text-muted-foreground/60">
+                  <span className="shrink-0 font-mono tabular-nums text-dim">
                     {e.duration_ms}ms
                   </span>
                 </button>
@@ -242,8 +247,8 @@ export default function InterceptPage() {
         </Card>
 
         {/* Rules */}
-        <Card className="space-y-2.5 p-3.5">
-          <Label>{t('intercept.rules')}</Label>
+        <Card className="space-y-3 self-start p-4">
+          <Label className="eyebrow">{t('intercept.rules')}</Label>
           <Input
             value={rule.match}
             onChange={(e) => setRule({ ...rule, match: e.target.value })}
@@ -274,9 +279,13 @@ export default function InterceptPage() {
             placeholder={t('intercept.mockBody')}
           />
           {(rulesData?.rules ?? []).length > 0 ? (
-            <div className="space-y-1 border-t border-border pt-2">
+            <div className="-mx-4 border-t border-border">
               {(rulesData?.rules ?? []).map((r) => (
-                <div key={r.id} className="flex items-center gap-2 text-[12px]">
+                <div
+                  key={r.id}
+                  data-reveal
+                  className="flex items-center gap-2 border-b border-border px-4 py-1.5 text-xs last:border-b-0 hover:bg-raised"
+                >
                   <span className="min-w-0 flex-1 truncate font-mono">{r.match}</span>
                   {r.block ? (
                     <Badge variant="destructive">{t('intercept.block')}</Badge>
@@ -298,7 +307,7 @@ export default function InterceptPage() {
               ))}
             </div>
           ) : (
-            <p className="border-t border-border pt-2 text-[11px] text-muted-foreground">
+            <p className="-mx-4 border-t border-border px-4 pt-3 text-xs text-muted-foreground">
               {t('intercept.noRules')}
             </p>
           )}
@@ -344,19 +353,23 @@ function InterceptorsPanel({ running }: { running: boolean }) {
   for (const i of data?.interceptors ?? []) (groups[i.category] ??= []).push(i)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {env ? (
         <EnvDialog text={env.text} onClose={() => setEnv(null)} />
       ) : null}
 
       {(data?.sessions ?? []).length > 0 ? (
-        <Card className="p-3.5">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <Card className="p-4">
+          <p className="eyebrow mb-3">
             {t('intercept.activeSessions')}
           </p>
-          <div className="space-y-1.5">
+          <div className="border border-border">
             {data!.sessions.map((s) => (
-              <div key={s.id} className="flex items-center gap-2 text-xs">
+              <div
+                key={s.id}
+                data-reveal
+                className="flex items-center gap-2 border-t border-border px-3 py-1.5 text-xs first:border-t-0 hover:bg-raised"
+              >
                 <Badge variant="secondary">{s.interceptor}</Badge>
                 <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{s.id}</span>
                 <Button variant="ghost" size="icon-sm" onClick={() => deactivate(s.id)} aria-label={t('common.delete')} className="text-muted-foreground hover:text-destructive">
@@ -369,13 +382,14 @@ function InterceptorsPanel({ running }: { running: boolean }) {
       ) : null}
 
       {Object.entries(groups).map(([cat, items]) => (
-        <div key={cat} className="space-y-2">
-          <h2 className="text-sm font-semibold capitalize">{cat}</h2>
-          <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+        <section key={cat} data-reveal className="space-y-3">
+          <h2 className="eyebrow">{cat}</h2>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {items.map((i) => (
               <div
                 key={i.id}
-                className={`rounded-[var(--radius-lg)] border border-border bg-card p-3.5 ${i.available ? '' : 'opacity-70'}`}
+                data-reveal
+                className={`tp-panel flex flex-col border border-border bg-card p-4 transition-colors duration-200 hover:border-line ${i.available ? '' : 'opacity-70'}`}
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{i.label}</span>
@@ -383,11 +397,11 @@ function InterceptorsPanel({ running }: { running: boolean }) {
                     {i.available ? t('intercept.ready') : t('intercept.needsSetup')}
                   </Badge>
                 </div>
-                <code className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                <code className="mt-1 inline-block self-start font-mono text-xs text-muted-foreground">
                   {i.id}
                 </code>
                 {!i.available && i.reason ? (
-                  <p className="mt-1.5 text-[11px] text-muted-foreground">{i.reason}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">{i.reason}</p>
                 ) : null}
                 <Button
                   size="sm"
@@ -395,17 +409,17 @@ function InterceptorsPanel({ running }: { running: boolean }) {
                   disabled={!i.available || busy === i.id}
                   loading={busy === i.id}
                   onClick={() => activate(i.id)}
-                  className="mt-2.5 w-full gap-1.5"
+                  className="mt-3.5 w-full gap-1.5"
                 >
                   <Play className="size-3.5" /> {t('intercept.activate')}
                 </Button>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       ))}
       {!running ? (
-        <p className="text-[11px] text-muted-foreground">{t('intercept.autoStartHint')}</p>
+        <p className="text-xs text-muted-foreground">{t('intercept.autoStartHint')}</p>
       ) : null}
     </div>
   )
@@ -428,7 +442,7 @@ function EnvDialog({ text, onClose }: { text: string; onClose: () => void }) {
         </DialogHeader>
         <DialogBody>
           <p className="mb-2 text-xs text-muted-foreground">{t('intercept.terminalEnvDesc')}</p>
-          <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] border border-border bg-muted/40 p-2.5 font-mono text-[11px] leading-relaxed">
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 font-mono text-[11px] leading-relaxed">
             {text}
           </pre>
         </DialogBody>
@@ -476,7 +490,7 @@ function BreakpointsPanel({ running }: { running: boolean }) {
   return (
     <div className="space-y-2.5">
       {paused.map((p) => (
-        <Card key={p.id} className="p-3.5">
+        <Card key={p.id} reveal={false} className="m-rise p-4">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="warning">
               <Pause className="size-3" weight="fill" /> {t('intercept.bpPaused')}
@@ -485,11 +499,11 @@ function BreakpointsPanel({ running }: { running: boolean }) {
             <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">{p.url}</span>
           </div>
           {p.body ? (
-            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] bg-muted/40 p-2 font-mono text-[10px]">
+            <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 font-mono text-[11px]">
               {p.body}
             </pre>
           ) : null}
-          <div className="mt-2.5 flex gap-2">
+          <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={() => resume(p.id, false)} className="gap-1.5">
               <Play className="size-3.5" /> {t('intercept.bpResume')}
             </Button>
@@ -504,7 +518,7 @@ function BreakpointsPanel({ running }: { running: boolean }) {
 }
 
 function SkeletonInline() {
-  return <div className="h-40 animate-pulse rounded-[var(--radius-lg)] bg-muted/40" />
+  return <div className="h-40 animate-pulse bg-raised" />
 }
 
 // Pretty-print a body if it is JSON; otherwise return it as-is.
@@ -578,7 +592,7 @@ function Section({ label, headers, body }: { label: string; headers: string; bod
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="eyebrow">
           {label}
         </p>
         <button
@@ -590,12 +604,12 @@ function Section({ label, headers, body }: { label: string; headers: string; bod
         </button>
       </div>
       {headers ? (
-        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">
+        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
           {headers}
         </pre>
       ) : null}
       {pretty ? (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] border border-border bg-muted/30 p-2 font-mono text-[10px] leading-relaxed">
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 font-mono text-[11px] leading-relaxed">
           {pretty}
         </pre>
       ) : (

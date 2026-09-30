@@ -137,7 +137,7 @@ export default function VPSPage() {
             }
           />
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-2">
             {hosts.map((h) => (
               <VPSCard key={h.id} host={h} onEdit={() => setEditing(h)} onRemove={() => setToRemove(h)} />
             ))}
@@ -165,11 +165,11 @@ function VPSCard({ host, onEdit, onRemove }: { host: VPSHost; onEdit: () => void
   useEffect(refresh, [host.id])
 
   return (
-    <Card className="p-4">
-      <div className="mb-3 flex items-start justify-between gap-2">
+    <Card className="p-5">
+      <div className="mb-4 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{host.label}</span>
+            <span className="text-[15px] font-medium">{host.label}</span>
             {m ? (
               m.reachable ? (
                 <Badge variant="success">
@@ -184,7 +184,7 @@ function VPSCard({ host, onEdit, onRemove }: { host: VPSHost; onEdit: () => void
               )
             ) : null}
           </div>
-          <p className="truncate font-mono text-[11px] text-muted-foreground">
+          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
             {host.username}@<Spoiler>{host.host}</Spoiler>:{host.port}
           </p>
         </div>
@@ -202,20 +202,21 @@ function VPSCard({ host, onEdit, onRemove }: { host: VPSHost; onEdit: () => void
       </div>
 
       {loading && !m ? (
-        <div className="h-24 animate-pulse rounded-[var(--radius-sm)] bg-muted/40" />
+        <div className="h-24 animate-pulse bg-raised" />
       ) : m && !m.reachable ? (
-        <p className="rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/5 p-2.5 text-xs text-destructive">
+        <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-4 py-3 text-sm text-destructive">
           {m.error || t('vps.unreachable')}
         </p>
       ) : m ? (
         <div className="space-y-3">
           {/* identity line */}
-          <p className="text-[11px] text-muted-foreground">
+          <p className="font-mono text-[11px] text-muted-foreground">
             {[m.os, m.kernel && `kernel ${m.kernel}`, m.uptime && `up ${m.uptime}`]
               .filter(Boolean)
               .join(' · ')}
           </p>
 
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-3">
           <Gauge
             icon={<Cpu className="size-3.5" />}
             label={t('vps.cpu')}
@@ -237,9 +238,10 @@ function VPSCard({ host, onEdit, onRemove }: { host: VPSHost; onEdit: () => void
           {m.swap_total_mb ? (
             <Gauge label={t('vps.swap')} percent={m.swap_percent ?? 0} detail={`${fmtMB(m.swap_used_mb)} / ${fmtMB(m.swap_total_mb)}`} />
           ) : null}
+          </div>
 
           <div className="flex items-center justify-between pt-1">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
               {m.processes} {t('vps.procs')}
             </span>
             <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => setShowProc(true)}>
@@ -305,33 +307,33 @@ function ProcessModal({
         <DialogBody className="space-y-2">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('vps.procSearch')} />
           {err ? (
-            <p className="text-xs text-destructive">{err}</p>
+            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-4 py-3 text-sm text-destructive">{err}</p>
           ) : procs === null ? (
-            <div className="h-64 animate-pulse rounded-[var(--radius-sm)] bg-muted/40" />
+            <div className="h-64 animate-pulse bg-raised" />
           ) : shown.length === 0 ? (
             <p className="py-8 text-center text-xs text-muted-foreground">{t('vps.procNone')}</p>
           ) : (
-            <div className="max-h-[55vh] overflow-y-auto rounded-[var(--radius-sm)] border border-border">
+            <div className="max-h-[55vh] overflow-y-auto border border-border bg-card">
               <table className="w-full text-left text-xs">
                 <thead className="sticky top-0 bg-card">
-                  <tr className="border-b border-border text-[11px] text-muted-foreground">
-                    <th className="px-2 py-1.5 font-medium">{t('vps.procPid')}</th>
-                    <th className="px-2 py-1.5 font-medium">{t('vps.procUser')}</th>
-                    <th className="px-2 py-1.5 text-right font-medium">{t('vps.cpu')}</th>
-                    <th className="px-2 py-1.5 text-right font-medium">{t('vps.memory')}</th>
-                    <th className="px-2 py-1.5 font-medium">{t('vps.procCmd')}</th>
+                  <tr className="border-b border-border">
+                    <th className="px-3 py-2.5 font-mono text-[11px] font-normal lowercase tracking-[0.04em] text-dim">{t('vps.procPid')}</th>
+                    <th className="px-3 py-2.5 font-mono text-[11px] font-normal lowercase tracking-[0.04em] text-dim">{t('vps.procUser')}</th>
+                    <th className="px-3 py-2.5 font-mono text-[11px] font-normal lowercase tracking-[0.04em] text-dim text-right">{t('vps.cpu')}</th>
+                    <th className="px-3 py-2.5 font-mono text-[11px] font-normal lowercase tracking-[0.04em] text-dim text-right">{t('vps.memory')}</th>
+                    <th className="px-3 py-2.5 font-mono text-[11px] font-normal lowercase tracking-[0.04em] text-dim">{t('vps.procCmd')}</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono">
                   {shown.map((p) => (
-                    <tr key={p.pid} className="border-b border-border/50 last:border-0">
-                      <td className="px-2 py-1 tabular-nums text-muted-foreground">{p.pid}</td>
-                      <td className="px-2 py-1 text-muted-foreground">{p.user}</td>
-                      <td className={cn('px-2 py-1 text-right tabular-nums', p.cpu >= 50 && 'text-[var(--warning)]')}>
+                    <tr key={p.pid} className="border-t border-border first:border-t-0 hover:bg-raised">
+                      <td className="px-3 py-2 tabular-nums text-muted-foreground">{p.pid}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{p.user}</td>
+                      <td className={cn('px-3 py-2 text-right tabular-nums', p.cpu >= 50 && 'text-[var(--warning)]')}>
                         {p.cpu.toFixed(1)}
                       </td>
-                      <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">{p.mem.toFixed(1)}</td>
-                      <td className="max-w-0 truncate px-2 py-1">{p.command}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{p.mem.toFixed(1)}</td>
+                      <td className="max-w-0 truncate px-3 py-2">{p.command}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -357,21 +359,23 @@ function Gauge({
 }) {
   const p = Math.max(0, Math.min(100, percent))
   const tone =
-    p >= 90 ? 'bg-destructive' : p >= 70 ? 'bg-[var(--warning)]' : 'bg-primary'
+    p >= 90 ? 'bg-destructive' : p >= 70 ? 'bg-[var(--warning)]' : 'bg-foreground'
   return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-[11px]">
-        <span className="flex items-center gap-1.5 text-muted-foreground">
-          {icon}
-          {label}
-        </span>
-        <span className="tabular-nums text-muted-foreground">
-          {p}% <span className="text-muted-foreground/60">· {detail}</span>
-        </span>
+    <div data-reveal className="border border-border px-4 py-3.5">
+      <p className="eyebrow flex items-center gap-1.5">
+        {icon}
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-medium tabular-nums">
+        {p}
+        <span className="text-sm text-muted-foreground">%</span>
+      </p>
+      <div className="mt-2 h-px bg-border">
+        <div className={cn('h-px transition-[width] duration-500', tone)} style={{ width: `${p}%` }} />
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className={cn('h-full rounded-full transition-all', tone)} style={{ width: `${p}%` }} />
-      </div>
+      <p className="mt-2 truncate font-mono text-[11px] tabular-nums text-muted-foreground" title={detail}>
+        {detail}
+      </p>
     </div>
   )
 }
@@ -498,7 +502,7 @@ function VPSDialog({
               <select
                 value={authMethod}
                 onChange={(e) => setAuthMethod(e.target.value)}
-                className="h-9 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 text-sm"
+                className="h-9 w-full border border-input bg-transparent px-3 text-sm focus-visible:border-foreground focus-visible:outline-none"
               >
                 {SCHEMES.map((s) => (
                   <option key={s} value={s}>
@@ -534,7 +538,7 @@ function VPSDialog({
                       ? '•••••• (stored — leave blank to keep)'
                       : '-----BEGIN OPENSSH PRIVATE KEY-----'
                   }
-                  className="w-full resize-y rounded-[var(--radius-sm)] border border-input bg-background px-3 py-2 font-mono text-[11px]"
+                  className="w-full resize-y border border-input bg-transparent px-3 py-2 font-mono text-[11px] focus-visible:border-foreground focus-visible:outline-none"
                 />
               </div>
               <div className="space-y-1.5">
@@ -553,8 +557,10 @@ function VPSDialog({
           {testResult ? (
             <div
               className={cn(
-                'flex items-center gap-2 rounded-[var(--radius-sm)] border p-2.5 text-xs',
-                testResult.ok ? 'border-[var(--success)]/40 text-foreground' : 'border-destructive/40 text-destructive',
+                'm-rise flex items-center gap-2 border bg-card px-4 py-3 text-xs',
+                testResult.ok
+                  ? 'border-border text-foreground'
+                  : 'border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] text-destructive',
               )}
             >
               {testResult.ok ? (
@@ -567,7 +573,11 @@ function VPSDialog({
               </span>
             </div>
           ) : null}
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? (
+            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => void test()} loading={testing} disabled={!valid}>

@@ -1,4 +1,4 @@
-import { CheckCircle, Circle, CircleNotch, Play } from "@phosphor-icons/react";
+import { CircleNotch, Play } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/primitives";
 import type { Project, Stage } from "@/lib/creator";
@@ -68,37 +68,59 @@ export function PipelineStrip({
   onRun: (stage: Stage) => void;
 }) {
   const running = project.run_status === "running" ? project.run_stage : "";
+  const states = STEPS.map(({ stage }) => describe(project, stage));
+  // The active stage is the one running, or else the first one not yet done.
+  const activeIdx =
+    running && running !== "full"
+      ? STEPS.findIndex((s) => s.stage === running)
+      : states.findIndex((s) => !s.done);
   return (
     <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
       <ol
         aria-label="Pipeline"
-        className="-mx-4 flex min-w-0 flex-1 overflow-x-auto border-y border-border bg-card [scrollbar-width:none] sm:mx-0 sm:rounded-[var(--radius-md)] sm:border [&::-webkit-scrollbar]:hidden"
+        className="-mx-4 flex min-w-0 flex-1 gap-px overflow-x-auto border-y border-border bg-border [scrollbar-width:none] sm:mx-0 sm:border [&::-webkit-scrollbar]:hidden"
       >
         {STEPS.map(({ stage, label }, i) => {
-          const { text, done } = describe(project, stage);
-          const live = running === stage;
-          const Icon = live ? CircleNotch : done ? CheckCircle : Circle;
+          const { text, done } = states[i];
+          const live = running === stage || (running === "full" && i === activeIdx);
+          const active = i === activeIdx;
           return (
             <li
               key={stage}
-              className={cn(
-                "flex min-w-[10.5rem] flex-1 items-center gap-2.5 py-1.5 pl-3 pr-1.5",
-                i > 0 && "border-l border-border",
-              )}
+              aria-current={active ? "step" : undefined}
+              className="relative flex min-w-[10.5rem] flex-1 items-center gap-2.5 bg-card py-2 pl-3.5 pr-1.5"
             >
-              <Icon
-                aria-hidden
-                weight={done && !live ? "fill" : "regular"}
-                className={cn(
-                  "size-4 shrink-0",
-                  live && "animate-spin text-primary",
-                  done && !live && "text-primary",
-                  !done && !live && "text-muted-foreground",
-                )}
-              />
+              {active ? (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-0 top-0 h-px origin-left bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
+                />
+              ) : null}
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium leading-5">{label}</p>
-                <p className="truncate text-xs text-muted-foreground" title={text}>
+                <p className="flex items-center gap-2 text-sm font-medium leading-5">
+                  {live ? (
+                    <CircleNotch aria-hidden className="size-[9px] shrink-0 animate-spin" />
+                  ) : (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "size-[7px] shrink-0 transition-colors duration-300",
+                        done ? "bg-foreground" : "shadow-[inset_0_0_0_1px_var(--line)]",
+                      )}
+                    />
+                  )}
+                  <span className="font-mono text-[11px] font-normal text-dim tabular-nums">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  {label}
+                </p>
+                <p
+                  className={cn(
+                    "truncate pl-[15px] text-xs",
+                    active || done ? "text-muted-foreground" : "text-dim",
+                  )}
+                  title={text}
+                >
                   {live ? "Running" : text}
                 </p>
               </div>

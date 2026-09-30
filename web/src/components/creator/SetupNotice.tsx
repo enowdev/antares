@@ -48,7 +48,7 @@ export function SetupNotice({ settings }: { settings: CreatorSettings | null }) 
       </p>
       <Link
         to="?settings=1"
-        className="inline-flex min-h-11 items-center font-medium text-primary underline-offset-4 hover:underline lg:min-h-0"
+        className="inline-flex min-h-11 items-center font-medium text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground lg:min-h-0"
       >
         Configure
       </Link>

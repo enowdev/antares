@@ -123,28 +123,28 @@ export function ProjectSidebar({
       info.notes)
 
   return (
-    <aside className="flex h-full w-full flex-col border-l border-border bg-card/40">
+    <aside className="flex h-full w-full flex-col border-l border-border bg-card">
       <div className="flex items-center gap-2 border-b border-border px-3 py-3">
-        <FolderOpen className="size-4 shrink-0 text-primary" weight="fill" />
+        <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium" title={projectDir}>
             {name}
           </p>
-          <p className="truncate text-[11px] text-muted-foreground" title={projectDir}>
+          <p className="truncate font-mono text-[11px] text-dim" title={projectDir}>
             {projectDir}
           </p>
         </div>
         <button
           onClick={() => setEnvOpen(true)}
           title={t('env.title')}
-          className="grid size-7 shrink-0 place-items-center rounded-[var(--radius-sm)] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="grid size-8 shrink-0 place-items-center text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
         >
           <Gear className="size-4" />
         </button>
         <button
           onClick={onCollapse}
           title={t('project.sidebarHide')}
-          className="grid size-7 shrink-0 place-items-center rounded-[var(--radius-sm)] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="grid size-8 shrink-0 place-items-center text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
         >
           <SidebarSimple className="size-4" mirrored />
         </button>
@@ -153,7 +153,7 @@ export function ProjectSidebar({
       {/* Tab navigation across the top; scrolls horizontally when narrow. A
           vertical mouse wheel over it scrolls the tabs left/right. */}
       <div
-        className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border px-1.5 [scrollbar-width:none]"
+        className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 py-2 [scrollbar-width:none]"
         onWheel={(e) => {
           // Trackpads already send horizontal delta; a plain wheel only sends
           // vertical — translate it so the row scrolls sideways either way.
@@ -178,16 +178,16 @@ export function ProjectSidebar({
             onClick={() => setTab(tb.id)}
             title={tb.label}
             className={cn(
-              'flex shrink-0 items-center gap-1 border-b-2 px-2 py-2 text-[11px] font-medium transition-colors',
+              'flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] transition-colors',
               tab === tb.id
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground',
+                ? 'bg-nav-active text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <tb.icon className="size-3.5" />
             {tb.label}
             {'badge' in tb && tb.badge ? (
-              <span className="rounded-full bg-primary/15 px-1 text-[9px] text-primary">{tb.badge}</span>
+              <span className="rounded-full bg-raised px-1.5 font-mono text-[9px] tabular-nums text-foreground">{tb.badge}</span>
             ) : null}
           </button>
         ))}
@@ -255,14 +255,14 @@ function PlanView({ plan }: { plan: PlanResp | null }) {
     <div className="space-y-2">
       {plan?.exists ? (
         <div className="flex justify-end">
-          <div className="flex overflow-hidden rounded-[var(--radius-sm)] border border-border">
+          <div className="flex overflow-hidden rounded-full border border-border p-0.5">
             {(['tasks', 'raw'] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
                 className={cn(
-                  'px-2 py-0.5 text-[10px] transition-colors',
-                  view === v ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50',
+                  'rounded-full px-2.5 py-0.5 text-[10px] transition-colors',
+                  view === v ? 'bg-nav-active text-foreground' : 'text-muted-foreground hover:text-foreground',
                 )}
               >
                 {v === 'tasks' ? t('plan.tabTable') : t('plan.tabRaw')}
@@ -275,7 +275,7 @@ function PlanView({ plan }: { plan: PlanResp | null }) {
       {!plan?.exists ? (
         <p className="text-[11px] leading-relaxed text-muted-foreground">{t('plan.none')}</p>
       ) : view === 'raw' ? (
-        <pre className="max-h-80 overflow-auto rounded-[var(--radius-sm)] bg-muted p-2.5 font-mono text-[11px] leading-relaxed">
+        <pre className="max-h-80 overflow-auto border border-border bg-background/40 p-2.5 font-mono text-[11px] leading-relaxed">
           {plan.raw}
         </pre>
       ) : (
@@ -288,8 +288,8 @@ function PlanView({ plan }: { plan: PlanResp | null }) {
                 </span>
                 <span>{pct}%</span>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+              <div className="h-1 overflow-hidden rounded-full bg-raised">
+                <div className="h-full rounded-full bg-foreground/70 transition-all" style={{ width: `${pct}%` }} />
               </div>
               <div className="space-y-1 pt-1">
                 {tasks.map((task, i) => (
@@ -312,10 +312,10 @@ function PlanView({ plan }: { plan: PlanResp | null }) {
                 .map((s) => {
                   const isOpen = openSection === s.title
                   return (
-                    <div key={s.title} className="rounded-[var(--radius-sm)] border border-border">
+                    <div key={s.title} className="border border-border transition-colors hover:border-line">
                       <button
                         onClick={() => setOpenSection(isOpen ? null : s.title)}
-                        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px] font-medium hover:bg-muted"
+                        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px] font-medium transition-colors hover:bg-raised"
                       >
                         <CaretDown
                           className={cn('size-3 shrink-0 transition-transform', !isOpen && '-rotate-90')}
@@ -378,7 +378,7 @@ function ToolsPanel({
     <div key={name} className="flex items-center gap-2 py-1 text-[11px]">
       <span className="min-w-0 flex-1 truncate font-mono">{name}</span>
       {last ? <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(last)}</span> : null}
-      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums">
+      <span className="shrink-0 rounded-full bg-raised px-1.5 py-0.5 font-mono text-[10px] tabular-nums">
         {count}×
       </span>
     </div>
@@ -408,7 +408,7 @@ function ToolsPanel({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <p className="eyebrow !text-[10px]">
       {children}
     </p>
   )
@@ -423,7 +423,7 @@ function TagSection({ title, items }: { title: string; items?: string[] }) {
         {items.map((it) => (
           <span
             key={it}
-            className="rounded-[var(--radius-sm)] border border-border bg-muted/50 px-2 py-0.5 text-[11px]"
+            className="rounded-full border border-border bg-raised px-2.5 py-0.5 text-[11px]"
           >
             {it}
           </span>
@@ -438,7 +438,7 @@ function CmdSection({ title, value }: { title: string; value?: string }) {
   return (
     <div className="space-y-1">
       <SectionLabel>{title}</SectionLabel>
-      <code className="block overflow-x-auto rounded-[var(--radius-sm)] bg-muted px-2 py-1 font-mono text-[11px]">
+      <code className="block overflow-x-auto border border-border bg-background/40 px-2 py-1 font-mono text-[11px]">
         {value}
       </code>
     </div>

@@ -381,6 +381,7 @@ const zh: Dict = {
   'chat.reasoning': '推理过程',
   'chat.tokensOut': '输出 {n} 个 token',
   'chat.welcomeTitle': '开始对话',
+  'chat.welcomeSub': '剩下的交给 Antares。',
   'chat.welcomeDesc': 'Antares 可以访问文件、终端、网页搜索、长期记忆和 RAG 索引。',
   'chat.suggest1': '总结这个工作区的项目结构',
   'chat.suggest2': '找出包含数据库配置的文件',
@@ -742,6 +743,7 @@ const zh: Dict = {
   'error.retry': '重试',
 
   'setup.subtitle': '首次设置',
+  'login.eyebrow': '需要登录',
   'setup.back': '返回',
   'setup.next': '继续',
   'setup.local': '本地',

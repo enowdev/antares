@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
 import { ProviderHeadersField } from '@/components/providers/ProviderHeadersField'
 import { PageLayout } from '@/components/layout/PageLayout'
 import { Button } from '@/components/ui/button'
-import { Badge, Card, EmptyState, Input, Label, Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives'
+import { Badge, EmptyState, Input, Label, Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives'
 import {
   Dialog,
   DialogBody,
@@ -107,7 +107,7 @@ function ProviderStatus({ provider }: { provider: ProviderInfo }) {
     )
   }
   return (
-    <Badge variant="warning" className="shrink-0">
+    <Badge variant="outline" className="shrink-0">
       {t('models.needsKey')}
     </Badge>
   )
@@ -140,37 +140,37 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
         <div className="space-y-6">
           {GROUP_ORDER.map((g) =>
             grouped[g].length === 0 ? null : (
-              <section key={g} className="space-y-2">
+              <section key={g} data-reveal className="space-y-3">
                 <div className="flex items-center gap-2">
                   {g === 'oauth' ? (
-                    <ShieldCheck className="size-4 text-primary" weight="fill" />
+                    <ShieldCheck className="size-4 text-muted-foreground" />
                   ) : g === 'local' ? (
                     <Desktop className="size-4 text-muted-foreground" />
                   ) : (
                     <Key className="size-4 text-muted-foreground" />
                   )}
-                  <h2 className="text-sm font-semibold">{t(`providers.group.${g}` as never)}</h2>
+                  <h2 className="text-[15px] font-medium tracking-[-0.2px]">{t(`providers.group.${g}` as never)}</h2>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="-mt-1.5 text-xs text-muted-foreground">
                   {t(`providers.groupDesc.${g}` as never)}
                 </p>
                 <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
                   {grouped[g].map((p) => (
-                    <Card
+                    <div
                       key={p.id}
                       className={cn(
-                        'flex flex-col gap-3 p-3.5 transition-colors',
-                        p.active ? 'border-primary' : 'hover:border-primary/40',
+                        'flex flex-col gap-3.5 border bg-transparent p-4 transition-[border-color,background-color] duration-200',
+                        p.active ? 'border-foreground' : 'border-border hover:border-line hover:bg-raised',
                       )}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          <span className="min-w-0 flex-1 truncate text-[15px] font-medium tracking-[-0.2px]">
                             {providerName(p.label)}
                           </span>
                           {p.active ? <Badge>{t('models.activeNow')}</Badge> : null}
                         </div>
-                        <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
+                        <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">
                           {p.base_url || p.kind}
                         </span>
                       </div>
@@ -190,15 +190,15 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
                           </Button>
                         )}
                       </div>
-                    </Card>
+                    </div>
                   ))}
                   {g === 'apikey' ? (
                     <button
                       onClick={() => setCreating(true)}
-                      className="flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-dashed border-border p-3.5 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                      className="flex min-h-24 flex-col items-center justify-center gap-1.5 border border-dashed border-border p-4 text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
                     >
                       <Plus className="size-5" />
-                      <span className="text-xs">{t('providers.addCustom')}</span>
+                      <span className="font-mono text-xs lowercase">{t('providers.addCustom')}</span>
                     </button>
                   ) : null}
                 </div>
@@ -324,7 +324,7 @@ function AddProviderDialog({
           </div>
           <ProviderHeadersField id="np-headers" value={headersText} onChange={setHeadersText} />
           {error ? (
-            <p className="rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{error}</p>
+            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
           ) : null}
         </DialogBody>
         <DialogFooter>
@@ -543,8 +543,10 @@ function ProviderModal({
     <button
       onClick={() => setSection(id)}
       className={cn(
-        'rounded-[var(--radius-sm)] px-3 py-1.5 text-xs font-medium transition-colors',
-        section === id ? 'bg-primary/12 text-primary' : 'text-muted-foreground hover:text-foreground',
+        'rounded-full border px-3 py-1.5 text-xs transition-colors duration-200',
+        section === id
+          ? 'border-transparent bg-nav-active text-foreground'
+          : 'border-border text-muted-foreground hover:text-foreground',
       )}
     >
       {label}
@@ -559,7 +561,7 @@ function ProviderModal({
           <DialogDescription>{t('providers.manageDesc')}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex gap-1 border-b border-border pb-2">
+        <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-border px-4 py-3 sm:px-5">
           {tabBtn('credentials', t('providers.secCredentials'))}
           {tabBtn('models', t('providers.secModels'))}
           {tabBtn('advanced', t('providers.secAdvanced'))}
@@ -613,20 +615,20 @@ function ProviderModal({
               ) : null}
               {p.note ? <p className="text-[11px] leading-relaxed text-muted-foreground">{p.note}</p> : null}
               {keyURL ? (
-                <a href={keyURL} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2">
+                <a href={keyURL} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1.5 text-xs text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground">
                   {t('setup.getKey', { provider: providerName(p.label) })}
                   <ArrowSquareOut className="size-3.5" />
                 </a>
               ) : null}
               {error ? (
-                <p className="rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{error}</p>
+                <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
               ) : null}
             </>
           ) : null}
 
           {section === 'models' ? (
             <>
-              <div className="space-y-1.5 rounded-[var(--radius-sm)] border border-border p-3">
+              <div className="space-y-1.5 border border-border p-3.5">
                 <Label>{t('providers.addModel')}</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
@@ -637,7 +639,7 @@ function ProviderModal({
                     }}
                     onBlur={() => autoFetchCtx(newModel)}
                     placeholder={t('providers.modelIdPlaceholder')}
-                    className="sm:flex-1"
+                    className="font-mono text-xs sm:flex-1"
                   />
                   <Input
                     value={newCtx}
@@ -660,11 +662,11 @@ function ProviderModal({
               ) : (
                 <div className="max-h-64 space-y-1.5 overflow-y-auto">
                   {myModels.map((m) => (
-                    <div key={m.id} className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-border p-2.5">
+                    <div key={m.id} className="flex items-center gap-2 border border-border px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised">
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-mono text-xs">{m.id}</p>
                         {m.context_window > 0 ? (
-                          <p className="text-[10px] text-muted-foreground">
+                          <p className="mt-0.5 font-mono text-[11px] tabular-nums text-dim">
                             {t('models.ctx', { n: Math.round(m.context_window / 1000) })}
                           </p>
                         ) : null}
@@ -704,7 +706,7 @@ function ProviderModal({
               </div>
               {p.custom ? <ProviderHeadersField id="m-headers" value={headersText} onChange={setHeadersText} /> : null}
               {error ? (
-                <p className="rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{error}</p>
+                <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
               ) : null}
             </>
           ) : null}

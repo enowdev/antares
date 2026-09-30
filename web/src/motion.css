@@ -253,3 +253,11 @@
     animation: none !important;
   }
 }
+
+/* A dialog that opens like a menu (the command palette) drops in instead of
+   rising from the bottom. */
+@media screen and (prefers-reduced-motion: no-preference) {
+  .m-dialog.m-open[data-state='open'] {
+    animation: m-pop 180ms var(--m-ease);
+  }
+}

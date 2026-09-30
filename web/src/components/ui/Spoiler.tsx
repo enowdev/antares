@@ -19,7 +19,7 @@ export function Spoiler({ children, className }: { children: React.ReactNode; cl
       }}
       title={shown ? 'Hide' : 'Reveal'}
       className={cn(
-        'rounded-[3px] px-1 align-baseline transition-colors',
+        'px-1 align-baseline transition-colors',
         shown
           ? 'bg-transparent text-inherit'
           // A theme-aware grey censor bar: --muted-foreground is a medium grey in

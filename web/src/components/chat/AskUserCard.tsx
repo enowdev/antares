@@ -115,9 +115,9 @@ export function AskUserCard({
 
   if (submitted) {
     return (
-      <div className="fade-up rounded-[var(--radius-md)] border border-primary/40 bg-primary/[0.06] p-3.5">
+      <div className="fade-up tp-panel border border-border bg-card px-4 py-3">
         <div className="flex items-start gap-2.5">
-          <Check className="mt-0.5 size-5 shrink-0 text-primary" weight="bold" />
+          <Check className="mt-0.5 size-4 shrink-0 text-[var(--success)]" weight="bold" />
           <div className="min-w-0 flex-1 space-y-1">
             {questions.map((qq, i) => (
               <p key={i} className="text-xs text-muted-foreground">
@@ -134,20 +134,20 @@ export function AskUserCard({
   const hasOptions = (q.options ?? []).length > 0
 
   return (
-    <div className="fade-up rounded-[var(--radius-md)] border border-primary/40 bg-primary/[0.06] p-3.5">
-      <div className="flex items-start gap-2.5">
-        <Question className="mt-0.5 size-5 shrink-0 text-primary" weight="fill" />
+    <div className="fade-up tp-panel border border-border bg-card p-4">
+      <div className="flex items-start gap-3">
+        <Question className="mt-0.5 size-4 shrink-0 text-foreground" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             {q.header ? (
-              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
+              <span className="eyebrow">
                 {q.header}
               </span>
             ) : (
               <span />
             )}
             {questions.length > 1 ? (
-              <span className="shrink-0 text-[11px] text-muted-foreground">
+              <span className="shrink-0 font-mono text-[11px] tabular-nums text-dim">
                 {t('ask.progress', { current: idx + 1, total: questions.length })}
               </span>
             ) : null}
@@ -163,17 +163,22 @@ export function AskUserCard({
                 {q.options!.map((o) => {
                   const on = selected.includes(o)
                   return (
-                    <Button
+                    <button
                       key={o}
-                      size="sm"
-                      variant={on ? 'secondary' : 'outline'}
+                      type="button"
+                      aria-pressed={on}
                       disabled={disabled}
                       onClick={() => toggleOption(o)}
-                      className={cn('max-w-full', on && 'border-primary')}
+                      className={cn(
+                        'inline-flex min-h-9 max-w-full items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs transition-[border-color,background-color,color] duration-200 disabled:cursor-not-allowed disabled:opacity-50',
+                        on
+                          ? 'border-foreground/60 bg-nav-active text-foreground'
+                          : 'border-border text-muted-foreground hover:border-line hover:bg-raised hover:text-foreground',
+                      )}
                     >
                       {on && multi ? <Check className="size-3.5" /> : null}
                       <span className="truncate">{o}</span>
-                    </Button>
+                    </button>
                   )
                 })}
               </div>
@@ -200,7 +205,7 @@ export function AskUserCard({
             />
 
             {multi && selected.length > 0 ? (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {t('ask.selected', { items: selected.join(', ') })}
               </p>
             ) : null}

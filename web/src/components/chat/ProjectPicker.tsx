@@ -106,19 +106,22 @@ export function ProjectPicker({
   return (
     <div ref={ref} className="relative">
       <button
+        type="button"
         onClick={() => !locked && setOpen((v) => !v)}
         disabled={locked}
         title={value || undefined}
+        aria-expanded={open && !locked}
+        aria-label={label}
         className={cn(
-          'flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border px-2.5 text-xs transition-colors',
+          'flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-full border px-2 text-xs sm:px-3 transition-[border-color,background-color,color] duration-200 aria-expanded:bg-nav-active aria-expanded:text-foreground',
           value
-            ? 'border-primary/40 bg-primary/5 text-foreground'
-            : 'border-border bg-card text-muted-foreground hover:border-primary/40',
-          locked && 'cursor-default opacity-80',
+            ? 'border-foreground/40 text-foreground'
+            : 'border-border text-muted-foreground hover:border-line hover:bg-raised hover:text-foreground',
+          locked && 'cursor-default opacity-80 hover:border-border hover:bg-transparent',
         )}
       >
-        <FolderOpen className={cn('size-3.5 shrink-0', value ? 'text-primary' : 'text-muted-foreground')} />
-        <span className="hidden max-w-32 truncate sm:inline">{label}</span>
+        <FolderOpen className="size-3.5 shrink-0" />
+        <span className={cn('hidden max-w-32 truncate sm:inline', value && 'font-mono text-[11px]')}>{label}</span>
         {value && !locked ? (
           <X
             className="size-3 shrink-0 text-muted-foreground hover:text-foreground"
@@ -128,12 +131,12 @@ export function ProjectPicker({
             }}
           />
         ) : !locked ? (
-          <CaretDown className="size-3 shrink-0 text-muted-foreground" />
+          <CaretDown className="hidden size-3 shrink-0 text-muted-foreground sm:block" />
         ) : null}
       </button>
 
       {open && !locked ? (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-96 max-w-[90vw] overflow-hidden rounded-[var(--radius-lg)] border border-border bg-card shadow-lg">
+        <div className="m-open absolute bottom-full left-0 z-30 mb-2 w-96 max-w-[calc(100vw-2rem)] overflow-hidden border border-border bg-popover shadow-[0_10px_28px_-14px_#00000080]">
           <div className="border-b border-border px-3 py-2">
             <div className="text-xs font-medium">{t('project.pick')}</div>
             <div className="mt-0.5 text-[11px] text-muted-foreground">{t('project.pickHint')}</div>
@@ -153,11 +156,11 @@ export function ProjectPicker({
                 }}
                 placeholder="/path/to/project"
                 spellCheck={false}
-                className="h-8 min-w-0 flex-1 rounded-[var(--radius-sm)] border border-border bg-background px-2 font-mono text-[11px] outline-none focus:border-ring"
+                className="h-8 min-w-0 flex-1 border border-border bg-transparent px-2 font-mono text-[11px] outline-none transition-colors focus:border-foreground/60"
               />
               <button
                 onClick={() => browse(typed || '')}
-                className="h-8 shrink-0 rounded-[var(--radius-sm)] border border-border px-2 text-[11px] hover:bg-muted"
+                className="h-8 shrink-0 border border-border px-2.5 font-mono text-[11px] lowercase transition-colors hover:border-line hover:bg-raised"
               >
                 {t('project.go')}
               </button>
@@ -169,7 +172,7 @@ export function ProjectPicker({
             <button
               onClick={() => browse('')}
               title={t('project.home')}
-              className="grid size-6 place-items-center rounded-[var(--radius-sm)] hover:bg-muted"
+              className="grid size-6 place-items-center transition-colors hover:bg-raised"
             >
               <House className="size-3.5 text-muted-foreground" />
             </button>
@@ -177,7 +180,7 @@ export function ProjectPicker({
               onClick={() => parent && browse(parent)}
               disabled={!parent}
               title={t('project.up')}
-              className="grid size-6 place-items-center rounded-[var(--radius-sm)] hover:bg-muted disabled:opacity-40"
+              className="grid size-6 place-items-center transition-colors hover:bg-raised disabled:opacity-40"
             >
               <ArrowUp className="size-3.5 text-muted-foreground" />
             </button>
@@ -195,7 +198,7 @@ export function ProjectPicker({
               shownEntries.map((e) => (
                 <div
                   key={e.path}
-                  className="group flex items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1 hover:bg-muted"
+                  className="group flex items-center gap-1.5 px-2 py-1 transition-colors hover:bg-raised"
                 >
                   <button
                     onClick={() => browse(e.path)}
@@ -206,7 +209,7 @@ export function ProjectPicker({
                   </button>
                   <button
                     onClick={() => choose(e.path)}
-                    className="hidden shrink-0 items-center gap-1 rounded-[var(--radius-sm)] border border-primary/40 px-1.5 py-0.5 text-[10px] text-primary group-hover:flex"
+                    className="hidden shrink-0 items-center gap-1 rounded-full border border-foreground/40 px-2 py-0.5 font-mono text-[10px] lowercase text-foreground focus-visible:flex group-hover:flex"
                   >
                     <Check className="size-3" />
                     {t('project.select')}
@@ -220,7 +223,7 @@ export function ProjectPicker({
           <div className="border-t border-border p-2">
             <button
               onClick={() => cwd && choose(cwd)}
-              className="w-full rounded-[var(--radius-sm)] bg-primary px-2 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
+              className="tp-btn tp-btn-solid w-full bg-primary px-2 py-1.5 font-mono text-xs lowercase text-primary-foreground transition-opacity hover:opacity-90"
             >
               {t('project.useThis')}
             </button>

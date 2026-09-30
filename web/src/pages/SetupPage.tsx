@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -19,6 +19,10 @@ import { hubsOfModules } from '@/lib/moduleNav'
 import { HUB_MANIFEST } from '@/lib/routeManifest'
 import { reloadModules } from '@/lib/useModules'
 import { cn } from '@/lib/utils'
+import { useReveal } from '@/lib/motion'
+import { useTheme } from '@/lib/theme'
+import { Brand } from '@/components/brand/BrandMark'
+import { AgentField } from '@/components/brand/AgentField'
 import { ProviderHeadersField } from '@/components/providers/ProviderHeadersField'
 import { Button } from '@/components/ui/button'
 import {
@@ -232,7 +236,7 @@ export default function SetupPage() {
     return (
       <SetupShell stepIndex={0}>
         <Skeleton className="h-9 w-56" />
-        <Skeleton className="h-64 w-full rounded-[var(--radius-lg)]" />
+        <Skeleton className="h-64 w-full" />
       </SetupShell>
     )
   }
@@ -240,7 +244,10 @@ export default function SetupPage() {
   return (
     <SetupShell stepIndex={stepIndex}>
       {error ? (
-        <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+        <div
+          role="alert"
+          className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+        >
           <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
           <span className="min-w-0 break-words">{error}</span>
         </div>
@@ -261,11 +268,11 @@ export default function SetupPage() {
                   setBaseURL(p.base_url ?? '')
                   setTest(undefined)
                 }}
+                data-reveal
+                aria-pressed={providerId === p.id}
                 className={cn(
-                  'rounded-[var(--radius-md)] border p-3.5 text-left transition-colors',
-                  providerId === p.id
-                    ? 'border-primary bg-primary/8'
-                    : 'border-border hover:border-primary/40',
+                  'border p-3.5 text-left transition-[border-color,background-color] duration-200',
+                  providerId === p.id ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                 )}
               >
                 <div className="flex items-center gap-2">
@@ -279,7 +286,7 @@ export default function SetupPage() {
           </div>
 
           {providerId === 'custom' ? (
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="provider-name">{t('setup.providerName')}</Label>
               <Input
                 id="provider-name"
@@ -288,12 +295,12 @@ export default function SetupPage() {
                 placeholder={t('providers.namePlaceholder')}
                 autoComplete="off"
               />
-              <p className="text-[11px] text-muted-foreground">{t('setup.providerNameHint')}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.providerNameHint')}</p>
             </div>
           ) : null}
 
           {providerId === 'custom' || provider?.local ? (
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="base-url">{t('setup.baseUrl')}</Label>
               <Input
                 id="base-url"
@@ -325,14 +332,14 @@ export default function SetupPage() {
               href={provider.key_url}
               target="_blank"
               rel="noreferrer noopener"
-              className="inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2"
+              className="inline-flex items-center gap-1.5 text-xs text-foreground underline decoration-line underline-offset-4 transition-colors hover:decoration-foreground"
             >
               {t('setup.getKey', { provider: provider.label })}
               <ArrowSquareOut className="size-3.5" />
             </a>
           ) : null}
 
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="api-key">{t('setup.apiKey')}</Label>
             <div className="flex gap-2">
               <Input
@@ -355,12 +362,15 @@ export default function SetupPage() {
               </Button>
             </div>
             {provider?.has_key && !apiKey ? (
-              <p className="text-[11px] text-muted-foreground">{t('setup.keyKept')}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.keyKept')}</p>
             ) : null}
           </div>
 
           {test && !test.ok ? (
-            <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+            <div
+              role="alert"
+              className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+            >
               <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
               <span className="min-w-0 break-words">{test.error}</span>
             </div>
@@ -383,7 +393,7 @@ export default function SetupPage() {
           />
 
           {test?.note ? (
-            <p className="rounded-[var(--radius-sm)] border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+            <p className="m-rise border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
               {test.note}
             </p>
           ) : null}
@@ -402,7 +412,7 @@ export default function SetupPage() {
 
           <div className="max-h-[46dvh] space-y-1.5 overflow-y-auto pr-1">
             {modelOptions.suggested.length > 0 ? (
-              <p className="px-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="eyebrow px-1 pt-1">
                 {t('setup.recommended')}
               </p>
             ) : null}
@@ -410,7 +420,7 @@ export default function SetupPage() {
               <ModelOption key={id} id={id} active={model === id} onSelect={setModel} recommended />
             ))}
             {modelOptions.rest.length > 0 && modelOptions.suggested.length > 0 ? (
-              <p className="px-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="eyebrow px-1 pt-3">
                 {t('setup.allModels')}
               </p>
             ) : null}
@@ -419,7 +429,7 @@ export default function SetupPage() {
             ))}
           </div>
 
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="model-manual">{t('setup.orTypeId')}</Label>
             <Input
               id="model-manual"
@@ -439,7 +449,7 @@ export default function SetupPage() {
             title={t('setup.workspaceTitle')}
             description={t('setup.workspaceDesc')}
           />
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="workspace">{t('system.workspace')}</Label>
             <Input
               id="workspace"
@@ -447,7 +457,7 @@ export default function SetupPage() {
               onChange={(e) => setWorkspace(e.target.value)}
               className="font-mono text-xs"
             />
-            <p className="text-[11px] text-muted-foreground">{t('setup.workspaceHint')}</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.workspaceHint')}</p>
           </div>
 
           <Card>
@@ -467,9 +477,10 @@ export default function SetupPage() {
                     key={id}
                     type="button"
                     onClick={() => setDbDriver(id)}
+                    aria-pressed={dbDriver === id}
                     className={cn(
-                      'rounded-[var(--radius-md)] border p-3 text-left text-sm transition-colors',
-                      dbDriver === id ? 'border-primary bg-primary/8' : 'border-border hover:border-primary/40',
+                      'border p-3 text-left text-sm transition-[border-color,background-color] duration-200',
+                      dbDriver === id ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                     )}
                   >
                     {label}
@@ -477,7 +488,7 @@ export default function SetupPage() {
                 ))}
               </div>
               {dbDriver === 'postgres' ? (
-                <div className="space-y-1.5">
+                <div className="flex flex-col gap-2">
                   <Label htmlFor="db-dsn">{t('setup.storageDsn')}</Label>
                   <Input
                     id="db-dsn"
@@ -487,7 +498,7 @@ export default function SetupPage() {
                     className="font-mono text-xs"
                     autoComplete="off"
                   />
-                  <p className="text-[11px] text-muted-foreground">{t('setup.storageDsnHint')}</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.storageDsnHint')}</p>
                 </div>
               ) : null}
             </CardContent>
@@ -524,7 +535,7 @@ export default function SetupPage() {
             </CardHeader>
             {ragEnabled ? (
               <CardContent className="space-y-3">
-                <div className="space-y-1.5">
+                <div className="flex flex-col gap-2">
                   <Label>{t('setup.embedProvider')}</Label>
                   <div className="grid grid-cols-3 gap-2">
                     {(
@@ -540,11 +551,10 @@ export default function SetupPage() {
                           setEmbedProvider(id)
                           if (defModel) setEmbedModel(defModel)
                         }}
+                        aria-pressed={embedProvider === id}
                         className={cn(
-                          'rounded-[var(--radius-sm)] border p-2.5 text-center text-xs transition-colors',
-                          embedProvider === id
-                            ? 'border-primary bg-primary/8'
-                            : 'border-border hover:border-primary/40',
+                          'border p-2.5 text-center text-xs transition-[border-color,background-color] duration-200',
+                          embedProvider === id ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                         )}
                       >
                         {label}
@@ -552,7 +562,7 @@ export default function SetupPage() {
                     ))}
                   </div>
                 </div>
-                <div className="space-y-1.5">
+                <div className="flex flex-col gap-2">
                   <Label htmlFor="embed">{t('setup.embedModel')}</Label>
                   <Input
                     id="embed"
@@ -562,7 +572,7 @@ export default function SetupPage() {
                   />
                 </div>
                 {embedProvider !== 'openai' ? (
-                  <div className="space-y-1.5">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="embedkey">{t('setup.embedKey')}</Label>
                     <Input
                       id="embedkey"
@@ -573,7 +583,7 @@ export default function SetupPage() {
                       autoComplete="off"
                       className="font-mono text-xs"
                     />
-                    <p className="text-[11px] text-muted-foreground">{t('setup.embedKeyHint')}</p>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.embedKeyHint')}</p>
                   </div>
                 ) : null}
               </CardContent>
@@ -622,10 +632,10 @@ export default function SetupPage() {
       ) : null}
 
       {step === 'done' ? (
-        <section className="space-y-5 text-center">
-          <CheckCircle className="mx-auto size-12 text-[var(--success)]" weight="fill" />
+        <section className="m-rise space-y-5 text-center">
+          <CheckCircle className="mx-auto size-10 text-[var(--success)]" weight="fill" />
           <div className="space-y-1.5">
-            <h2 className="text-xl font-semibold tracking-tight">{t('setup.doneTitle')}</h2>
+            <h2 className="text-[clamp(20px,2vw,26px)] font-medium tracking-[-0.5px]">{t('setup.doneTitle')}</h2>
             <p className="mx-auto max-w-md text-sm text-muted-foreground">
               {t('setup.doneDesc', { model })}
             </p>
@@ -667,18 +677,18 @@ function PresetPicker({ value, onChange }: { value: PresetId; onChange: (id: Pre
                 aria-checked={selected}
                 onClick={() => onChange(id)}
                 className={cn(
-                  'flex flex-col gap-1 rounded-[var(--radius-md)] border p-3 text-left transition-colors',
-                  selected ? 'border-primary bg-primary/8' : 'border-border hover:border-primary/40',
+                  'flex flex-col gap-1 border p-3.5 text-left transition-[border-color,background-color] duration-200',
+                  selected ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                 )}
               >
                 <span className="flex items-center gap-2 text-sm font-medium">
                   {t(`preset.${id}` as MessageKey)}
-                  {selected ? <CheckCircle className="size-4 text-primary" weight="fill" /> : null}
+                  {selected ? <CheckCircle className="size-4 text-foreground" weight="fill" /> : null}
                 </span>
                 <span className="text-xs leading-relaxed text-muted-foreground">
                   {t(`preset.${id}Desc` as MessageKey)}
                 </span>
-                <span className="text-[11px] text-muted-foreground">
+                <span className="font-mono text-[11px] text-dim">
                   {hubs.length
                     ? t('preset.adds', { hubs: hubs.map((h) => t(h.titleKey)).join(', ') })
                     : t('preset.addsNothing')}
@@ -694,30 +704,45 @@ function PresetPicker({ value, onChange }: { value: PresetId; onChange: (id: Pre
 
 function SetupShell({ children, stepIndex }: { children: React.ReactNode; stepIndex: number }) {
   const { t } = useI18n()
+  const root = useRef<HTMLDivElement>(null)
+  // Outside the app shell, so the setup screen applies the saved theme and
+  // runs its own reveal observer.
+  useTheme()
+  useReveal(root)
+  const total = STEPS.length - 1
+  const current = Math.min(stepIndex + 1, total)
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col justify-center px-4 py-8 sm:px-6">
-      <div className="mb-6 flex items-center gap-3">
-        <img src="/antares-192.png" alt="" aria-hidden className="size-10 object-contain" />
-        <div className="min-w-0">
-          <p className="text-lg font-semibold tracking-tight">Antares</p>
-          <p className="text-xs text-muted-foreground">{t('setup.subtitle')}</p>
+    <div ref={root} className="relative min-h-dvh overflow-hidden">
+      <AgentField />
+      <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col justify-center px-4 py-10 sm:px-6">
+        <div className="m-rise mb-8 flex flex-col items-center gap-5 text-center">
+          <Brand />
+          <p className="eyebrow">{t('setup.subtitle')}</p>
+        </div>
+
+        {/* Thin rules for progress: enough orientation without a heavy stepper. */}
+        <div className="m-rise mb-8 flex items-center gap-3" style={{ animationDelay: '80ms' }}>
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+            {String(current).padStart(2, '0')}
+            <span className="text-dim"> / {String(total).padStart(2, '0')}</span>
+          </span>
+          <div className="flex flex-1 items-center gap-1.5" aria-hidden>
+            {STEPS.slice(0, -1).map((_, i) => (
+              <span
+                key={i}
+                className={cn(
+                  'h-px flex-1 transition-colors duration-500',
+                  i <= stepIndex ? 'bg-foreground' : 'bg-line',
+                )}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div key={stepIndex} className="m-rise space-y-5" style={{ animationDelay: '140ms' }}>
+          {children}
         </div>
       </div>
-
-      {/* Step dots: enough orientation without a heavy stepper. */}
-      <div className="mb-6 flex items-center gap-1.5" aria-hidden>
-        {STEPS.slice(0, -1).map((_, i) => (
-          <span
-            key={i}
-            className={cn(
-              'h-1 flex-1 rounded-full transition-colors',
-              i <= stepIndex ? 'bg-primary' : 'bg-border',
-            )}
-          />
-        ))}
-      </div>
-
-      <div className="space-y-5">{children}</div>
     </div>
   )
 }
@@ -725,8 +750,8 @@ function SetupShell({ children, stepIndex }: { children: React.ReactNode; stepIn
 function StepHeading({ title, description }: { title: string; description: string }) {
   return (
     <div className="space-y-1.5">
-      <h2 className="text-base font-semibold tracking-tight sm:text-lg">{title}</h2>
-      <p className="text-xs leading-relaxed text-muted-foreground sm:text-sm">{description}</p>
+      <h2 className="text-[clamp(20px,2vw,24px)] font-medium leading-tight tracking-[-0.5px]">{title}</h2>
+      <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
     </div>
   )
 }
@@ -779,13 +804,13 @@ function ModelOption({
     <button
       onClick={() => onSelect(id)}
       className={cn(
-        'flex w-full items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-2 text-left transition-colors',
-        active ? 'border-primary bg-primary/8' : 'border-border hover:border-primary/40',
+        'flex w-full items-center gap-2 border px-3 py-2 text-left transition-[border-color,background-color] duration-200',
+        active ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
       )}
     >
       <span className="min-w-0 flex-1 truncate font-mono text-xs">{id}</span>
       {recommended ? <Badge variant="secondary">{t('setup.recommendedShort')}</Badge> : null}
-      {active ? <CheckCircle className="size-4 shrink-0 text-primary" weight="fill" /> : null}
+      {active ? <CheckCircle className="size-4 shrink-0 text-foreground" weight="fill" /> : null}
     </button>
   )
 }

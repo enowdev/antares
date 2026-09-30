@@ -29,11 +29,12 @@ const COLUMN_TITLES: Record<string, string> = {
   doing: 'Doing',
   done: 'Done',
 }
-// Status dot colour per column, so the lanes read at a glance.
-const COLUMN_DOT: Record<string, string> = {
-  todo: 'bg-muted-foreground/40',
-  doing: 'bg-primary',
-  done: 'bg-[var(--success)]',
+// Lanes read as stages: an empty square for work not started, a filled one
+// once work is under way or done.
+const COLUMN_MARK: Record<string, string> = {
+  todo: 'shadow-[inset_0_0_0_1px_var(--line)]',
+  doing: 'bg-foreground',
+  done: 'bg-foreground',
 }
 
 export default function BoardPage() {
@@ -97,11 +98,11 @@ export default function BoardPage() {
 
   const header = (
     <div className="flex flex-wrap items-center gap-2">
-      <label className="text-xs text-muted-foreground">{t('board.pickSession')}</label>
+      <label className="eyebrow">{t('board.pickSession')}</label>
       <select
         value={active}
         onChange={(e) => setSessionID(e.target.value)}
-        className="h-8 min-w-0 flex-1 rounded-[var(--radius-sm)] border border-border bg-card px-2 text-sm sm:flex-none"
+        className="h-8 min-w-0 flex-1 border border-border bg-transparent px-2 text-sm hover:border-line focus-visible:border-foreground focus-visible:outline-none sm:flex-none"
       >
         {sessions.map((s) => (
           <option key={s.id} value={s.id}>
@@ -110,7 +111,7 @@ export default function BoardPage() {
         ))}
       </select>
       {total > 0 ? (
-        <span className="text-xs tabular-nums text-muted-foreground">
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
           {t('board.summary', { done, total })}
         </span>
       ) : null}
@@ -140,33 +141,47 @@ export default function BoardPage() {
           {columns.map((col) => (
             <div
               key={col.name}
-              className="flex min-h-0 flex-col rounded-[var(--radius-lg)] border border-border bg-muted/20"
+              data-reveal
+              className="tp-panel relative flex min-h-0 flex-col border border-border bg-card"
             >
-              <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-                <span className={cn('size-2 shrink-0 rounded-full', COLUMN_DOT[col.name] ?? 'bg-muted-foreground/40')} />
-                <span className="text-xs font-semibold uppercase tracking-wide">
+              {col.name === 'doing' && col.cards.length > 0 ? (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-0 -top-px h-px origin-left bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
+                />
+              ) : null}
+              <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
+                <span
+                  aria-hidden
+                  className={cn(
+                    'size-[7px] shrink-0',
+                    COLUMN_MARK[col.name] ?? 'shadow-[inset_0_0_0_1px_var(--line)]',
+                  )}
+                />
+                <span className="eyebrow text-foreground">
                   {COLUMN_TITLES[col.name] ?? col.name}
                 </span>
-                <span className="ml-auto rounded-full bg-background px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground">
-                  {col.cards.length}
+                <span className="ml-auto font-mono text-xs tabular-nums text-dim">
+                  {String(col.cards.length).padStart(2, '0')}
                 </span>
               </div>
-              <div className="space-y-2 p-2.5">
+              <div className="space-y-2 p-3">
                 {col.cards.length === 0 ? (
-                  <div className="rounded-[var(--radius-sm)] border border-dashed border-border/50 py-6 text-center text-[11px] text-muted-foreground/70">
+                  <div className="border border-dashed border-border py-6 text-center text-xs text-dim">
                     {t('board.columnEmpty')}
                   </div>
                 ) : (
                   col.cards.map((c) => (
                     <div
                       key={c.id}
-                      className="group relative rounded-[var(--radius-sm)] border border-border bg-card p-2.5 shadow-sm"
+                      data-reveal
+                      className="group relative border border-border bg-transparent px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
                     >
                       <button
                         type="button"
                         onClick={() => removeCard(c.id)}
                         aria-label={t('common.delete')}
-                        className="absolute right-1 top-1 rounded p-1 text-muted-foreground/40 opacity-0 transition hover:bg-muted hover:text-destructive group-hover:opacity-100"
+                        className="absolute right-1 top-1 p-1 text-muted-foreground opacity-0 transition hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
                       >
                         <X className="size-3.5" />
                       </button>
@@ -179,7 +194,7 @@ export default function BoardPage() {
                         {c.title}
                       </p>
                       {c.note ? (
-                        <p className="mt-1 text-[11px] text-muted-foreground">{c.note}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{c.note}</p>
                       ) : null}
                     </div>
                   ))

@@ -154,15 +154,18 @@ export default function McpPage() {
       ) : (
         <>
           {refreshError ? (
-            <Card className="border-destructive/40 bg-destructive/5">
-              <CardContent className="pt-4 text-xs text-destructive">{refreshError}</CardContent>
-            </Card>
+            <p
+              role="alert"
+              className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+            >
+              {refreshError}
+            </p>
           ) : null}
 
           {!data?.enabled ? (
-            <Card className="border-[var(--warning)]/40 bg-[color-mix(in_oklch,var(--warning)_10%,transparent)]">
-              <CardContent className="pt-4 text-xs sm:text-sm">{t('mcp.disabled')}</CardContent>
-            </Card>
+            <p className="border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card px-4 py-3 text-sm text-muted-foreground">
+              {t('mcp.disabled')}
+            </p>
           ) : null}
 
           {servers.length === 0 ? (
@@ -182,7 +185,8 @@ export default function McpPage() {
               {servers.map((s) => (
                 <div
                   key={s.name}
-                  className="flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5"
+                  data-reveal
+                  className="flex flex-col border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line"
                 >
                   <div className="flex items-start gap-2">
                     {s.connected ? (
@@ -190,7 +194,7 @@ export default function McpPage() {
                     ) : (
                       <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" weight="fill" />
                     )}
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{s.name}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-foreground">{s.name}</span>
                     <button
                       onClick={() => setToRemove(s.name)}
                       disabled={removing === s.name}
@@ -200,7 +204,7 @@ export default function McpPage() {
                       <Trash className="size-4" />
                     </button>
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                  <div className="mt-3 flex flex-wrap gap-1.5">
                     <Badge variant={s.connected ? 'success' : s.started ? 'warning' : 'destructive'}>
                       {s.connected
                         ? t('mcp.connected')
@@ -213,13 +217,13 @@ export default function McpPage() {
                     ) : null}
                   </div>
                   {s.error ? (
-                    <p className="mt-1.5 break-words text-[11px] text-destructive">{s.error}</p>
+                    <p className="mt-2 break-words font-mono text-[11px] leading-relaxed text-destructive">{s.error}</p>
                   ) : null}
                   {s.tools.length > 0 ? (
-                    <div className="mt-2.5 border-t border-border pt-2">
+                    <div className="-mx-4 mt-3.5 border-t border-border px-4 pt-2.5">
                       <button
                         onClick={() => setOpen(open === s.name ? null : s.name)}
-                        className="flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                        className="flex w-full items-center gap-1.5 font-mono text-[11px] lowercase text-muted-foreground transition-colors hover:text-foreground"
                       >
                         {t('mcp.showTools')}
                         <CaretDown
@@ -227,12 +231,12 @@ export default function McpPage() {
                         />
                       </button>
                       {open === s.name ? (
-                        <div className="mt-2 space-y-1.5">
+                        <div className="m-open mt-2.5 space-y-1.5">
                           {s.tools.map((tool) => (
-                            <div key={tool.name} className="rounded-[var(--radius-sm)] border border-border p-2">
-                              <p className="break-all font-mono text-[11px] font-medium">{tool.name}</p>
+                            <div key={tool.name} className="border border-border px-2.5 py-2">
+                              <p className="break-all font-mono text-[11px] text-foreground">{tool.name}</p>
                               {tool.description ? (
-                                <p className="mt-0.5 text-[11px] text-muted-foreground">{tool.description}</p>
+                                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{tool.description}</p>
                               ) : null}
                             </div>
                           ))}
@@ -259,7 +263,7 @@ function McpDocs() {
         <CardDescription>{t('mcp.howtoDesc')}</CardDescription>
       </CardHeader>
       <CardContent>
-        <pre className="overflow-x-auto rounded-[var(--radius-sm)] bg-muted/50 p-3 font-mono text-[11px] leading-relaxed">
+        <pre className="overflow-x-auto border border-border bg-background p-3.5 font-mono text-[11px] leading-relaxed">
 {`mcp:
   enabled: true
   servers:
@@ -385,15 +389,15 @@ function AddMcpDialog({
 
           <div className="grid gap-1.5">
             <Label>{t('mcp.fieldTransport')}</Label>
-            <div className="inline-flex w-fit rounded-[var(--radius-sm)] border border-border p-0.5">
+            <div className="inline-flex w-fit gap-0.5 rounded-full border border-border p-0.5">
               {(['stdio', 'http'] as const).map((tp) => (
                 <button
                   key={tp}
                   onClick={() => setTransport(tp)}
                   className={cn(
-                    'rounded-[calc(var(--radius-sm)-2px)] px-3 py-1 text-xs font-medium transition-colors',
+                    'rounded-full px-3 py-1 font-mono text-xs transition-colors duration-200',
                     transport === tp
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'bg-nav-active text-foreground'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
@@ -450,7 +454,7 @@ function AddMcpDialog({
             </div>
           )}
 
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? <p className="m-rise text-xs text-destructive">{error}</p> : null}
         </DialogBody>
         <DialogFooter>
           <DialogClose asChild>

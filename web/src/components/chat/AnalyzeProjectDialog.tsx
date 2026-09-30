@@ -41,7 +41,7 @@ export function AnalyzeProjectDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-3">
-          <label className="flex items-start gap-2 rounded-[var(--radius-md)] border border-border p-3">
+          <label className="flex items-start gap-2 border border-border p-3">
             <input
               type="checkbox"
               checked={indexRag}
@@ -50,7 +50,7 @@ export function AnalyzeProjectDialog({
             />
             <span className="min-w-0">
               <span className="flex items-center gap-1.5 text-sm font-medium">
-                <Database className="size-4 text-primary" />
+                <Database className="size-4 text-muted-foreground" />
                 {t('project.indexRag')}
               </span>
               <span className="block text-[11px] leading-relaxed text-muted-foreground">
@@ -62,9 +62,9 @@ export function AnalyzeProjectDialog({
           <div className="grid gap-2 sm:grid-cols-2">
             <button
               onClick={() => onChoose(true, indexRag)}
-              className="flex flex-col items-start gap-1.5 rounded-[var(--radius-md)] border border-primary/40 bg-primary/5 p-3 text-left transition-colors hover:border-primary"
+              className="flex flex-col items-start gap-1.5 border border-foreground/60 bg-raised p-3 text-left transition-[border-color,background-color] duration-200 hover:border-foreground"
             >
-              <MagnifyingGlass className="size-5 text-primary" weight="fill" />
+              <MagnifyingGlass className="size-5 text-foreground" />
               <span className="text-sm font-medium">{t('project.analyzeYes')}</span>
               <span className="text-[11px] leading-relaxed text-muted-foreground">
                 {t('project.analyzeYesDesc')}
@@ -72,7 +72,7 @@ export function AnalyzeProjectDialog({
             </button>
             <button
               onClick={() => onChoose(false, indexRag)}
-              className="flex flex-col items-start gap-1.5 rounded-[var(--radius-md)] border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted"
+              className="flex flex-col items-start gap-1.5 border border-border p-3 text-left transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
             >
               <ChatCircle className="size-5 text-muted-foreground" />
               <span className="text-sm font-medium">{t('project.analyzeNo')}</span>

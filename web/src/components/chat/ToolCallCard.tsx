@@ -2,7 +2,6 @@ import { memo, useMemo, useState } from 'react'
 import {
   CaretDown,
   CaretRight,
-  CheckCircle,
   CircleNotch,
   Database,
   FilePlus,
@@ -183,49 +182,56 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
   // Right-side status: a diff tally for edits, "N lines" for reads, a spinner
   // while running, else a short result echo.
   const right = call.isError ? (
-    <span className="max-w-48 truncate text-[10px] font-semibold text-destructive" title={output}>
-      {output.trim().split('\n')[0] || t('chat.toolError')}
+    <span className="flex max-w-48 items-center gap-1.5 font-mono text-[10px] text-destructive" title={output}>
+      <span className="size-1.5 shrink-0 rounded-full bg-destructive" />
+      <span className="truncate">{output.trim().split('\n')[0] || t('chat.toolError')}</span>
     </span>
   ) : incomplete ? (
-    <span className="text-[10px] font-semibold text-[var(--warning)]" title={t('chat.toolIncomplete')}>
+    <span className="flex items-center gap-1.5 font-mono text-[10px] text-[var(--warning)]" title={t('chat.toolIncomplete')}>
+      <span className="size-1.5 shrink-0 rounded-full bg-[var(--warning)]" />
       {t('chat.toolIncomplete')}
     </span>
   ) : isDiff ? (
-    <span className="flex items-center gap-1.5 text-[10px] font-semibold tabular-nums">
+    <span className="flex items-center gap-1.5 font-mono text-[10px] tabular-nums">
       {call.running ? <CircleNotch className="size-3 animate-spin text-muted-foreground" /> : null}
-      {diff.added > 0 ? <span className="text-emerald-500">+{diff.added}</span> : null}
+      {diff.added > 0 ? <span className="text-[var(--success)]">+{diff.added}</span> : null}
       {diff.removed > 0 ? <span className="text-destructive">-{diff.removed}</span> : null}
       {!call.running && diff.added === 0 && diff.removed === 0 ? (
-        <CheckCircle className="size-3.5 text-[var(--success)]" weight="fill" />
+        <span className="size-1.5 rounded-full bg-[var(--success)]" />
       ) : null}
     </span>
   ) : call.running ? (
     <CircleNotch className="size-3.5 animate-spin text-muted-foreground" />
   ) : isRead && readLines ? (
-    <span className="text-[10px] text-muted-foreground/70">{t('chat.nLines', { n: readLines })}</span>
+    <span className="font-mono text-[10px] tabular-nums text-dim">{t('chat.nLines', { n: readLines })}</span>
   ) : call.result !== undefined ? (
     output ? (
-      <span className="max-w-[45%] truncate text-[10px] text-muted-foreground/70">
+      <span className="block max-w-64 truncate font-mono text-[10px] text-dim">
         {output.trim().split('\n')[0]}
       </span>
     ) : (
-      <CheckCircle className="size-3.5 text-[var(--success)]" weight="fill" />
+      <span className="mt-1 block size-1.5 rounded-full bg-[var(--success)]" />
     )
   ) : null
 
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-[var(--radius-sm)] border bg-card',
-        call.isError ? 'border-destructive/40' : incomplete ? 'border-[var(--warning)]/40' : 'border-border',
+        'overflow-hidden border bg-card transition-[border-color] duration-200',
+        call.isError
+          ? 'border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))]'
+          : incomplete
+            ? 'border-[color-mix(in_oklch,var(--warning)_45%,var(--border))]'
+            : 'border-border hover:border-line',
       )}
     >
       <button
         type="button"
+        aria-expanded={canExpand ? open : undefined}
         onClick={() => canExpand && setOpen((v) => !v)}
         className={cn(
-          'flex w-full items-start gap-2 px-2.5 py-1.5 text-left',
-          canExpand ? 'cursor-pointer hover:bg-muted/40' : 'cursor-default',
+          'flex w-full items-start gap-2 px-3 py-2 text-left transition-colors duration-200',
+          canExpand ? 'cursor-pointer hover:bg-raised' : 'cursor-default',
         )}
       >
         <span className="mt-0.5 shrink-0 text-muted-foreground">
@@ -245,13 +251,14 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
             <span
               className={cn(
                 'truncate font-mono text-[11px]',
-                isDiff ? 'font-medium text-primary' : 'text-foreground',
+                'text-foreground',
+                isDiff && 'underline decoration-line underline-offset-4',
               )}
             >
               {fileName}
             </span>
             {parentPath ? (
-              <span className="truncate font-mono text-[10px] text-muted-foreground/60">
+              <span className="truncate font-mono text-[10px] text-dim">
                 {parentPath}/
               </span>
             ) : null}
@@ -261,7 +268,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
           // — so a long summary (e.g. a fetched URL or a notice) never crowds
           // the name or gets squeezed on one line.
           <span className="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
-            <span className="truncate font-mono text-[11px] font-medium text-foreground">
+            <span className="truncate font-mono text-[11px] lowercase text-foreground">
               {meta.label}
             </span>
             {summary ? (
@@ -277,7 +284,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
 
       {open && canExpand ? (
         isDiff && !call.isError ? (
-          <div className="border-t border-border bg-muted/30">
+          <div className="m-fade border-t border-border bg-background/40">
             <div className="max-h-64 overflow-auto py-1 font-mono text-[11px] leading-[1.5]">
               {diff.rows.map((r, ri) => (
                 <div
@@ -285,7 +292,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
                   className={cn(
                     'flex gap-2 px-3',
                     r.type === 'add'
-                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                      ? 'bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)]'
                       : r.type === 'del'
                         ? 'bg-destructive/10 text-destructive'
                         : 'text-muted-foreground/70',
@@ -295,7 +302,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
                     className={cn(
                       'select-none',
                       r.type === 'add'
-                        ? 'text-emerald-500'
+                        ? 'text-[var(--success)]'
                         : r.type === 'del'
                           ? 'text-destructive'
                           : 'text-transparent',
@@ -309,25 +316,25 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
             </div>
           </div>
         ) : (
-          <div className="space-y-2 border-t border-border px-3 py-2">
+          <div className="m-fade space-y-2.5 border-t border-border px-3 py-2.5">
             {call.args && call.args !== '{}' ? (
               <div>
-                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="mb-1 font-mono text-[10px] lowercase tracking-[0.04em] text-dim">
                   {t('chat.toolArgs')}
                 </p>
-                <pre className="max-h-48 overflow-auto rounded bg-muted/50 p-2 font-mono text-[11px]">
+                <pre className="max-h-48 overflow-auto border border-border bg-background/40 p-2 font-mono text-[11px]">
                   {prettyJSON(call.args)}
                 </pre>
               </div>
             ) : null}
             {output || incomplete ? (
               <div>
-                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="mb-1 font-mono text-[10px] lowercase tracking-[0.04em] text-dim">
                   {t('chat.toolResult')}
                 </p>
                 <pre
                   className={cn(
-                    'max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-[11px]',
+                    'max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border bg-background/40 p-2 font-mono text-[11px]',
                     call.isError && 'text-destructive',
                     incomplete && 'text-[var(--warning)]',
                   )}

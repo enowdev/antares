@@ -169,22 +169,22 @@ export function SubAgentPanel({ agent, onBack }: { agent: ActiveAgent; onBack: (
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header: back to main + which sub-agent this is. */}
-      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur sm:px-6">
+      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/90 px-4 py-2.5 backdrop-blur sm:px-6">
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-border px-2 py-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          className="tp-btn inline-flex min-h-8 items-center gap-1.5 border border-border px-2.5 py-1 font-mono text-xs lowercase text-muted-foreground transition-colors hover:border-line hover:bg-raised hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" />
           {t('subagents.backToMain')}
         </button>
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <UsersThree className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate text-sm font-medium">{agent.role || 'assistant'}</span>
+          <span className="truncate font-mono text-sm">{agent.role || 'assistant'}</span>
           {!done ? (
-            <CircleNotch className="size-3.5 shrink-0 animate-spin text-primary" />
+            <CircleNotch className="size-3.5 shrink-0 animate-spin text-foreground" />
           ) : (
-            <span className="text-[11px] text-muted-foreground">{t('subagents.finished')}</span>
+            <span className="font-mono text-[11px] text-dim">{t('subagents.finished')}</span>
           )}
         </div>
       </div>
@@ -192,11 +192,11 @@ export function SubAgentPanel({ agent, onBack }: { agent: ActiveAgent; onBack: (
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
         <div className="mx-auto w-full max-w-3xl space-y-5">
           {agent.task ? (
-            <div className="rounded-[var(--radius-md)] border-l-2 border-primary bg-muted/40 px-3.5 py-2.5">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="m-rise tp-panel border border-border bg-card px-4 py-3">
+              <p className="eyebrow">
                 {t('subagents.task')}
               </p>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-foreground">
+              <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-foreground">
                 {agent.task}
               </p>
             </div>

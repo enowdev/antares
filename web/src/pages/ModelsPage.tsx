@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { PageLayout } from '@/components/layout/PageLayout'
 import { Pagination } from '@/components/ui/Pagination'
 import { Button } from '@/components/ui/button'
-import { Badge, Card, EmptyState, Input } from '@/components/ui/primitives'
+import { Badge, EmptyState, Input } from '@/components/ui/primitives'
 import { Skeleton, SkeletonList } from '@/components/ui/skeleton'
 
 interface ModelInfo {
@@ -196,7 +196,7 @@ function AllModelsView({
       ) : (
         <div className="space-y-2">
           {total > models.length ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="font-mono text-[11px] tabular-nums text-dim">
               {t('models.showingOf', { shown: models.length, total })}
             </p>
           ) : null}
@@ -204,16 +204,19 @@ function AllModelsView({
             const isAgent = m.capability === 'agent'
             const isActive = !isAgent && m.id === active.model && m.provider === active.provider
             return (
-              <Card
+              <div
                 key={`${m.provider}/${m.id}`}
+                data-reveal
                 className={cn(
-                  'flex items-center gap-3 p-3.5 transition-colors',
-                  isActive ? 'border-primary' : 'hover:border-primary/40',
+                  'flex items-center gap-3.5 border px-4 py-3.5 transition-[border-color,background-color] duration-200',
+                  isActive
+                    ? 'border-foreground bg-transparent'
+                    : 'border-border bg-transparent hover:border-line hover:bg-raised',
                 )}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-medium">{m.name}</p>
+                  <div className="flex items-center gap-2.5">
+                    <p className="truncate text-[15px] font-medium tracking-[-0.2px]">{m.name}</p>
                     <Badge variant="secondary" className="shrink-0">
                       {providerName(m.provider_label)}
                     </Badge>
@@ -223,8 +226,8 @@ function AllModelsView({
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="truncate font-mono text-[11px] text-muted-foreground">{m.id}</p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{m.id}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     {m.context_window > 0 ? (
                       <Badge variant="outline">
                         {t('models.ctx', { n: Math.round(m.context_window / 1000) })}
@@ -251,7 +254,7 @@ function AllModelsView({
                   // No "Use": a cloud agent has no chat endpoint, so making it
                   // the active model would fail on every message. Name it in a
                   // cursor_agent call instead.
-                  <span className="shrink-0 text-xs text-muted-foreground" title={t('models.agentOnlyHint')}>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground" title={t('models.agentOnlyHint')}>
                     {t('models.viaTool')}
                   </span>
                 ) : (
@@ -266,7 +269,7 @@ function AllModelsView({
                     {isActive ? t('common.active') : t('common.use')}
                   </Button>
                 )}
-              </Card>
+              </div>
             )
           })}
         </div>
@@ -275,7 +278,7 @@ function AllModelsView({
       {errors.length > 0 ? (
         <p className="text-xs text-muted-foreground">
           {t('models.someUnavailable', { providers: errors.map((e) => providerName(e.label)).join(', ') })}{' '}
-          <button className="underline hover:text-foreground" onClick={onManage}>
+          <button className="text-foreground underline decoration-line underline-offset-4" onClick={onManage}>
             {t('models.manageProviders')}
           </button>
         </p>

@@ -68,7 +68,7 @@ export default function ToolsPage() {
     <div className="space-y-3">
       {/* Active toolset preset — stays in view while the list scrolls. */}
       <div>
-        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="eyebrow mb-2">
           {t('tools.activeToolset')}
         </p>
         <div className="flex flex-wrap gap-1.5">
@@ -78,10 +78,10 @@ export default function ToolsPage() {
               disabled={!!busy}
               onClick={() => setToolset(preset)}
               className={cn(
-                'rounded-full border px-2.5 py-1 text-xs transition-colors',
+                'rounded-full border px-3 py-1.5 font-mono text-xs transition-colors duration-200',
                 preset === data.toolset
-                  ? 'border-primary bg-primary/15 font-medium text-primary'
-                  : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                  ? 'border-transparent bg-nav-active text-foreground'
+                  : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
               {preset}
@@ -104,16 +104,16 @@ export default function ToolsPage() {
         <button
           onClick={() => setMutatingOnly((v) => !v)}
           className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-2 text-xs transition-colors',
+            'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors duration-200',
             mutatingOnly
-              ? 'border-[var(--warning)] bg-[var(--warning)]/10 text-[var(--warning)]'
-              : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+              ? 'border-transparent bg-nav-active text-foreground'
+              : 'border-border text-muted-foreground hover:text-foreground',
           )}
         >
-          <ShieldWarning className="size-3.5" />
+          <ShieldWarning className={cn('size-3.5', mutatingOnly && 'text-[var(--warning)]')} />
           {t('tools.filterMutating')}
         </button>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
           {t('tools.enabledCount', { on: enabledCount, total: tools.length })}
         </span>
       </div>
@@ -135,13 +135,14 @@ export default function ToolsPage() {
           {shown.map((item) => (
             <div
               key={item.name}
+              data-reveal
               className={cn(
-                'flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5 transition-colors',
+                'flex flex-col border border-border bg-card p-3.5 transition-[border-color,background-color,opacity] duration-200 hover:border-line hover:bg-raised',
                 !item.enabled && 'opacity-60',
               )}
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="min-w-0 break-all font-mono text-xs font-medium">{item.name}</span>
+                <span className="min-w-0 break-all font-mono text-xs text-foreground">{item.name}</span>
                 <Switch
                   checked={item.enabled}
                   disabled={busy === item.name}
@@ -149,10 +150,10 @@ export default function ToolsPage() {
                   aria-label={`${t('common.enable')} ${item.name}`}
                 />
               </div>
-              <p className="mt-1.5 line-clamp-3 flex-1 text-xs text-muted-foreground">
+              <p className="mt-1.5 line-clamp-3 flex-1 text-xs leading-relaxed text-muted-foreground">
                 {item.description}
               </p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
+              <div className="mt-3 flex flex-wrap gap-1.5">
                 {item.requires_approval ? (
                   <Badge variant="warning">
                     <ShieldWarning className="size-3" weight="fill" />

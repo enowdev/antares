@@ -381,7 +381,7 @@ export default function ContentCreatorPage() {
         />
         <section aria-label="Video project" className="min-w-0 space-y-4">
           {!project ? (
-            <div className="rounded-[var(--radius-lg)] border border-dashed border-border px-6 py-12 text-center">
+            <div data-reveal className="tp-panel border border-border bg-card px-6 py-12 text-center">
               <FilmStrip className="mx-auto mb-3 size-7 text-muted-foreground" />
               <h2 className="font-medium">Create your first video</h2>
               <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
@@ -400,7 +400,8 @@ export default function ContentCreatorPage() {
             <>
               <header className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 className="truncate text-base font-semibold leading-6">
+                  <p className="eyebrow mb-1">Video project</p>
+                  <h2 className="truncate text-lg font-medium leading-6">
                     {project.title}
                   </h2>
                   <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
@@ -419,7 +420,7 @@ export default function ContentCreatorPage() {
                       <>
                         <span aria-hidden>·</span>
                         <Link
-                          className="text-primary underline-offset-4 hover:underline"
+                          className="text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground"
                           to={`/c/${project.run_session_id}`}
                         >
                           Open agent run
@@ -548,27 +549,27 @@ export default function ContentCreatorPage() {
                     {project.references.map((ref) => {
                       const open = openRef === ref.id;
                       return (
-                        <li key={ref.id} className="min-w-0">
+                        <li key={ref.id} data-reveal className="min-w-0">
                           <button
                             type="button"
                             aria-expanded={open}
                             aria-controls="ref-editor"
                             onClick={() => setOpenRef(open ? null : ref.id)}
                             className={cn(
-                              "flex w-full flex-col overflow-hidden rounded-[var(--radius-md)] border bg-card text-left transition-colors",
+                              "flex w-full flex-col overflow-hidden border bg-card text-left transition-[border-color,background-color] duration-200",
                               open
-                                ? "border-primary ring-1 ring-primary/40"
-                                : "border-border hover:border-primary/40",
+                                ? "border-foreground bg-raised"
+                                : "border-border hover:border-line hover:bg-raised",
                             )}
                           >
                             {ref.path ? (
                               <img
-                                className="aspect-video w-full bg-muted object-cover"
+                                className="aspect-video w-full bg-raised object-cover"
                                 src={artifactUrl(project.id, ref.path)}
                                 alt={ref.name}
                               />
                             ) : (
-                              <span className="flex aspect-video w-full items-center justify-center bg-muted text-xs text-muted-foreground">
+                              <span className="flex aspect-video w-full items-center justify-center bg-raised text-xs text-muted-foreground">
                                 Not generated
                               </span>
                             )}
@@ -607,7 +608,7 @@ export default function ContentCreatorPage() {
                           });
                           setOpenRef(id);
                         }}
-                        className="flex h-full min-h-24 w-full flex-col items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-dashed border-border text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                        className="flex h-full min-h-24 w-full flex-col items-center justify-center gap-1.5 border border-dashed border-border text-sm text-muted-foreground transition-colors hover:border-line hover:bg-raised hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
                       >
                         <Plus className="size-4" />
                         Add reference
@@ -619,26 +620,26 @@ export default function ContentCreatorPage() {
                       <div
                         key={ref.id}
                         id="ref-editor"
-                        className="rounded-[var(--radius-md)] border border-border bg-card p-3 sm:p-4"
+                        className="m-open tp-panel border border-border bg-card p-3 sm:p-4"
                       >
                         <div className="mb-3 flex flex-wrap items-center gap-2">
                           <h3 className="text-sm font-medium">
                             {ref.name || "Unnamed reference"}
                           </h3>
                           <StatusBadge status={ref.status} />
-                          <span className="break-all text-xs text-muted-foreground">
+                          <span className="break-all font-mono text-xs text-muted-foreground">
                             {ref.id}
                           </span>
                         </div>
                         <div className="grid gap-4 sm:grid-cols-[180px_minmax(0,1fr)]">
                           {ref.path ? (
                             <img
-                              className="w-full rounded-[var(--radius-sm)] bg-muted"
+                              className="w-full bg-raised"
                               src={artifactUrl(project.id, ref.path)}
                               alt={ref.name}
                             />
                           ) : (
-                            <div className="hidden aspect-video items-center justify-center rounded-[var(--radius-sm)] bg-muted text-xs text-muted-foreground sm:flex">
+                            <div className="hidden aspect-video items-center justify-center bg-raised text-xs text-muted-foreground sm:flex">
                               Not generated
                             </div>
                           )}
@@ -750,7 +751,7 @@ export default function ContentCreatorPage() {
                     continuation starts from the previous clip’s last frame.
                   </p>
                   {project.shots.length > 0 && (
-                    <ol className="divide-y divide-border overflow-hidden rounded-[var(--radius-md)] border border-border bg-card">
+                    <ol className="divide-y divide-border overflow-hidden border border-border bg-card">
                       {project.shots.map((shot, index) => {
                         const open = openShot === shot.id;
                         const keyframe = {
@@ -797,17 +798,17 @@ export default function ContentCreatorPage() {
                           ? `${shot.progress}%`
                           : "";
                         return (
-                          <li key={shot.id} className={cn(open && "bg-muted/30")}>
+                          <li key={shot.id} data-reveal className={cn("transition-colors duration-200", open ? "bg-raised" : "hover:bg-raised")}>
                             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 px-2 py-1 sm:flex">
                               <button
                                 type="button"
                                 aria-expanded={open}
                                 aria-controls={`shot-${shot.id}`}
                                 onClick={() => setOpenShot(open ? null : shot.id)}
-                                className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-sm)] px-1.5 text-left hover:bg-accent/60"
+                                className="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-1.5 text-left"
                               >
-                                <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                                  {index + 1}
+                                <span className="w-5 shrink-0 text-right font-mono text-[11px] tabular-nums text-dim">
+                                  {String(index + 1).padStart(2, "0")}
                                 </span>
                                 <span
                                   className={cn(
@@ -903,7 +904,7 @@ export default function ContentCreatorPage() {
                             {open && (
                               <div
                                 id={`shot-${shot.id}`}
-                                className="space-y-3 border-t border-border px-3 pb-3 pt-3 sm:pl-10"
+                                className="m-open space-y-3 border-t border-border px-3 pb-3 pt-3 sm:pl-10"
                               >
                                 <Field label="Shot prompt">
                                   <Textarea
@@ -998,7 +999,7 @@ export default function ContentCreatorPage() {
                                     {shot.keyframe_path && (
                                       <figure>
                                         <img
-                                          className="max-h-48 w-full rounded-[var(--radius-sm)] bg-muted object-contain"
+                                          className="max-h-48 w-full bg-raised object-contain"
                                           src={artifactUrl(
                                             project.id,
                                             shot.keyframe_path,
@@ -1014,14 +1015,14 @@ export default function ContentCreatorPage() {
                                       <video
                                         controls
                                         preload="metadata"
-                                        className="max-h-48 w-full rounded-[var(--radius-sm)] bg-muted"
+                                        className="max-h-48 w-full bg-raised"
                                         src={artifactUrl(project.id, shot.video_path)}
                                       />
                                     )}
                                     {shot.last_frame_path && (
                                       <figure>
                                         <img
-                                          className="max-h-48 w-full rounded-[var(--radius-sm)] bg-muted object-contain"
+                                          className="max-h-48 w-full bg-raised object-contain"
                                           src={artifactUrl(
                                             project.id,
                                             shot.last_frame_path,
@@ -1096,7 +1097,7 @@ export default function ContentCreatorPage() {
                       aria-label="Final video"
                       controls
                       preload="metadata"
-                      className="max-h-[32rem] w-full rounded-[var(--radius-md)] bg-muted"
+                      className="max-h-[32rem] w-full bg-raised"
                       src={artifactUrl(project.id, project.final_path)}
                     />
                   )}
@@ -1105,7 +1106,7 @@ export default function ContentCreatorPage() {
               {tab === "research" && (
                 <div className="grid gap-6 xl:grid-cols-2">
                   <section className="min-w-0">
-                    <h3 className="mb-2 text-sm font-medium">Observed trends</h3>
+                    <h3 className="eyebrow mb-3">Observed trends</h3>
                     {project.research.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
                         Run research to collect source URLs, observation times,
@@ -1116,10 +1117,11 @@ export default function ContentCreatorPage() {
                         {project.research.map((t, i) => (
                           <li
                             key={i}
-                            className="rounded-[var(--radius-sm)] border border-border bg-card p-3"
+                            data-reveal
+                            className="border border-border bg-transparent p-3 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
                           >
                             <a
-                              className="break-words text-sm font-medium text-primary underline-offset-4 hover:underline"
+                              className="break-words text-sm font-medium text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground"
                               target="_blank"
                               rel="noreferrer"
                               href={t.url}
@@ -1147,7 +1149,7 @@ export default function ContentCreatorPage() {
                     )}
                   </section>
                   <section className="min-w-0">
-                    <h3 className="mb-2 text-sm font-medium">Original ideas</h3>
+                    <h3 className="eyebrow mb-3">Original ideas</h3>
                     {project.ideas.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
                         Run plan after research to propose ideas and build the
@@ -1158,11 +1160,12 @@ export default function ContentCreatorPage() {
                         {project.ideas.map((idea) => (
                           <label
                             key={idea.id}
+                            data-reveal
                             className={cn(
-                              "flex gap-3 rounded-[var(--radius-sm)] border p-3 transition-colors",
+                              "flex gap-3 border p-3 transition-[border-color,background-color] duration-200",
                               idea.selected
-                                ? "border-primary/40 bg-primary/5"
-                                : "border-border bg-card",
+                                ? "border-foreground bg-raised"
+                                : "border-border hover:border-line hover:bg-raised",
                             )}
                           >
                             <input
@@ -1233,7 +1236,7 @@ export default function ContentCreatorPage() {
                       </Field>
                     </div>
                     <Link
-                      className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline lg:min-h-0"
+                      className="inline-flex min-h-11 items-center text-sm text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground lg:min-h-0"
                       to="/studio/social"
                     >
                       Manage accounts and browser in Social Media
@@ -1263,14 +1266,14 @@ export default function ContentCreatorPage() {
                     </Field>
                   </div>
                   <div className="min-w-0 space-y-3">
-                    <p className="flex items-center gap-2 text-sm">
+                    <p className="eyebrow flex items-center gap-2">
                       Publication
                       <StatusBadge status={project.publication.status} />
                     </p>
                     <Failure text={project.publication.error} />
                     {project.publication.post_url && (
                       <a
-                        className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline lg:min-h-0"
+                        className="inline-flex min-h-11 items-center text-sm text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground lg:min-h-0"
                         target="_blank"
                         rel="noreferrer"
                         href={project.publication.post_url}
@@ -1283,11 +1286,11 @@ export default function ContentCreatorPage() {
                         <video
                           controls
                           preload="metadata"
-                          className="max-h-96 w-full rounded-[var(--radius-md)] bg-muted"
+                          className="max-h-96 w-full bg-raised"
                           src={artifactUrl(project.id, project.final_path)}
                         />
                         <a
-                          className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline"
+                          className="inline-flex min-h-11 items-center text-sm text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground"
                           href={artifactUrl(project.id, project.final_path)}
                           download
                         >
@@ -1295,14 +1298,14 @@ export default function ContentCreatorPage() {
                         </a>
                       </>
                     ) : (
-                      <p className="rounded-[var(--radius-md)] border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                      <p className="border border-dashed border-line px-4 py-8 text-center text-sm text-muted-foreground">
                         Assemble the shots before uploading.
                       </p>
                     )}
                     {["blocked", "uploading"].includes(
                       project.publication.status,
                     ) && (
-                      <div className="space-y-2 rounded-[var(--radius-md)] border border-border bg-card p-3">
+                      <div className="m-rise space-y-2 border border-border bg-card px-4 py-3">
                         <p className="text-sm">
                           An uncertain upload must be checked on the account
                           before allowing another attempt.
@@ -1346,7 +1349,7 @@ export default function ContentCreatorPage() {
               {tab === "schedule" && (
                 <div className="space-y-4">
                   <form
-                    className="grid gap-4 rounded-[var(--radius-md)] border border-border bg-card p-4 sm:grid-cols-2"
+                    className="tp-panel grid gap-4 border border-border bg-card p-4 sm:grid-cols-2 sm:p-5"
                     onSubmit={(e) => {
                       e.preventDefault();
                       void act("schedule", async () => {
@@ -1442,18 +1445,19 @@ export default function ContentCreatorPage() {
                     </div>
                   </form>
                   {jobs.some((j) => j.meta?.content_project_id === project.id) && (
-                    <ul className="divide-y divide-border rounded-[var(--radius-md)] border border-border bg-card">
+                    <ul className="border border-border bg-card">
                       {jobs
                         .filter((j) => j.meta?.content_project_id === project.id)
                         .map((j) => (
                           <li
                             key={j.id}
-                            className="flex items-center justify-between gap-2 px-3 py-2"
+                            data-reveal
+                            className="flex items-center justify-between gap-2 border-t border-border px-4 py-3 transition-colors duration-200 first:border-t-0 hover:bg-raised"
                           >
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium">{j.name}</p>
                               <p className="truncate text-xs text-muted-foreground">
-                                {j.schedule} · {j.meta?.content_stage} ·{" "}
+                                <span className="font-mono">{j.schedule}</span> · {j.meta?.content_stage} ·{" "}
                                 {j.meta?.publish_mode} ·{" "}
                                 {j.enabled ? "enabled" : "disabled"}
                               </p>
@@ -1478,7 +1482,7 @@ export default function ContentCreatorPage() {
                   )}
                   <Link
                     to="/automation/schedules"
-                    className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline lg:min-h-0"
+                    className="inline-flex min-h-11 items-center text-sm text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground lg:min-h-0"
                   >
                     Open scheduler and run history
                   </Link>

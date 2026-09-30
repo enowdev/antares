@@ -132,7 +132,7 @@ export function Switch({ className, ...props }: React.ComponentProps<typeof Swit
       )}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="pointer-events-none block size-4 rounded-full bg-background shadow-sm transition-transform duration-300 ease-[var(--m-ease)] data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0 data-[state=unchecked]:bg-muted-foreground" />
+      <SwitchPrimitive.Thumb className="pointer-events-none block size-4 rounded-full bg-background transition-transform duration-300 ease-[var(--m-ease)] data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0 data-[state=unchecked]:bg-muted-foreground" />
     </SwitchPrimitive.Root>
   )
 }

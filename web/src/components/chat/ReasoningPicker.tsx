@@ -77,22 +77,23 @@ export function ReasoningPicker({
   return (
     <div ref={ref} className="relative">
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
         title="Reasoning"
+        aria-expanded={open}
+        aria-haspopup="listbox"
         className={cn(
-          'flex items-center gap-1.5 border border-border bg-card transition-colors hover:border-primary/40 focus-visible:border-ring',
-          compact
-            ? 'h-8 rounded-[var(--radius-md)] px-2.5 text-xs'
-            : 'h-[3.25rem] rounded-[var(--radius-xl)] px-3 text-sm shadow-sm',
+          'flex items-center gap-1.5 border border-border bg-transparent text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground aria-expanded:border-line aria-expanded:bg-nav-active aria-expanded:text-foreground',
+          compact ? 'h-8 min-w-8 justify-center rounded-full px-2 text-xs sm:px-3' : 'h-[3.25rem] px-3 text-sm',
         )}
       >
-        <Brain className={cn('shrink-0 text-muted-foreground', compact ? 'size-3.5' : 'size-4')} />
+        <Brain className={cn('shrink-0', compact ? 'size-3.5' : 'size-4')} />
         <span className="hidden max-w-24 truncate sm:inline">{current.label}</span>
-        <CaretDown className="size-3 shrink-0 text-muted-foreground" />
+        <CaretDown className="hidden size-3 shrink-0 text-muted-foreground sm:block" />
       </button>
 
       {open ? (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-56 overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-card p-1 shadow-lg">
+        <div className="m-open absolute bottom-full left-0 z-30 mb-2 w-56 overflow-y-auto border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
           {options.map((o) => (
             <button
               key={o.value || 'auto'}
@@ -101,12 +102,12 @@ export function ReasoningPicker({
                 setOpen(false)
               }}
               className={cn(
-                'flex w-full items-start gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors hover:bg-muted',
-                value === o.value && 'bg-primary/5',
+                'flex w-full items-start gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
+                value === o.value && 'bg-nav-active',
               )}
             >
               {value === o.value ? (
-                <Check className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                <Check className="mt-0.5 size-3.5 shrink-0 text-foreground" />
               ) : (
                 <span className="w-3.5 shrink-0" />
               )}

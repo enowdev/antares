@@ -381,6 +381,7 @@ const ja: Dict = {
   'chat.reasoning': '推論',
   'chat.tokensOut': '出力 {n} トークン',
   'chat.welcomeTitle': '会話を始める',
+  'chat.welcomeSub': 'あとは Antares が進めます。',
   'chat.welcomeDesc':
     'Antares はファイル、ターミナル、ウェブ検索、長期メモリ、RAG インデックスにアクセスできます。',
   'chat.suggest1': 'このワークスペースのプロジェクト構成をまとめて',
@@ -744,6 +745,7 @@ const ja: Dict = {
   'error.retry': '再試行',
 
   'setup.subtitle': '初期セットアップ',
+  'login.eyebrow': 'サインインが必要です',
   'setup.back': '戻る',
   'setup.next': '次へ',
   'setup.local': 'ローカル',

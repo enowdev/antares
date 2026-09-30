@@ -117,32 +117,36 @@ export default function ProxiesPage() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[42rem] text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="px-3 py-2.5 font-medium">{t('proxies.label')}</th>
-                  <th className="px-3 py-2.5 font-medium">{t('proxies.colEndpoint')}</th>
-                  <th className="w-28 px-3 py-2.5 font-medium">{t('proxies.colTest')}</th>
-                  <th className="w-12 px-3 py-2.5" />
+                <tr className="border-b border-border text-left">
+                  <th className="px-4 py-3 font-mono text-[11px] font-normal lowercase tracking-[0.04em] text-dim">{t('proxies.label')}</th>
+                  <th className="px-4 py-3 font-mono text-[11px] font-normal lowercase tracking-[0.04em] text-dim">{t('proxies.colEndpoint')}</th>
+                  <th className="w-28 px-4 py-3 font-mono text-[11px] font-normal lowercase tracking-[0.04em] text-dim">{t('proxies.colTest')}</th>
+                  <th className="w-12 px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => {
                   const tr = testResult[e.id]
                   return (
-                    <tr key={e.id} className="border-b border-border/60 last:border-0">
-                      <td className="px-3 py-2.5">
+                    <tr
+                      key={e.id}
+                      data-reveal
+                      className="border-t border-border transition-colors duration-200 first:border-t-0 hover:bg-raised"
+                    >
+                      <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{e.label}</span>
                           {e.scheme ? (
-                            <Badge variant="outline" className="shrink-0 text-[10px] uppercase">
+                            <Badge variant="outline" className="shrink-0 font-mono text-[10px] lowercase">
                               {e.scheme}
                             </Badge>
                           ) : null}
                         </div>
                       </td>
                       <td className="max-w-[20rem] px-3 py-2.5">
-                        <span className="block truncate font-mono text-[11px] text-muted-foreground">{e.url}</span>
+                        <span className="block truncate font-mono text-xs text-muted-foreground">{e.url}</span>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-4 py-3.5">
                         {tr ? (
                           tr.error === '…' ? (
                             <span className="text-xs text-muted-foreground">{t('proxies.testing')}</span>
@@ -172,7 +176,7 @@ export default function ProxiesPage() {
                           </Button>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right">
+                      <td className="px-4 py-3.5 text-right">
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -286,13 +290,13 @@ function AddProxiesDialog({
                 'user:pass@host:port\n' +
                 'host:port'
               }
-              className="w-full resize-y rounded-[var(--radius-sm)] border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed"
+              className="w-full resize-y border border-input bg-transparent px-3 py-2 font-mono text-xs leading-relaxed focus-visible:border-foreground focus-visible:outline-none"
             />
             <p className="text-[11px] leading-relaxed text-muted-foreground">{t('proxies.pasteHint')}</p>
           </div>
 
           {result ? (
-            <div className="space-y-1.5 rounded-[var(--radius-sm)] border border-border p-3 text-xs">
+            <div className="m-rise space-y-1.5 border border-border bg-card px-4 py-3 text-xs">
               <p className="inline-flex items-center gap-1.5 text-[var(--success)]">
                 <CheckCircle className="size-4" weight="fill" />
                 {t('proxies.addedN', { n: result.added })}
@@ -310,7 +314,11 @@ function AddProxiesDialog({
             </div>
           ) : null}
 
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? (
+            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
         </DialogBody>
         <DialogFooter>
           <DialogClose asChild>

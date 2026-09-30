@@ -86,7 +86,7 @@ export function EditMessageDialog({
           {loading ? (
             <p className="text-[11px] text-muted-foreground">{t('edit.checking')}</p>
           ) : changes.length ? (
-            <div className="space-y-2 rounded-[var(--radius-md)] border border-border p-3">
+            <div className="m-rise space-y-2 border border-border p-3">
               <label className="flex items-start gap-2">
                 <input
                   type="checkbox"

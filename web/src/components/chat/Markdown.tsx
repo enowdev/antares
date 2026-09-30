@@ -167,7 +167,7 @@ function EmbeddedImage({ alt, url }: { alt: string; url: string }) {
 
   if (failed) {
     return (
-      <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+      <span className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
         <ImageIcon className="size-3" /> {alt || 'image'}
       </span>
     )
@@ -181,7 +181,7 @@ function EmbeddedImage({ alt, url }: { alt: string; url: string }) {
       onClick={() => setExpanded(!expanded)}
       onError={() => setFailed(true)}
       className={cn(
-        'cursor-zoom-in rounded-[var(--radius-sm)] border border-border object-contain transition-all',
+        'cursor-zoom-in border border-border object-contain transition-all',
         expanded ? 'max-w-full' : 'max-h-48 max-w-xs',
       )}
     />
@@ -193,7 +193,7 @@ function RichBlock({ block }: { block: Block }) {
     case 'heading': {
       const sizes = ['text-lg', 'text-base', 'text-sm', 'text-sm', 'text-sm', 'text-sm']
       return (
-        <p className={cn('font-semibold tracking-tight', sizes[block.level - 1])}>
+        <p className={cn('font-medium tracking-tight', sizes[block.level - 1])}>
           <Inline text={block.text} />
         </p>
       )
@@ -218,12 +218,12 @@ function RichBlock({ block }: { block: Block }) {
       )
     case 'quote':
       return (
-        <blockquote className="border-l-2 border-primary/50 pl-3 text-muted-foreground">
+        <blockquote className="border-l-2 border-foreground/40 pl-3 text-muted-foreground">
           <Inline text={block.text} />
         </blockquote>
       )
     case 'rule':
-      return <hr className="border-border" />
+      return <hr className="border-line" />
     case 'image':
       return (
         <div className="py-1">
@@ -232,12 +232,12 @@ function RichBlock({ block }: { block: Block }) {
       )
     case 'table':
       return (
-        <div className="overflow-x-auto rounded-[var(--radius-sm)] border border-border">
+        <div className="overflow-x-auto border border-border bg-card">
           <table className="w-full text-xs">
-            <thead className="bg-muted/50">
+            <thead>
               <tr>
                 {block.header.map((h, i) => (
-                  <th key={i} className="px-3 py-2 text-left font-medium whitespace-nowrap">
+                  <th key={i} className="border-b border-border px-3 py-2 text-left font-mono text-[11px] font-normal lowercase tracking-[0.04em] whitespace-nowrap text-dim">
                     <Inline text={h} />
                   </th>
                 ))}
@@ -245,7 +245,7 @@ function RichBlock({ block }: { block: Block }) {
             </thead>
             <tbody>
               {block.rows.map((row, r) => (
-                <tr key={r} className="border-t border-border">
+                <tr key={r} className="border-t border-border first:border-t-0 hover:bg-raised">
                   {row.map((c, i) => (
                     <td key={i} className="px-3 py-2 align-top">
                       <Inline text={c} />
@@ -283,7 +283,7 @@ function Inline({ text }: { text: string }) {
       nodes.push(
         <code
           key={key++}
-          className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] text-foreground/90"
+          className="bg-raised px-1 py-0.5 font-mono text-[0.85em] text-foreground"
         >
           {token.slice(1, -1)}
         </code>,
@@ -304,7 +304,7 @@ function Inline({ text }: { text: string }) {
           href={link[2]}
           target="_blank"
           rel="noreferrer noopener"
-          className="text-primary underline underline-offset-2"
+          className="text-foreground underline decoration-line underline-offset-4 transition-colors hover:decoration-foreground"
         >
           <Inline text={link[1]} />
         </a>,
@@ -320,7 +320,7 @@ function Inline({ text }: { text: string }) {
             href={token}
             target="_blank"
             rel="noreferrer noopener"
-            className="break-all text-primary underline underline-offset-2"
+            className="break-all text-foreground underline decoration-line underline-offset-4 transition-colors hover:decoration-foreground"
           >
             {token}
           </a>,
@@ -345,9 +345,9 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     }
   }
   return (
-    <div className="group relative overflow-hidden rounded-[var(--radius-sm)] border border-border bg-muted/40">
+    <div className="group relative overflow-hidden border border-border bg-card">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="font-mono text-[10px] lowercase tracking-[0.04em] text-dim">
           {lang || t('chat.codeText')}
         </span>
         <button

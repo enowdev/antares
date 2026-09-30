@@ -117,9 +117,9 @@ export default function PluginsPage() {
       ) : (
         <>
           {!data?.enabled ? (
-            <Card className="border-[var(--warning)]/40 bg-[color-mix(in_oklch,var(--warning)_10%,transparent)]">
-              <CardContent className="pt-4 text-xs sm:text-sm">{t('plugins.disabled')}</CardContent>
-            </Card>
+            <p className="border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card px-4 py-3 text-sm text-muted-foreground">
+              {t('plugins.disabled')}
+            </p>
           ) : null}
 
           {plugins.length === 0 ? (
@@ -133,14 +133,19 @@ export default function PluginsPage() {
               {plugins.map((p) => (
                 <div
                   key={p.name}
-                  className={`flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5 ${p.error ? 'border-destructive/40' : ''}`}
+                  data-reveal
+                  className={cn(
+                    'flex flex-col border bg-card p-4 transition-[border-color,background-color] duration-200',
+                    p.error
+                      ? 'border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))]'
+                      : 'border-border hover:border-line',
+                  )}
                 >
                   <div className="flex items-start gap-2">
                     <PuzzlePiece
-                      className={p.error ? 'mt-0.5 size-4 shrink-0 text-destructive' : 'mt-0.5 size-4 shrink-0 text-primary'}
-                      weight="fill"
+                      className={cn('mt-0.5 size-4 shrink-0', p.error ? 'text-destructive' : 'text-muted-foreground')}
                     />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-[15px] font-medium tracking-[-0.2px]">{p.name}</span>
                     {!p.error ? (
                       <Switch
                         checked={p.enabled}
@@ -152,13 +157,13 @@ export default function PluginsPage() {
                     ) : null}
                   </div>
                   {p.description ? (
-                    <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">{p.description}</p>
+                    <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{p.description}</p>
                   ) : null}
                   {p.error ? (
-                    <p className="mt-1.5 break-words text-[11px] text-destructive">{p.error}</p>
+                    <p className="mt-2 break-words font-mono text-[11px] leading-relaxed text-destructive">{p.error}</p>
                   ) : null}
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {p.version ? <Badge variant="outline">{p.version}</Badge> : null}
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {p.version ? <Badge variant="outline" className="font-mono font-normal">{p.version}</Badge> : null}
                     {p.error ? (
                       <Badge variant="destructive">
                         <Warning className="size-3" weight="fill" />
@@ -166,12 +171,12 @@ export default function PluginsPage() {
                       </Badge>
                     ) : null}
                     {p.hooks?.map((h) => (
-                      <Badge key={h} variant="secondary" className="font-mono text-[10px]">
+                      <Badge key={h} variant="secondary" className="font-mono font-normal">
                         {h}
                       </Badge>
                     ))}
                   </div>
-                  <p className="mt-2 break-all border-t border-border pt-2 font-mono text-[10px] text-muted-foreground">
+                  <p className="-mx-4 mt-3.5 break-all border-t border-border px-4 pt-2.5 font-mono text-[11px] text-dim">
                     {p.dir}
                     {p.command ? ` · ${p.command}` : ''}
                   </p>
@@ -194,7 +199,7 @@ function PluginDocs() {
         <CardDescription>{t('plugins.howtoDesc')}</CardDescription>
       </CardHeader>
       <CardContent>
-        <pre className="overflow-x-auto rounded-[var(--radius-sm)] bg-muted/50 p-3 font-mono text-[11px] leading-relaxed">
+        <pre className="overflow-x-auto border border-border bg-background p-3.5 font-mono text-[11px] leading-relaxed">
 {`# ~/.antares/plugins/audit/plugin.yaml
 name: audit
 description: Log every terminal command
@@ -332,10 +337,10 @@ function AddPluginDialog({
                   key={h}
                   onClick={() => toggleHook(h)}
                   className={cn(
-                    'rounded-[var(--radius-sm)] border px-2 py-1 font-mono text-[11px] transition-colors',
+                    'rounded-full border px-3 py-1.5 font-mono text-[11px] transition-colors duration-200',
                     hooks.includes(h)
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border text-muted-foreground hover:border-primary/40',
+                      ? 'border-transparent bg-nav-active text-foreground'
+                      : 'border-border text-muted-foreground hover:text-foreground',
                   )}
                 >
                   {h}
@@ -344,12 +349,12 @@ function AddPluginDialog({
             </div>
           </div>
 
-          <div className="flex items-start gap-2 rounded-[var(--radius-sm)] bg-muted/50 p-3 text-[11px] leading-relaxed text-muted-foreground">
+          <div className="flex items-start gap-2 border border-border bg-raised p-3 text-[11px] leading-relaxed text-muted-foreground">
             <PuzzlePiece className="mt-0.5 size-4 shrink-0" />
             <span className="min-w-0">{t('plugins.addHint')}</span>
           </div>
 
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? <p className="m-rise text-xs text-destructive">{error}</p> : null}
         </DialogBody>
         <DialogFooter>
           <DialogClose asChild>

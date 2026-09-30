@@ -175,14 +175,14 @@ export function HubDialog({
           </div>
 
           {note ? (
-            <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--success)]/40 bg-[color-mix(in_oklch,var(--success)_10%,transparent)] p-3 text-xs">
+            <div className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--success)_45%,var(--border))] bg-card px-4 py-3 text-xs">
               <CheckCircle className="mt-0.5 size-4 shrink-0 text-[var(--success)]" weight="fill" />
               <span className="min-w-0">{note}</span>
             </div>
           ) : null}
 
           {error ? (
-            <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+            <div className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-xs text-destructive">
               <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
               <span className="min-w-0 break-words">{error}</span>
             </div>
@@ -198,13 +198,13 @@ export function HubDialog({
                 <div
                   key={e.id}
                   className={cn(
-                    'flex items-start gap-3 rounded-[var(--radius-sm)] border p-3 transition-colors',
-                    e.installed ? 'border-border bg-muted/30' : 'border-border hover:border-primary/40',
+                    'flex items-start gap-3 border border-border p-3.5 transition-[border-color,background-color] duration-200',
+                    e.installed ? 'bg-raised/60' : 'hover:border-line hover:bg-raised',
                   )}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm font-medium">{e.name}</span>
+                      <span className="text-[13px] font-medium">{e.name}</span>
                       <Badge variant="outline">{e.source}</Badge>
                       {e.installed ? (
                         <Badge variant="success">
@@ -218,14 +218,14 @@ export function HubDialog({
                     </div>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{e.summary}</p>
                     {kind === 'plugins' && e.command ? (
-                      <p className="mt-1.5 break-all rounded-[var(--radius-sm)] bg-muted/50 px-2 py-1 font-mono text-[10px] text-foreground">
+                      <p className="mt-1.5 break-all border border-border bg-background px-2 py-1 font-mono text-[11px] text-foreground">
                         $ {e.command}
                         {e.args?.length ? ' ' + e.args.join(' ') : ''}
                         {e.hooks?.length ? `  · ${e.hooks.join(', ')}` : ''}
                       </p>
                     ) : null}
                     <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <span className="break-all font-mono text-[10px] text-muted-foreground">
+                      <span className="break-all font-mono text-[11px] text-dim">
                         {e.id}
                       </span>
                       {e.homepage ? (
@@ -233,7 +233,7 @@ export function HubDialog({
                           href={e.homepage}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="inline-flex items-center gap-1 text-[10px] text-primary underline underline-offset-2"
+                          className="inline-flex items-center gap-1 font-mono text-[11px] text-foreground underline decoration-line underline-offset-4 transition-colors hover:decoration-foreground"
                         >
                           {t('hub.homepage')}
                           <ArrowSquareOut className="size-3" />
@@ -258,10 +258,10 @@ export function HubDialog({
           )}
 
           {kind === 'skills' ? (
-            <p className="text-[11px] leading-relaxed text-muted-foreground">{t('hub.sourceHint')}</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t('hub.sourceHint')}</p>
           ) : null}
           {kind === 'plugins' ? (
-            <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/40 bg-[color-mix(in_oklch,var(--warning)_10%,transparent)] p-3 text-[11px] leading-relaxed">
+            <div className="flex items-start gap-2 border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card px-4 py-3 text-xs leading-relaxed">
               <Warning className="mt-0.5 size-4 shrink-0 text-[var(--warning)]" weight="fill" />
               <span className="min-w-0">{t('hub.pluginsWarn')}</span>
             </div>

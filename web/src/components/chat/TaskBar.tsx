@@ -25,9 +25,9 @@ const glyph = (status: string, live: boolean) =>
     <CheckCircle className="size-3.5 shrink-0 text-[var(--success)]" weight="fill" />
   ) : status === 'in_progress' ? (
     live ? (
-      <CircleNotch className="size-3.5 shrink-0 animate-spin text-primary" />
+      <CircleNotch className="size-3.5 shrink-0 animate-spin text-foreground" />
     ) : (
-      <Circle className="size-3.5 shrink-0 text-primary/60" weight="fill" />
+      <Circle className="size-3.5 shrink-0 text-foreground/60" weight="fill" />
     )
   ) : (
     <Circle className="size-3.5 shrink-0 text-muted-foreground/40" />
@@ -90,7 +90,7 @@ export function TaskBar({
       <div className="flex items-center gap-2 px-3 py-2">
         {/* Tab switch — only shows the sub-agents tab when any are running. */}
         {showAgentsTab ? (
-          <div className="flex shrink-0 items-center gap-0.5 rounded-[var(--radius-sm)] bg-muted/60 p-0.5">
+          <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border p-0.5">
             <button
               type="button"
               onClick={() => {
@@ -98,9 +98,9 @@ export function TaskBar({
                 setOpen(true)
               }}
               className={cn(
-                'rounded-[calc(var(--radius-sm)-2px)] px-2 py-0.5 text-[11px] font-medium transition',
+                'rounded-full px-2.5 py-0.5 text-[11px] transition-colors',
                 effectiveTab === 'tasks'
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'bg-nav-active text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -113,9 +113,9 @@ export function TaskBar({
                 setOpen(true)
               }}
               className={cn(
-                'flex items-center gap-1 rounded-[calc(var(--radius-sm)-2px)] px-2 py-0.5 text-[11px] font-medium transition',
+                'flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] transition-colors',
                 effectiveTab === 'agents'
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'bg-nav-active text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -134,18 +134,18 @@ export function TaskBar({
         >
           {effectiveTab === 'tasks' && active ? (
             <>
-              <CircleNotch className="size-3.5 shrink-0 animate-spin text-primary" />
+              <CircleNotch className="size-3.5 shrink-0 animate-spin text-foreground" />
               <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
                 {active.content}
               </span>
             </>
           ) : (
-            <span className="min-w-0 flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="eyebrow min-w-0 flex-1 truncate !text-[10.5px]">
               {effectiveTab === 'tasks' ? t('chat.tasks') : t('subagents.running')}
             </span>
           )}
           {effectiveTab === 'tasks' && tasks.length > 0 ? (
-            <span className="shrink-0 text-[11px] font-semibold tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
               {done}/{tasks.length}
             </span>
           ) : null}
@@ -158,7 +158,7 @@ export function TaskBar({
       </div>
 
       {open && effectiveTab === 'tasks' && tasks.length > 0 ? (
-        <ul className="max-h-48 space-y-1.5 overflow-y-auto border-t border-border px-3 py-2">
+        <ul className="m-fade max-h-48 space-y-1.5 overflow-y-auto border-t border-border px-3 py-2">
           {tasks.map((it, i) => (
             <li key={i} className="flex items-start gap-2 text-[12px] leading-snug">
               <span className="mt-0.5">{glyph(it.status, live)}</span>
@@ -180,17 +180,17 @@ export function TaskBar({
       ) : null}
 
       {open && effectiveTab === 'agents' ? (
-        <ul className="max-h-48 space-y-1 overflow-y-auto border-t border-border px-2 py-2">
+        <ul className="m-fade max-h-48 space-y-1 overflow-y-auto border-t border-border px-2 py-2">
           {agents.map((a) => (
             <li key={a.id}>
               <button
                 type="button"
                 onClick={() => onOpenSubAgent?.(a)}
-                className="flex w-full items-start gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left transition hover:bg-muted"
+                className="flex w-full items-start gap-2 px-2 py-1.5 text-left transition-colors hover:bg-raised"
               >
-                <CircleNotch className="mt-0.5 size-3.5 shrink-0 animate-spin text-primary" />
+                <CircleNotch className="mt-0.5 size-3.5 shrink-0 animate-spin text-foreground" />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[12px] font-medium text-foreground">
+                  <span className="block font-mono text-[12px] text-foreground">
                     {a.role || 'assistant'}
                   </span>
                   <span className="block truncate text-[11px] text-muted-foreground">{a.task}</span>

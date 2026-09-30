@@ -141,7 +141,7 @@ export default function ConfigPage() {
 
       {loading && !data ? (
         <div className="grid gap-5 lg:grid-cols-[13rem_1fr]">
-          <Skeleton className="hidden h-80 w-full rounded-[var(--radius-lg)] lg:block" />
+          <Skeleton className="hidden h-80 w-full lg:block" />
           <SkeletonList count={5} />
         </div>
       ) : !data ? (
@@ -149,7 +149,7 @@ export default function ConfigPage() {
       ) : searching ? (
         // Search replaces the layout entirely: one flat list, group shown per row.
         <div className="space-y-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-          <p className="text-xs text-muted-foreground">{t('config.matches', { n: matchCount })}</p>
+          <p className="font-mono text-[11px] tabular-nums text-muted-foreground">{t('config.matches', { n: matchCount })}</p>
           {matchCount === 0 ? <EmptyState title={t('config.noMatch')} /> : null}
           {modulesMatch ? <ModulesSettings /> : null}
           {appearanceMatch ? <AppearanceCard /> : null}
@@ -196,7 +196,7 @@ export default function ConfigPage() {
             ) : (
               <>
                 {section === ESSENTIALS ? (
-                  <p className="text-xs leading-relaxed text-muted-foreground sm:text-sm">
+                  <p className="text-sm leading-relaxed text-muted-foreground">
                     {t('config.essentialsHint')}
                   </p>
                 ) : null}
@@ -235,16 +235,16 @@ function MovedResults({ moved }: { moved: MovedField<Field>[] }) {
             <Link
               key={field.path}
               to={settingsHref(route)}
-              className="flex flex-col gap-1 px-4 py-3 transition-colors hover:bg-accent/50 sm:flex-row sm:items-center sm:gap-4 sm:px-5"
+              className="flex flex-col gap-1 px-4 py-3.5 transition-colors duration-200 hover:bg-raised sm:flex-row sm:items-center sm:gap-4 sm:px-5"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-sm font-medium">{field.label}</span>
+                  <span className="text-[13px] font-medium">{field.label}</span>
                   <Badge variant="outline">{humanizeGroup(field.group)}</Badge>
                 </div>
-                <p className="truncate font-mono text-[10px] text-muted-foreground/70">{field.path}</p>
+                <p className="mt-0.5 truncate font-mono text-[11px] text-dim">{field.path}</p>
               </div>
-              <span className="flex items-center gap-1 text-xs text-primary sm:shrink-0">
+              <span className="flex items-center gap-1 text-xs text-foreground underline decoration-line underline-offset-4 sm:shrink-0">
                 {t('settings.movedTo', { place: `${t(hubKey)} › ${t(tabKey)}` })}
                 <ArrowRight className="size-3.5 shrink-0" />
               </span>
@@ -272,17 +272,17 @@ function SectionRail({
   const { t } = useI18n()
 
   const dot = (n: number) =>
-    n > 0 ? <span className="size-1.5 shrink-0 rounded-full bg-primary" /> : null
+    n > 0 ? <span className="size-1.5 shrink-0 rounded-full bg-[var(--warning)]" /> : null
 
   const item = (id: string, label: string, badge?: React.ReactNode, icon?: React.ReactNode) => (
     <button
       key={id}
       onClick={() => onSelect(id)}
       className={cn(
-        'flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm transition-colors',
+        'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-[background-color,color] duration-200',
         section === id
-          ? 'bg-primary/12 font-medium text-primary'
-          : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+          ? 'bg-nav-active text-foreground'
+          : 'text-muted-foreground hover:bg-raised hover:text-foreground',
       )}
     >
       {icon}
@@ -313,9 +313,9 @@ function SectionRail({
               weight={section === APPEARANCE ? 'fill' : 'regular'}
             />,
           )}
-          <div className="my-1.5 h-px bg-border" />
+          <div className="my-2 h-px bg-border" />
           {groups.map((g) => item(g, humanizeGroup(g), dot(dirtyPerGroup[g] ?? 0)))}
-          <div className="my-1.5 h-px bg-border" />
+          <div className="my-2 h-px bg-border" />
           {item(YAML, t('config.yamlSection'))}
         </div>
       </nav>
@@ -324,7 +324,7 @@ function SectionRail({
         <select
           value={section}
           onChange={(e) => onSelect(e.target.value)}
-          className="h-10 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 text-sm"
+          className="h-10 w-full cursor-pointer border border-input bg-transparent px-3 text-sm transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none"
           aria-label={t('config.title')}
         >
           <option value={ESSENTIALS}>{t('config.essentials')}</option>

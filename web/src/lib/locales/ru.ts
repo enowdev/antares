@@ -381,6 +381,7 @@ const ru: Dict = {
   'chat.reasoning': 'Рассуждение',
   'chat.tokensOut': '{n} токенов на выходе',
   'chat.welcomeTitle': 'Начните разговор',
+  'chat.welcomeSub': 'Остальное сделает Antares.',
   'chat.welcomeDesc':
     'Antares имеет доступ к файлам, терминалу, веб-поиску, долговременной памяти и индексу RAG.',
   'chat.suggest1': 'Опиши структуру проекта в этом рабочем каталоге',
@@ -745,6 +746,7 @@ const ru: Dict = {
   'error.retry': 'Повторить',
 
   'setup.subtitle': 'Первоначальная настройка',
+  'login.eyebrow': 'Требуется вход',
   'setup.back': 'Назад',
   'setup.next': 'Далее',
   'setup.local': 'локально',

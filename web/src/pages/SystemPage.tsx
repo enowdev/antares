@@ -63,14 +63,17 @@ function Stat({
   hint?: string
 }) {
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        {icon}
-        <span className="text-[11px] font-medium uppercase tracking-wide">{label}</span>
+    <div
+      data-reveal
+      className="border border-border px-4 py-3.5 transition-[border-color,background-color] duration-200 hover:border-line"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="eyebrow truncate">{label}</span>
+        <span className="shrink-0 text-dim">{icon}</span>
       </div>
-      <p className="mt-2 text-xl font-semibold tabular-nums">{value}</p>
-      {hint ? <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p> : null}
-    </Card>
+      <p className="mt-2 text-2xl font-medium tabular-nums tracking-[-0.5px]">{value}</p>
+      {hint ? <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
   )
 }
 
@@ -98,7 +101,7 @@ export default function SystemPage() {
               icon={<Timer className="size-4" />}
               label={t('system.uptime')}
               value={uptime(data.uptime_seconds)}
-              hint={`v${data.version}`}
+              hint={data.version.startsWith('v') ? data.version : `v${data.version}`}
             />
             <Stat
               icon={<Lightning className="size-4" />}
@@ -123,11 +126,11 @@ export default function SystemPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Cpu className="size-4 text-primary" weight="fill" />
+                <Cpu className="size-4 text-muted-foreground" />
                 {t('system.runtime')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+            <CardContent className="grid gap-x-8 text-xs sm:grid-cols-2">
               <Row label="Go" value={`${data.go_version} · ${data.os}/${data.arch}`} />
               <Row label={t('system.goroutines')} value={String(data.goroutines)} />
               <Row label={t('system.heap')} value={formatBytes(data.memory_alloc)} />
@@ -141,7 +144,7 @@ export default function SystemPage() {
             <CardHeader>
               <CardTitle>{t('system.activeConfig')}</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+            <CardContent className="grid gap-x-8 text-xs sm:grid-cols-2">
               <Row label={t('system.model')} value={data.model || '—'} wrap />
               <Row label={t('system.provider')} value={data.provider || '—'} />
               <Row
@@ -189,16 +192,16 @@ function Row({
 }) {
   if (wrap) {
     return (
-      <div className="min-w-0 border-b border-border py-1.5 last:border-0">
+      <div className="min-w-0 border-t border-border py-2.5">
         <span className="text-muted-foreground">{label}</span>
-        <p className="mt-0.5 break-all font-medium">{value}</p>
+        <p className="mt-1 break-all font-mono text-xs text-foreground">{value}</p>
       </div>
     )
   }
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border py-1.5 last:border-0">
+    <div className="flex min-w-0 items-center justify-between gap-3 border-t border-border py-2.5">
       <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="min-w-0 truncate text-right font-medium">{value}</span>
+      <span className="min-w-0 truncate text-right font-mono text-xs tabular-nums text-foreground">{value}</span>
     </div>
   )
 }

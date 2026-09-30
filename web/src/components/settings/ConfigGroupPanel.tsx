@@ -120,13 +120,17 @@ export function ConfigNotices({ editor }: { editor: ConfigEditor }) {
   return (
     <>
       {editor.error ? (
-        <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+        <div
+          role="alert"
+          className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+        >
           <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
           <span className="min-w-0 break-words">{editor.error}</span>
         </div>
       ) : null}
       {editor.restartFields.length > 0 ? (
-        <p role="status" className="break-words rounded-[var(--radius-sm)] border border-border bg-muted p-3 text-sm">
+        <p role="status" className="m-rise flex items-start gap-2.5 break-words border border-border bg-card px-4 py-3 text-sm">
+          <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-[var(--warning)]" aria-hidden />
           {t('config.restartPending', { fields: editor.restartFields.join(', ') })}
         </p>
       ) : null}
@@ -214,7 +218,7 @@ function ConfigGroupFields({ editor, groups }: { editor: ConfigEditor; groups: s
       {hiddenCount > 0 ? (
         <button
           onClick={() => setShowAdvanced(true)}
-          className="flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-dashed border-border py-2.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+          className="flex w-full items-center justify-center gap-1.5 border border-dashed border-border py-2.5 font-mono text-[11px] lowercase text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
         >
           <CaretDown className="size-3.5" />
           {t('config.showAdvanced', { n: hiddenCount })}
@@ -222,7 +226,7 @@ function ConfigGroupFields({ editor, groups }: { editor: ConfigEditor; groups: s
       ) : showAdvanced && groupFields.some((f) => f.tier === 'advanced') ? (
         <button
           onClick={() => setShowAdvanced(false)}
-          className="flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-dashed border-border py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="flex w-full items-center justify-center gap-1.5 border border-dashed border-border py-2.5 font-mono text-[11px] lowercase text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
         >
           <CaretDown className="size-3.5 rotate-180" />
           {t('config.hideAdvanced')}
@@ -288,11 +292,11 @@ function FieldRow({
   // Booleans read best as one compact row with the switch on the right.
   if (field.type === 'boolean') {
     return (
-      <div className="flex items-center gap-4 px-4 py-3 sm:px-5">
+      <div className="flex items-center gap-4 px-4 py-3.5 sm:px-5">
         <div className="min-w-0 flex-1">
           <FieldLabel field={field} dirty={dirty} showGroup={showGroup} />
           {field.help ? (
-            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{field.help}</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{field.help}</p>
           ) : null}
         </div>
         <Switch checked={!!value} onCheckedChange={onChange} />
@@ -301,11 +305,11 @@ function FieldRow({
   }
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
+    <div className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
       <div className="min-w-0 sm:w-[42%] sm:pt-1.5">
         <FieldLabel field={field} dirty={dirty} showGroup={showGroup} />
         {field.help ? (
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{field.help}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{field.help}</p>
         ) : null}
       </div>
 
@@ -314,10 +318,10 @@ function FieldRow({
           <select
             value={String(value ?? '')}
             onChange={(e) => onChange(e.target.value)}
-            className="h-9 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 text-sm"
+            className="h-9 w-full cursor-pointer border border-input bg-transparent px-3 font-mono text-base transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none sm:text-xs"
           >
             {field.enum.map((opt) => (
-              <option key={opt} value={opt}>
+              <option key={opt} value={opt} className="bg-popover text-popover-foreground">
                 {opt}
               </option>
             ))}
@@ -408,14 +412,14 @@ function FieldLabel({
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Label className={cn('text-sm', dirty && 'text-primary')}>{field.label}</Label>
+        <Label>{field.label}</Label>
         {showGroup ? <Badge variant="outline">{humanizeGroup(field.group)}</Badge> : null}
         {dirty ? <Badge>{t('config.changed')}</Badge> : null}
-        <span className="text-xs text-muted-foreground">
+        <span className="font-mono text-[11px] text-dim">
           {t(field.reload === 'restart_required' ? 'config.reloadRestart' : field.reload === 'reconciled' ? 'config.reloadReconciled' : 'config.reloadLive')}
         </span>
       </div>
-      <p className="truncate font-mono text-[10px] text-muted-foreground/70">{field.path}</p>
+      <p className="mt-0.5 truncate font-mono text-[11px] text-dim">{field.path}</p>
     </>
   )
 }

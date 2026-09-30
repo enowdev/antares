@@ -29,6 +29,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { SensitiveGate } from '@/components/ui/SensitiveGate'
 import { useApi } from '@/lib/hooks'
+import { cn } from '@/lib/utils'
 import { post, del } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -98,14 +99,14 @@ export default function SocialMediaPage() {
 
   return (
     <PageLayout>
-      {error && <Card className="border-destructive/50"><CardContent className="py-3 text-sm text-destructive">{error}</CardContent></Card>}
+      {error && <p role="alert" className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">{error}</p>}
 
       {s && !s.encryption_ready && (
-        <Card className="border-warning/50">
+        <Card className="border-[color-mix(in_oklch,var(--warning)_45%,var(--border))]">
           <CardHeader>
-            <CardTitle className="text-sm">{t('social.onboarding.encryptionRequired')}</CardTitle>
+            <CardTitle>{t('social.onboarding.encryptionRequired')}</CardTitle>
           </CardHeader>
-          <CardContent className="flex items-center justify-between">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">{t('social.onboarding.description')}</p>
             <Button size="sm" loading={busy === 'encryption'} onClick={() => handleAction('encryption', async () => {
               const res = await post<{ recovery_key: string }>('/social/encryption/setup', {})
@@ -116,13 +117,13 @@ export default function SocialMediaPage() {
       )}
 
       {showRecoveryKey && (
-        <Card className="border-success/50">
+        <Card reveal={false} className="m-rise border-[color-mix(in_oklch,var(--success)_45%,var(--border))]">
           <CardHeader>
-            <CardTitle className="text-sm">{t('social.onboarding.recoveryKeyTitle')}</CardTitle>
+            <CardTitle>{t('social.onboarding.recoveryKeyTitle')}</CardTitle>
             <CardDescription>{t('social.onboarding.recoveryKeyDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <code className="block break-all rounded-[var(--radius-sm)] bg-muted p-3 text-sm">{recoveryKey}</code>
+            <code className="block break-all border border-border bg-background p-3 font-mono text-sm">{recoveryKey}</code>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => {
                 const blob = new Blob([recoveryKey], { type: 'text/plain' })
@@ -142,6 +143,7 @@ export default function SocialMediaPage() {
             their state reads at a glance. Each column is status plus one action. */}
         <Card className="grid overflow-hidden lg:grid-cols-3">
           <SetupItem
+            done={!!s?.imap_configured}
             icon={<EnvelopeSimple className="size-4" />}
             title={t('social.gmail.title')}
             badge={s?.imap_configured
@@ -151,7 +153,7 @@ export default function SocialMediaPage() {
           >
             {s?.imap_configured ? (
               <>
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={`${s.imap_host}:${s.imap_port}`}>
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={`${s.imap_host}:${s.imap_port}`}>
                   {s.imap_username}
                 </span>
                 <Button size="sm" variant="outline" onClick={() => setShowImap(true)}>{t('social.gmail.edit')}</Button>
@@ -162,6 +164,7 @@ export default function SocialMediaPage() {
           </SetupItem>
 
           <SetupItem
+            done={s?.browser?.state === 'running'}
             icon={<Globe className="size-4" />}
             title={t('social.browser.title')}
             badge={<BrowserBadge state={s?.browser?.state ?? 'disabled'} />}
@@ -180,21 +183,22 @@ export default function SocialMediaPage() {
           </SetupItem>
 
           <SetupItem
+            done={!!s?.autopilot_enabled}
             icon={<ArrowsClockwise className="size-4" />}
             title={t('social.autopilot.title')}
             description={t('social.autopilot.description')}
           >
-            <label className="flex cursor-pointer items-center gap-2.5 text-xs font-medium text-muted-foreground">
+            <label className="flex cursor-pointer items-center gap-2.5 text-xs text-muted-foreground">
               <Switch checked={s?.autopilot_enabled ?? false} disabled={busy === 'autopilot'} onCheckedChange={(v) => handleAction('autopilot', () => post('/social/autopilot', { enabled: v }))} />
               {t('social.autopilot.toggle')}
             </label>
           </SetupItem>
         </Card>
 
-        <section className="space-y-3">
-          <h2 className="flex items-baseline gap-2 text-sm font-semibold">
+        <section data-reveal className="space-y-3">
+          <h2 className="flex items-baseline gap-2 text-[15px] font-medium">
             {t('social.accounts.title')}
-            <span className="text-xs font-normal text-muted-foreground">{accountCount}</span>
+            <span className="font-mono text-xs font-normal tabular-nums text-muted-foreground">{accountCount}</span>
           </h2>
           {accountCount > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -235,6 +239,7 @@ export default function SocialMediaPage() {
 }
 
 function SetupItem({
+  done,
   icon,
   title,
   badge,
@@ -242,6 +247,7 @@ function SetupItem({
   error,
   children,
 }: {
+  done: boolean
   icon: ReactNode
   title: string
   badge?: ReactNode
@@ -250,15 +256,23 @@ function SetupItem({
   children: ReactNode
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-2 border-border p-4 [&:not(:first-child)]:border-t lg:[&:not(:first-child)]:border-l lg:[&:not(:first-child)]:border-t-0">
+    <div className="relative flex min-w-0 flex-col gap-2 border-border p-5 [&:not(:first-child)]:border-t lg:[&:not(:first-child)]:border-l lg:[&:not(:first-child)]:border-t-0">
+      {/* A square that fills once this piece is set up, as on a stage strip. */}
       {/* Fixed height: a column without a badge keeps its title level with the others. */}
       <div className="flex h-6 min-w-0 items-center gap-2">
+        <span
+          aria-hidden
+          className={cn(
+            'size-[7px] shrink-0 transition-colors duration-300',
+            done ? 'bg-foreground' : 'shadow-[inset_0_0_0_1px_var(--line)]',
+          )}
+        />
         <span className="shrink-0 text-muted-foreground">{icon}</span>
-        <h3 className="min-w-0 truncate text-sm font-medium">{title}</h3>
+        <h3 className="min-w-0 truncate text-[15px] font-medium">{title}</h3>
         {badge ? <span className="ml-auto shrink-0">{badge}</span> : null}
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
-      {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
+      {error ? <p role="alert" className="m-rise text-xs text-destructive">{error}</p> : null}
       <div className="mt-auto flex min-h-8 min-w-0 items-center gap-2 pt-1">{children}</div>
     </div>
   )
@@ -308,7 +322,7 @@ function IMAPDialog({ open, defaults, onOpenChange, onDone }: { open: boolean; d
           </div>
           <div className="space-y-1.5"><Label>{t('social.gmail.username')}</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="email@example.com" autoComplete="off" /></div>
           <div className="space-y-1.5"><Label>{t('social.gmail.password')}</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></div>
-          <details className="rounded-[var(--radius-sm)] border border-border bg-muted/50 p-3 text-xs">
+          <details className="border border-border p-3 text-xs">
             <summary className="flex cursor-pointer items-center gap-1.5 font-medium text-muted-foreground">
               <Info className="size-3.5" />
               {t('social.gmail.appPasswordTutorial')}
@@ -344,12 +358,12 @@ function AccountCard({ acct, onRemoved }: { acct: SocialAccount; onRemoved: () =
     <Card className="flex flex-col">
       <CardContent className="flex flex-1 flex-col gap-3 p-4 sm:p-4">
         <div className="flex items-start gap-3">
-          <div className="grid size-9 shrink-0 place-items-center rounded-[var(--radius-md)] bg-primary/10 text-sm font-semibold text-primary">
+          <div className="grid size-9 shrink-0 place-items-center border border-line bg-raised text-sm font-medium text-foreground">
             {initial}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium leading-5">{name}</p>
-            <p className="truncate text-xs text-muted-foreground">
+            <p className="truncate font-mono text-xs text-muted-foreground">
               {acct.platform.trim().toLowerCase()} · @{acct.username}
             </p>
           </div>
@@ -371,7 +385,7 @@ function AccountCard({ acct, onRemoved }: { acct: SocialAccount; onRemoved: () =
               href={acct.profile_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary"
+              className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground underline decoration-line underline-offset-4 transition-colors hover:text-foreground hover:decoration-foreground"
               title={acct.profile_url}
             >
               <span className="truncate">{t('social.accounts.openProfile')}</span>
@@ -420,7 +434,7 @@ function AddAccountDialog({ open, onOpenChange, onDone }: { open: boolean; onOpe
           <div className="space-y-1.5"><Label>{t('social.accounts.password')}</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></div>
           <div className="space-y-1.5"><Label>{t('social.accounts.recovery')}</Label><Input value={recovery} onChange={(e) => setRecovery(e.target.value)} placeholder="Optional recovery codes" /></div>
           <div className="space-y-1.5"><Label>{t('social.accounts.profileUrl')}</Label><Input type="url" value={profileUrl} onChange={(e) => setProfileUrl(e.target.value)} placeholder="https://..." /></div>
-          {err && <p role="alert" className="rounded-[var(--radius-sm)] border border-destructive/30 bg-destructive/5 p-2.5 text-xs text-destructive">{err}</p>}
+          {err && <p role="alert" className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-4 py-3 text-sm text-destructive">{err}</p>}
         </DialogBody>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>{t('common.cancel')}</Button>

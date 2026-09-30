@@ -14,7 +14,7 @@ export function LanguagePicker({ id, className }: { id?: string; className?: str
         id={id}
         value={lang}
         onChange={(e) => setLang(e.target.value as typeof lang)}
-        className="h-9 w-full cursor-pointer rounded-[var(--radius-sm)] border border-input bg-background pl-9 pr-3 text-sm"
+        className="h-9 w-full cursor-pointer border border-input bg-transparent pl-9 pr-3 text-sm transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none"
         aria-label={t('nav.language')}
       >
         {LANGUAGES.map((l) => (
@@ -36,7 +36,7 @@ export function ThemeToggle() {
     { id: 'dark' as const, label: t('settings.themeDark'), Icon: Moon },
   ]
   return (
-    <div role="radiogroup" aria-label={t('settings.theme')} className="inline-flex rounded-[var(--radius-sm)] border border-input p-0.5">
+    <div role="radiogroup" aria-label={t('settings.theme')} className="inline-flex rounded-full border border-border bg-card p-1">
       {options.map(({ id, label, Icon }) => {
         const active = theme === id
         return (
@@ -47,10 +47,8 @@ export function ThemeToggle() {
             aria-checked={active}
             onClick={() => setTheme(id)}
             className={cn(
-              'flex h-8 items-center gap-1.5 rounded-[calc(var(--radius-sm)-2px)] px-3 text-sm transition-colors',
-              active
-                ? 'bg-primary/12 font-medium text-primary'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+              'flex h-7 items-center gap-1.5 rounded-full px-3.5 text-xs transition-[background-color,color] duration-200',
+              active ? 'bg-nav-active text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <Icon className="size-4" weight={active ? 'fill' : 'regular'} />
@@ -71,15 +69,15 @@ export function AppearanceCard() {
         <CardTitle>{t('settings.appearance')}</CardTitle>
         <CardDescription>{t('settings.appearanceDesc')}</CardDescription>
       </CardHeader>
-      <CardContent className="divide-y divide-border p-0">
-        <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
-          <Label htmlFor="appearance-language" className="text-sm sm:w-[42%]">
+      <CardContent className="divide-y divide-border border-t border-border p-0 sm:p-0">
+        <div className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
+          <Label htmlFor="appearance-language" className="sm:w-[42%]">
             {t('settings.language')}
           </Label>
           <LanguagePicker id="appearance-language" className="sm:flex-1" />
         </div>
-        <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
-          <span className="text-sm font-medium sm:w-[42%]">{t('settings.theme')}</span>
+        <div className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
+          <span className="text-[13px] font-medium sm:w-[42%]">{t('settings.theme')}</span>
           <div className="sm:flex-1">
             <ThemeToggle />
           </div>

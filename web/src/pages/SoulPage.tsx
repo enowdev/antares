@@ -62,14 +62,14 @@ export default function SoulPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Sparkle className="size-4 text-primary" weight="fill" />
+              <Sparkle className="size-4 text-muted-foreground" />
               {t('soul.title')}
             </CardTitle>
             <CardDescription>{t('soul.desc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {unset ? (
-              <div className="rounded-[var(--radius-md)] border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+              <div className="m-rise border border-border bg-raised px-3 py-2 text-xs text-muted-foreground">
                 {t('soul.unsetHint')}
               </div>
             ) : null}
@@ -84,8 +84,8 @@ export default function SoulPage() {
               className="w-full resize-y font-mono text-[13px] leading-relaxed"
             />
 
-            {error ? <p className="text-xs text-[var(--destructive)]">{error}</p> : null}
-            {msg ? <p className="text-xs text-[var(--success)]">{msg}</p> : null}
+            {error ? <p className="m-rise text-xs text-[var(--destructive)]">{error}</p> : null}
+            {msg ? <p className="m-rise text-xs text-[var(--success)]">{msg}</p> : null}
 
             <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" onClick={() => save(text)} loading={busy} disabled={!dirty} className="gap-1.5">

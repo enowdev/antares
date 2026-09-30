@@ -133,59 +133,149 @@ export default function AutopilotPage() {
           description={t('autopilot.emptyDesc')}
         />
       ) : (
-        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-          {shown.map((c) => (
-            <div
-              key={c.id}
-              className="group flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5 transition-colors hover:border-primary/40"
-            >
-              <button onClick={() => setDetail(c)} className="min-w-0 flex-1 text-left">
-                <div className="flex items-start justify-between gap-2">
-                  <span className="min-w-0 truncate text-sm font-medium">{c.title}</span>
-                  <Badge variant={STATUS_VARIANT[c.status]} className="shrink-0">
-                    {t(`autopilot.status.${c.status}` as never)}
-                  </Badge>
+        <div className="space-y-6">
+          <Pipeline counts={counts} />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {shown.map((c) => (
+              <div
+                key={c.id}
+                data-reveal
+                className="tp-panel group relative flex flex-col border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line"
+              >
+                {c.status === 'running' ? (
+                  <span
+                    aria-hidden
+                    className="absolute inset-x-0 -top-px h-px origin-left bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
+                  />
+                ) : null}
+                <button onClick={() => setDetail(c)} className="min-w-0 flex-1 text-left">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 truncate text-sm font-medium">{c.title}</span>
+                    <Badge variant={STATUS_VARIANT[c.status]} className="shrink-0">
+                      {t(`autopilot.status.${c.status}` as never)}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{c.prompt}</p>
+                  {c.error ? (
+                    <p className="mt-2 line-clamp-2 text-xs text-destructive">{c.error}</p>
+                  ) : null}
+                </button>
+                <div className="-mx-4 mt-3.5 flex items-center gap-2 border-t border-border px-4 pt-2.5">
+                  <StageTrack status={c.status} />
+                  {c.pr ? (
+                    <a
+                      href={c.pr}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 font-mono text-[11px] text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground"
+                    >
+                      <ArrowSquareOut className="size-3.5" /> PR
+                    </a>
+                  ) : null}
+                  <span className="ml-auto font-mono text-[11px] text-dim">
+                    <TimeAgo iso={c.updated_at} />
+                  </span>
+                  {c.status === 'pending' || c.status === 'failed' ? (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t('common.remove')}
+                      onClick={async () => {
+                        await del(`/autopilot/${c.id}`)
+                        reload()
+                      }}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <TrashSimple className="size-4" />
+                    </Button>
+                  ) : null}
                 </div>
-                <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">{c.prompt}</p>
-                {c.error ? (
-                  <p className="mt-1.5 line-clamp-2 text-xs text-destructive">{c.error}</p>
-                ) : null}
-              </button>
-              <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2">
-                {c.pr ? (
-                  <a
-                    href={c.pr}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1 text-[11px] text-primary underline underline-offset-2"
-                  >
-                    <ArrowSquareOut className="size-3.5" /> PR
-                  </a>
-                ) : null}
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  <TimeAgo iso={c.updated_at} />
-                </span>
-                {c.status === 'pending' || c.status === 'failed' ? (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t('common.remove')}
-                    onClick={async () => {
-                      await del(`/autopilot/${c.id}`)
-                      reload()
-                    }}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    <TrashSimple className="size-4" />
-                  </Button>
-                ) : null}
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </PageLayout>
+  )
+}
+
+// The path a card walks. Failed sits off it, so it is drawn as a mark, not a stage.
+const STAGES: Card_['status'][] = ['pending', 'running', 'verified', 'merged']
+
+/** Stage tiles: a square that fills once a stage holds cards, and a rule over the one working now. */
+function Pipeline({ counts }: { counts: Record<string, number> }) {
+  const { t } = useI18n()
+  const live = counts.running > 0
+  return (
+    <ol
+      data-reveal
+      className="grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-5"
+    >
+      {[...STAGES, 'failed' as const].map((s) => {
+        const n = counts[s] ?? 0
+        const failed = s === 'failed'
+        return (
+          <li
+            key={s}
+            aria-current={live && s === 'running' ? 'step' : undefined}
+            className={cn('relative bg-card px-4 py-3.5', failed && 'col-span-2 sm:col-span-1')}
+          >
+            {live && s === 'running' ? (
+              <span
+                aria-hidden
+                className="absolute inset-x-0 -top-px h-px origin-left bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
+              />
+            ) : null}
+            <p className="eyebrow flex items-center gap-2">
+              <span
+                aria-hidden
+                className={cn(
+                  'size-[7px] shrink-0',
+                  n === 0
+                    ? 'shadow-[inset_0_0_0_1px_var(--line)]'
+                    : failed
+                      ? 'bg-destructive'
+                      : 'bg-foreground',
+                )}
+              />
+              {t(`autopilot.status.${s}` as never)}
+            </p>
+            <p
+              className={cn(
+                'mt-2 text-2xl font-medium tabular-nums',
+                n === 0 && 'text-dim',
+                failed && n > 0 && 'text-destructive',
+              )}
+            >
+              {n}
+            </p>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+/** Where one card is on the path, as four small squares. */
+function StageTrack({ status }: { status: Card_['status'] }) {
+  const reached = status === 'failed' ? 1 : STAGES.indexOf(status)
+  return (
+    <span aria-hidden className="flex items-center gap-1">
+      {STAGES.map((s, i) => (
+        <span
+          key={s}
+          className={cn(
+            'size-[6px]',
+            i < reached || (i === reached && status !== 'failed')
+              ? 'bg-foreground'
+              : status === 'failed' && i === reached
+                ? 'bg-destructive'
+                : 'shadow-[inset_0_0_0_1px_var(--line)]',
+          )}
+        />
+      ))}
+    </span>
   )
 }
 
@@ -207,10 +297,10 @@ function Chip({
     <button
       onClick={onClick}
       className={cn(
-        'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+        'rounded-full border px-3 py-1.5 text-xs transition-colors',
         active
-          ? 'border-primary bg-primary/10 text-primary'
-          : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+          ? 'border-transparent bg-nav-active text-foreground'
+          : 'border-border text-muted-foreground hover:text-foreground',
       )}
     >
       {children}
@@ -224,12 +314,12 @@ function DetailDialog({ card, onClose }: { card: Card_; onClose: () => void }) {
   const block = (label: string, value?: string, mono = false) =>
     value ? (
       <div className="space-y-1">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="eyebrow">
           {label}
         </p>
         <pre
           className={cn(
-            'max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] border border-border bg-muted/30 p-2.5 text-[11px] leading-relaxed',
+            'max-h-56 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 text-xs leading-relaxed',
             mono && 'font-mono',
           )}
         >
@@ -258,7 +348,7 @@ function DetailDialog({ card, onClose }: { card: Card_; onClose: () => void }) {
           {card.branch ? (
             <div className="flex items-center gap-2 text-xs">
               <span className="text-muted-foreground">{t('autopilot.detailBranch')}</span>
-              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">
+              <code className="border border-border px-1.5 py-0.5 font-mono text-[11px]">
                 {card.branch}
               </code>
             </div>
@@ -268,7 +358,7 @@ function DetailDialog({ card, onClose }: { card: Card_; onClose: () => void }) {
               href={card.pr}
               target="_blank"
               rel="noreferrer noopener"
-              className="inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2"
+              className="inline-flex items-center gap-1.5 break-all font-mono text-xs text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground"
             >
               <ArrowSquareOut className="size-4" /> {card.pr}
             </a>

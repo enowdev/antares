@@ -493,6 +493,7 @@ const id: Dict = {
   'chat.running': 'Menjalankan {tool}…',
   'chat.tokensOut': '{n} token keluar',
   'chat.welcomeTitle': 'Mulai percakapan',
+  'chat.welcomeSub': 'Antares mengerjakan sisanya.',
   'chat.welcomeDesc':
     'Antares punya akses ke berkas, terminal, pencarian web, memori jangka panjang, dan indeks RAG.',
   'chat.suggest1': 'Ringkas struktur proyek di workspace ini',
@@ -932,6 +933,7 @@ const id: Dict = {
   'error.retry': 'Coba lagi',
 
   'setup.subtitle': 'Penyiapan awal',
+  'login.eyebrow': 'Perlu masuk',
   'setup.back': 'Kembali',
   'setup.next': 'Lanjut',
   'setup.local': 'lokal',

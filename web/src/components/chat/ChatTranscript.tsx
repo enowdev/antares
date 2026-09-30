@@ -52,7 +52,8 @@ const ReasoningBlock = memo(function ReasoningBlock({ text }: { text: string }) 
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-[11px] font-medium transition-colors hover:text-foreground"
+        aria-expanded={open}
+        className="flex items-center gap-1.5 font-mono text-[11px] lowercase transition-colors hover:text-foreground"
       >
         <Brain className="size-3.5" />
         {t('chat.reasoning')}
@@ -64,7 +65,7 @@ const ReasoningBlock = memo(function ReasoningBlock({ text }: { text: string }) 
         <CaretDown className={cn('size-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open ? (
-        <div className="mt-1.5 max-h-80 overflow-y-auto overflow-x-hidden border-l-2 border-border pl-3">
+        <div className="m-fade mt-1.5 max-h-80 overflow-y-auto overflow-x-hidden border-l border-line pl-3">
           {bodyReady ? (
             <pre className="m-0 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
               {text}
@@ -82,7 +83,7 @@ const ReasoningBlock = memo(function ReasoningBlock({ text }: { text: string }) 
 // the same message changes during streaming.
 const TextSegment = memo(function TextSegment({ text }: { text: string }) {
   return (
-    <div className="text-[13px] leading-relaxed">
+    <div className="text-sm leading-relaxed">
       <Markdown content={text} />
     </div>
   )
@@ -92,7 +93,7 @@ export function ErrorBanner({ message, className }: { message: string; className
   return (
     <div
       className={cn(
-        'flex items-start gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive',
+        'm-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive',
         className,
       )}
     >
@@ -125,9 +126,9 @@ export function AssistantErrorBlock({
     }
   }
   return (
-    <div className="rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 text-destructive">
-      <div className="flex items-center justify-between gap-2 border-b border-destructive/30 px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium">
+    <div className="border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card text-destructive">
+      <div className="flex items-center justify-between gap-2 border-b border-[color-mix(in_oklch,var(--destructive)_30%,var(--border))] px-3 py-1">
+        <div className="flex items-center gap-2 font-mono text-xs lowercase">
           <Warning className="size-4 shrink-0" weight="fill" />
           <span>{t('chat.errorLabel')}</span>
         </div>
@@ -137,7 +138,7 @@ export function AssistantErrorBlock({
             onClick={doCopy}
             title={t('chat.copyError')}
             aria-label={t('chat.copyError')}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-2 text-xs font-medium transition-colors hover:bg-destructive/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-destructive"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2 font-mono text-xs lowercase transition-colors hover:bg-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-destructive"
           >
             {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
             <span className="hidden sm:inline">{copied ? t('common.copied') : t('common.copy')}</span>
@@ -149,7 +150,7 @@ export function AssistantErrorBlock({
               disabled={retryDisabled}
               title={t('chat.retry')}
               aria-label={t('chat.retry')}
-              className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-2 text-xs font-medium transition-colors hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-destructive"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2 font-mono text-xs lowercase transition-colors hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-destructive"
             >
               <ArrowClockwise className="size-3.5" />
               <span className="hidden sm:inline">{t('chat.retry')}</span>
@@ -207,7 +208,7 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   if (message.role === 'user') {
-    // Full-width, quietly set apart with a left rule and a faint tint — the
+    // The TUI's prompt marker: a 2px rule and the text, no bubble. The
     // model's replies own the column, the prompt sits above them as context.
     return (
       <div className="fade-up space-y-2">
@@ -218,7 +219,7 @@ export const MessageBubble = memo(function MessageBubble({
                 key={i}
                 src={src}
                 alt=""
-                className="max-h-48 rounded-[var(--radius-md)] border border-border object-contain"
+                className="max-h-48 border border-border object-contain"
               />
             ))}
           </div>
@@ -228,7 +229,7 @@ export const MessageBubble = memo(function MessageBubble({
             {message.docs.map((d, i) => (
               <div
                 key={i}
-                className="flex max-w-56 items-center gap-1.5 rounded-[var(--radius-sm)] border border-border bg-muted/40 px-2 py-1 text-xs"
+                className="flex max-w-56 items-center gap-1.5 border border-border px-2 py-1 font-mono text-xs"
               >
                 <FileText className="size-4 shrink-0 text-muted-foreground" />
                 <span className="truncate" title={d.name}>
@@ -239,8 +240,8 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         ) : null}
         {message.content ? (
-          <div className="group/user relative rounded-[var(--radius-md)] border-l-2 border-primary bg-muted/40 px-3.5 py-2.5">
-            <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground">
+          <div className="group/user relative border-l-2 border-foreground/40 py-1 pl-3.5 pr-16">
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
               {message.content}
             </p>
             {/* Edit affordance: re-send the conversation from this message,
@@ -252,7 +253,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onClick={() => onEdit(message.id, message.content)}
                 title={t('edit.button')}
                 aria-label={t('edit.button')}
-                className="absolute -top-2 right-2 hidden items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] text-muted-foreground shadow-sm transition-colors hover:text-foreground group-hover/user:flex"
+                className="absolute right-0 top-0.5 hidden items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] lowercase text-muted-foreground transition-colors hover:border-line hover:text-foreground focus-visible:flex group-hover/user:flex"
               >
                 <PencilSimple className="size-3" />
                 {t('edit.button')}
@@ -268,8 +269,8 @@ export const MessageBubble = memo(function MessageBubble({
   // transcript honest about what came from where.
   if (message.role === 'system') {
     return (
-      <div className="fade-up rounded-[var(--radius-md)] border border-border bg-muted/40 px-3.5 py-3">
-        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="fade-up border border-border bg-card px-3.5 py-3">
+        <div className="mb-1.5 flex items-center gap-1.5 font-mono text-[11px] lowercase text-dim">
           <Terminal className="size-3" />
           {t('chat.command')}
         </div>
@@ -320,7 +321,7 @@ export const MessageBubble = memo(function MessageBubble({
               ),
             )}
             {message.content ? (
-              <div className="text-[13px] leading-relaxed">
+              <div className="text-sm leading-relaxed">
                 <Markdown content={message.content} />
               </div>
             ) : null}
@@ -345,12 +346,12 @@ export const MessageBubble = memo(function MessageBubble({
             )}
           </Button>
           {message.tokensOut ? (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="font-mono text-[10px] tabular-nums text-dim">
               {t('chat.tokensOut', { n: message.tokensOut })}
             </span>
           ) : null}
           {message.createdAt ? (
-            <span className="text-[10px] text-muted-foreground">{timeAgo(message.createdAt)}</span>
+            <span className="font-mono text-[10px] text-dim">{timeAgo(message.createdAt)}</span>
           ) : null}
         </div>
       ) : null}

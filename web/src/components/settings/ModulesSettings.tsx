@@ -54,13 +54,13 @@ export function ModulesSettings() {
     <Card aria-busy={pending || undefined}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <SquaresFour className="size-4 text-primary" weight="fill" />
+          <SquaresFour className="size-4 text-muted-foreground" />
           {t('modules.title')}
         </CardTitle>
         <CardDescription>{t('modules.desc')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="space-y-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="modules-preset">{t('modules.preset')}</Label>
           <select
             id="modules-preset"
@@ -70,10 +70,10 @@ export function ModulesSettings() {
               const id = e.target.value as PresetId
               if (PRESET_IDS.includes(id)) void save(new Set(PRESET_MODULES[id]))
             }}
-            className="block h-9 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 text-sm disabled:opacity-60 sm:max-w-xs"
+            className="block h-9 w-full cursor-pointer border border-input bg-transparent px-3 text-sm transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none disabled:opacity-60 sm:max-w-xs"
           >
             {PRESET_IDS.map((id) => (
-              <option key={id} value={id}>
+              <option key={id} value={id} className="bg-popover text-popover-foreground">
                 {t(`preset.${id}` as MessageKey)}
               </option>
             ))}
@@ -85,17 +85,17 @@ export function ModulesSettings() {
           </select>
         </div>
 
-        <ul className="divide-y divide-border rounded-[var(--radius-sm)] border border-border">
+        <ul className="divide-y divide-border border border-border">
           {MODULE_IDS.map((m) => {
             const hubs = hubsOfModule(HUB_MANIFEST, m)
             const id = `module-${m}`
             return (
-              <li key={m} className="flex items-center gap-3 px-3 py-2.5">
+              <li key={m} data-reveal className="flex items-center gap-3 px-3.5 py-3 transition-colors duration-200 hover:bg-raised">
                 <div className="min-w-0 flex-1">
-                  <label htmlFor={id} className="text-sm font-medium">
+                  <label htmlFor={id} className="text-[13px] font-medium">
                     {hubs.map((h) => t(h.titleKey)).join(', ')}
                   </label>
-                  <p className="truncate text-xs text-muted-foreground">
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {hubs
                       .flatMap((h) => tabsOf(h.id))
                       .map((r) => t(r.tabKey ?? r.titleKey))
@@ -113,7 +113,11 @@ export function ModulesSettings() {
           })}
         </ul>
 
-        {error ? <p className="text-xs text-[var(--destructive)]">{error}</p> : null}
+        {error ? (
+          <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   )

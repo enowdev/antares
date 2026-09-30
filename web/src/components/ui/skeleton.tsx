@@ -5,7 +5,7 @@ export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivEl
   return (
     <div
       aria-hidden
-      className={cn('shimmer rounded-[var(--radius-xs)] bg-muted', className)}
+      className={cn('shimmer bg-raised', className)}
       {...props}
     />
   )
@@ -25,9 +25,9 @@ export function SkeletonText({ lines = 3, className }: { lines?: number; classNa
 /** Placeholder matching the Card layout used across list pages. */
 export function SkeletonCard({ className }: { className?: string }) {
   return (
-    <div className={cn('rounded-[var(--radius-lg)] border border-border bg-card p-4', className)}>
+    <div className={cn('tp-panel border border-border bg-card p-4', className)}>
       <div className="flex items-start gap-3">
-        <Skeleton className="size-9 rounded-full" />
+        <Skeleton className="size-9" />
         <div className="min-w-0 flex-1 space-y-2">
           <Skeleton className="h-4 w-1/3" />
           <Skeleton className="h-3 w-full" />
@@ -52,14 +52,14 @@ export function SkeletonList({ count = 5, className }: { count?: number; classNa
 /** Placeholder rows for tabular data. */
 export function SkeletonTable({ rows = 6, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div className="overflow-hidden rounded-[var(--radius-lg)] border border-border">
-      <div className="flex gap-4 border-b border-border bg-muted/40 px-4 py-3">
+    <div className="overflow-hidden border border-border bg-card">
+      <div className="flex gap-4 border-b border-border px-4 py-3">
         {Array.from({ length: cols }).map((_, i) => (
           <Skeleton key={i} className="h-3 flex-1" />
         ))}
       </div>
       {Array.from({ length: rows }).map((_, r) => (
-        <div key={r} className="flex gap-4 border-b border-border px-4 py-3 last:border-0">
+        <div key={r} className="flex gap-4 border-b border-border px-4 py-3.5 last:border-0">
           {Array.from({ length: cols }).map((_, c) => (
             <Skeleton key={c} className={cn('h-3.5 flex-1', c === 0 && 'max-w-40')} />
           ))}
@@ -74,7 +74,7 @@ export function SkeletonStats({ count = 4 }: { count?: number }) {
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="rounded-[var(--radius-lg)] border border-border bg-card p-4">
+        <div key={i} className="border border-border px-4 py-3.5">
           <Skeleton className="h-3 w-20" />
           <Skeleton className="mt-3 h-7 w-24" />
         </div>

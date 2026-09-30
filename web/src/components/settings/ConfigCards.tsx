@@ -86,7 +86,7 @@ export function GoogleOsintCard({ cookieEdited }: { cookieEdited?: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <GoogleLogo className="size-4 text-primary" weight="fill" />
+          <GoogleLogo className="size-4 text-muted-foreground" />
           {t('osintg.title')}
         </CardTitle>
         <CardDescription>{t('osintg.desc')}</CardDescription>
@@ -111,9 +111,9 @@ export function GoogleOsintCard({ cookieEdited }: { cookieEdited?: string }) {
         </div>
 
         {result?.connected && result.accounts?.length ? (
-          <div className="space-y-2">
+          <div className="m-rise space-y-2">
             {result.accounts.length > 1 ? (
-              <p className="text-[11px] text-muted-foreground">{t('osintg.pick')}</p>
+              <p className="eyebrow">{t('osintg.pick')}</p>
             ) : null}
             <div className="space-y-1">
               {result.accounts.map((a) => {
@@ -124,16 +124,14 @@ export function GoogleOsintCard({ cookieEdited }: { cookieEdited?: string }) {
                     onClick={() => choose(a.authuser)}
                     disabled={selecting !== null}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-2 text-left text-xs transition-colors',
-                      active
-                        ? 'border-[var(--success)]/50 bg-[color-mix(in_oklch,var(--success)_10%,transparent)]'
-                        : 'border-border hover:border-primary/40 hover:bg-accent',
+                      'flex w-full items-center gap-2 border px-3 py-2 text-left text-xs transition-[border-color,background-color] duration-200',
+                      active ? 'border-foreground' : 'border-border hover:border-line hover:bg-raised',
                     )}
                   >
                     <span
                       className={cn(
                         'flex size-4 shrink-0 items-center justify-center rounded-full border',
-                        active ? 'border-[var(--success)] bg-[var(--success)] text-white' : 'border-muted-foreground/40',
+                        active ? 'border-[var(--success)] bg-[var(--success)] text-background' : 'border-line',
                       )}
                     >
                       {active ? <CheckCircle className="size-3" weight="fill" /> : null}
@@ -154,18 +152,20 @@ export function GoogleOsintCard({ cookieEdited }: { cookieEdited?: string }) {
           </div>
         ) : null}
         {result && !result.connected ? (
-          <p className="text-xs text-destructive">{result.error || t('osintg.notConnected')}</p>
+          <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive">
+            {result.error || t('osintg.notConnected')}
+          </p>
         ) : null}
 
-        <div className="rounded-[var(--radius-sm)] bg-muted/40 p-3 text-[11px] leading-relaxed text-muted-foreground">
-          <p className="mb-1 font-medium text-foreground">{t('osintg.howto')}</p>
-          <ol className="list-decimal space-y-0.5 pl-4">
+        <div className="border border-border px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+          <p className="eyebrow mb-2">{t('osintg.howto')}</p>
+          <ol className="list-decimal space-y-1 pl-4 marker:font-mono marker:text-dim">
             <li>
               <a
                 href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm"
                 target="_blank"
                 rel="noreferrer noopener"
-                className="inline-flex items-center gap-1 text-primary underline underline-offset-2"
+                className="inline-flex items-center gap-1 text-foreground underline decoration-line underline-offset-4 transition-colors hover:decoration-foreground"
               >
                 {t('osintg.step1')}
                 <ArrowSquareOut className="size-3" />
@@ -227,7 +227,7 @@ export function DashboardPasswordCard() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Lock className="size-4 text-primary" weight="fill" />
+          <Lock className="size-4 text-muted-foreground" />
           {t('dashpw.title')}
         </CardTitle>
         <CardDescription>
@@ -236,7 +236,7 @@ export function DashboardPasswordCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         {locked ? (
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="dashpw-current">{t('dashpw.current')}</Label>
             <Input
               id="dashpw-current"
@@ -249,7 +249,7 @@ export function DashboardPasswordCard() {
           </div>
         ) : null}
 
-        <div className="space-y-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="dashpw-new">{locked ? t('dashpw.new') : t('dashpw.password')}</Label>
           <div className="relative">
             <Input
@@ -263,7 +263,7 @@ export function DashboardPasswordCard() {
             <button
               type="button"
               onClick={() => setShow((v) => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
               aria-label={t('config.reveal')}
             >
               {show ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
@@ -271,7 +271,7 @@ export function DashboardPasswordCard() {
           </div>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="dashpw-confirm">{t('dashpw.confirm')}</Label>
           <Input
             id="dashpw-confirm"
@@ -284,8 +284,12 @@ export function DashboardPasswordCard() {
           />
         </div>
 
-        {error ? <p className="text-xs text-[var(--destructive)]">{error}</p> : null}
-        {done ? <p className="text-xs text-[var(--success)]">{done}</p> : null}
+        {error ? (
+          <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
+        {done ? <p className="m-rise text-xs text-[var(--success)]">{done}</p> : null}
 
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={() => submit(false)} loading={busy} className="gap-1.5">
@@ -298,7 +302,7 @@ export function DashboardPasswordCard() {
             </Button>
           ) : null}
         </div>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">{t('dashpw.note')}</p>
+        <p className="text-xs leading-relaxed text-muted-foreground">{t('dashpw.note')}</p>
       </CardContent>
     </Card>
   )

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 /** Native select styled like the Input primitive (same height and radius). */
 export const control =
-  "h-11 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 text-base sm:h-9 sm:text-sm disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
+  "h-11 w-full border border-input bg-transparent px-3 text-base sm:h-9 sm:text-sm disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
 
 /** Inputs grow to a 44px tap target on phones and match `control` above. */
 export const inputTap = "h-11 sm:h-9";
@@ -34,7 +34,7 @@ export function Failure({ text }: { text?: string }) {
   return text ? (
     <pre
       role="alert"
-      className="whitespace-pre-wrap break-words rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-foreground"
+      className="m-rise whitespace-pre-wrap break-words border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 font-mono text-xs text-destructive"
     >
       {JSON.stringify({ error: text }, null, 2)}
     </pre>
@@ -81,18 +81,18 @@ export function PaneTabs<T extends string>({
               aria-pressed={active}
               onClick={() => onChange(t.id)}
               className={cn(
-                "inline-flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-sm)] px-3 text-sm transition-colors lg:h-8",
+                "inline-flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs transition-colors lg:h-8",
                 active
-                  ? "bg-primary/12 font-medium text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  ? "border-transparent bg-nav-active text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground",
               )}
             >
               {t.label}
               {t.count ? (
                 <span
                   className={cn(
-                    "text-xs tabular-nums",
-                    active ? "text-primary" : "text-muted-foreground",
+                    "font-mono text-[11px] tabular-nums",
+                    active ? "text-foreground" : "text-dim",
                   )}
                 >
                   {t.count}

@@ -85,26 +85,28 @@ export function RolePicker({
   return (
     <div ref={ref} className="relative">
       <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={current ? current.title : t('roles.orchestrator')}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex items-center gap-1.5 border border-border bg-card transition-colors hover:border-primary/40 focus-visible:border-ring',
-          compact
-            ? 'h-8 rounded-[var(--radius-md)] px-2.5 text-xs'
-            : 'h-[3.25rem] rounded-[var(--radius-xl)] px-3 text-sm shadow-sm',
+          'flex items-center gap-1.5 border border-border bg-transparent text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground aria-expanded:border-line aria-expanded:bg-nav-active aria-expanded:text-foreground',
+          compact ? 'h-8 min-w-8 justify-center rounded-full px-2 text-xs sm:px-3' : 'h-[3.25rem] px-3 text-sm',
         )}
       >
-        <UsersThree className={cn('shrink-0 text-muted-foreground', compact ? 'size-3.5' : 'size-4')} />
+        <UsersThree className={cn('shrink-0', compact ? 'size-3.5' : 'size-4')} />
         <span className="hidden max-w-28 truncate sm:inline">
           {current ? current.title : t('roles.orchestrator')}
         </span>
-        <CaretDown className="size-3 shrink-0 text-muted-foreground" />
+        <CaretDown className="hidden size-3 shrink-0 text-muted-foreground sm:block" />
       </button>
 
       {open ? (
-        <div className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-72 overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-card p-1 shadow-lg">
+        <div className="m-open absolute bottom-full left-0 z-30 mb-2 max-h-72 w-72 max-w-[calc(100vw-2rem)] overflow-y-auto border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
           {groups.map((g) => (
             <div key={g.category}>
-              <div className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="eyebrow px-2.5 pb-1 pt-2 !text-[10px]">
                 {CATEGORY_LABEL[g.category] ?? g.category}
               </div>
               {g.roles.map((r) => (
@@ -115,12 +117,12 @@ export function RolePicker({
                   // role" rather than a pinned name.
                   onClick={() => pick(r.name === 'assistant' ? '' : r.name)}
                   className={cn(
-                    'flex w-full items-start gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors hover:bg-muted',
-                    selected === r.name && 'bg-primary/5',
+                    'flex w-full items-start gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
+                    selected === r.name && 'bg-nav-active',
                   )}
                 >
                   {selected === r.name ? (
-                    <Check className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                    <Check className="mt-0.5 size-3.5 shrink-0 text-foreground" />
                   ) : (
                     <span className="w-3.5 shrink-0" />
                   )}

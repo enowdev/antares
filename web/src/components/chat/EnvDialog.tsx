@@ -132,24 +132,24 @@ export function EnvDialog({
                       key={f.name}
                       onClick={() => setActive(i)}
                       className={cn(
-                        'rounded-[var(--radius-sm)] border px-2 py-1 font-mono text-[11px] transition-colors',
+                        'rounded-full border px-3 py-1 font-mono text-[11px] transition-colors',
                         i === active
-                          ? 'border-primary/50 bg-primary/5 text-foreground'
-                          : 'border-border text-muted-foreground hover:bg-muted',
+                          ? 'border-transparent bg-nav-active text-foreground'
+                          : 'border-border text-muted-foreground hover:text-foreground',
                       )}
                     >
                       {f.name}
                     </button>
                   ))}
                 </div>
-                <div className="ml-auto flex overflow-hidden rounded-[var(--radius-sm)] border border-border">
+                <div className="ml-auto flex overflow-hidden rounded-full border border-border p-0.5">
                   {(['table', 'raw'] as const).map((v) => (
                     <button
                       key={v}
                       onClick={() => setView(v)}
                       className={cn(
-                        'px-2.5 py-1 text-[11px] transition-colors',
-                        view === v ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50',
+                        'rounded-full px-3 py-1 text-[11px] transition-colors',
+                        view === v ? 'bg-nav-active text-foreground' : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
                       {v === 'table' ? t('env.table') : t('env.raw')}
@@ -170,7 +170,7 @@ export function EnvDialog({
                           value={e.key}
                           onChange={(ev) => setEntry(i, { key: ev.target.value })}
                           spellCheck={false}
-                          className="h-8 w-2/5 rounded-[var(--radius-sm)] border border-border bg-background px-2 font-mono text-[11px] outline-none focus:border-ring"
+                          className="h-8 w-2/5 border border-border bg-transparent px-2 font-mono text-[11px] outline-none transition-colors focus:border-foreground/60"
                           placeholder="KEY"
                         />
                         <div className="relative flex-1">
@@ -179,7 +179,7 @@ export function EnvDialog({
                             onChange={(ev) => setEntry(i, { value: ev.target.value })}
                             type={shown ? 'text' : 'password'}
                             spellCheck={false}
-                            className="h-8 w-full rounded-[var(--radius-sm)] border border-border bg-background px-2 pr-8 font-mono text-[11px] outline-none focus:border-ring"
+                            className="h-8 w-full border border-border bg-transparent px-2 pr-8 font-mono text-[11px] outline-none transition-colors focus:border-foreground/60"
                             placeholder="value"
                           />
                           {secret ? (
@@ -194,7 +194,7 @@ export function EnvDialog({
                         </div>
                         <button
                           onClick={() => removeEntry(i)}
-                          className="grid size-7 shrink-0 place-items-center rounded-[var(--radius-sm)] text-muted-foreground hover:text-[var(--destructive)]"
+                          className="grid size-7 shrink-0 place-items-center text-muted-foreground hover:text-[var(--destructive)]"
                           aria-label={t('common.delete')}
                         >
                           <Trash className="size-3.5" />
@@ -204,20 +204,20 @@ export function EnvDialog({
                   })}
                   <button
                     onClick={addEntry}
-                    className="flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-dashed border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    className="flex items-center gap-1.5 border border-dashed border-border px-2 py-1.5 font-mono text-[11px] lowercase text-muted-foreground transition-colors hover:border-line hover:text-foreground"
                   >
                     <Plus className="size-3.5" />
                     {t('env.add')}
                   </button>
                 </div>
               ) : (
-                <pre className="max-h-[50vh] overflow-auto rounded-[var(--radius-sm)] bg-muted p-3 font-mono text-[11px] leading-relaxed">
+                <pre className="max-h-[50vh] overflow-auto border border-border bg-background/40 p-3 font-mono text-[11px] leading-relaxed">
                   {file?.raw || '(empty)'}
                 </pre>
               )}
 
-              {error ? <p className="text-xs text-[var(--destructive)]">{error}</p> : null}
-              {msg ? <p className="text-xs text-[var(--success)]">{msg}</p> : null}
+              {error ? <p className="m-rise text-xs text-[var(--destructive)]">{error}</p> : null}
+              {msg ? <p className="m-rise text-xs text-[var(--success)]">{msg}</p> : null}
 
               {view === 'table' ? (
                 <div className="flex justify-end">

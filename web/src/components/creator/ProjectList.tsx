@@ -35,7 +35,7 @@ export function ProjectList({
   if (projects.length === 0) {
     return (
       <aside className="hidden lg:block">
-        <h2 className="mb-2 px-3 text-xs font-medium text-muted-foreground">
+        <h2 className="eyebrow mb-3 px-3">
           Video projects
         </h2>
         <p className="px-3 text-sm text-muted-foreground">No projects yet.</p>
@@ -47,7 +47,7 @@ export function ProjectList({
       aria-label="Video projects"
       className="min-w-0 lg:sticky lg:top-0 lg:max-h-full lg:self-start lg:overflow-y-auto"
     >
-      <h2 className="mb-2 hidden px-3 text-xs font-medium text-muted-foreground lg:block">
+      <h2 className="eyebrow mb-3 hidden px-3 lg:block">
         Video projects
       </h2>
       <ul
@@ -56,17 +56,17 @@ export function ProjectList({
         {projects.map((p) => {
           const active = p.id === activeId;
           return (
-            <li key={p.id} className="w-44 shrink-0 lg:w-auto">
+            <li key={p.id} data-reveal className="w-44 shrink-0 lg:w-auto">
               <button
                 type="button"
                 disabled={disabled}
                 onClick={() => onChoose(p.id)}
                 aria-current={active ? "true" : undefined}
                 className={cn(
-                  "flex min-h-11 w-full flex-col items-start rounded-[var(--radius-sm)] border px-3 py-1.5 text-left transition-colors disabled:cursor-wait lg:border-transparent",
+                  "flex min-h-11 w-full flex-col items-start border px-3 py-2 text-left transition-[border-color,background-color,color] duration-200 disabled:cursor-wait lg:border-transparent",
                   active
-                    ? "border-primary/30 bg-primary/12 text-primary"
-                    : "border-border hover:bg-accent hover:text-accent-foreground",
+                    ? "border-foreground bg-nav-active text-foreground lg:border-transparent"
+                    : "border-border hover:border-line hover:bg-raised hover:text-foreground",
                 )}
               >
                 <span
@@ -81,7 +81,7 @@ export function ProjectList({
                 <span
                   className={cn(
                     "w-full truncate text-xs",
-                    active ? "text-primary" : "text-muted-foreground",
+                    "font-mono text-muted-foreground",
                   )}
                 >
                   {p.platform} · {p.status}

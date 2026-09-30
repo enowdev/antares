@@ -510,6 +510,7 @@ const en = {
   'chat.running': 'Running {tool}…',
   'chat.tokensOut': '{n} output tokens',
   'chat.welcomeTitle': 'Start a conversation',
+  'chat.welcomeSub': 'Antares does the rest.',
   'chat.welcomeDesc':
     'Antares can reach your files, terminal, web search, long-term memory, and RAG index.',
   'chat.suggest1': 'Summarise the project structure in this workspace',
@@ -1130,6 +1131,7 @@ const en = {
   'login.failed': 'Could not sign in.',
   'login.show': 'Show password',
   'login.hide': 'Hide password',
+  'login.eyebrow': 'Sign in required',
 
   'time.justNow': 'just now',
   'time.minutes': '{n} min ago',

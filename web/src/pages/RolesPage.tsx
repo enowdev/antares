@@ -170,17 +170,17 @@ export default function RolesPage() {
       ) : (
         <>
           {data?.active?.length ? (
-            <Card className="border-primary/40">
+            <Card reveal={false} className="m-rise">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Spinner className="size-4 animate-spin text-primary" />
+                  <Spinner className="size-4 animate-spin text-muted-foreground" />
                   {t('roles.working', { n: data.active.length })}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {data.active.map((a) => (
                   <div key={a.id} className="flex items-start gap-2 text-xs">
-                    <Badge variant="secondary" className="shrink-0">
+                    <Badge variant="secondary" className="shrink-0 font-mono">
                       {a.role}
                     </Badge>
                     <span className="min-w-0 flex-1 truncate text-muted-foreground">{a.task}</span>
@@ -192,8 +192,8 @@ export default function RolesPage() {
 
           {/* Role grid, grouped by category, subroles nested under their master. */}
           {groups.map((g) => (
-            <div key={g.category} className="space-y-2">
-              <h2 className="text-sm font-semibold">{CATEGORY_LABEL[g.category] ?? g.category}</h2>
+            <section key={g.category} data-reveal className="space-y-3">
+              <h2 className="text-[15px] font-medium tracking-[-0.2px]">{CATEGORY_LABEL[g.category] ?? g.category}</h2>
               <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
                 {orderWithSubroles(g.roles).map((r) => {
                   const editable = r.source === 'local'
@@ -203,21 +203,21 @@ export default function RolesPage() {
                       type="button"
                       onClick={() => setEditing(r)}
                       className={cn(
-                        'group rounded-[var(--radius-lg)] border border-border bg-card p-3.5 text-left transition-colors hover:border-primary/40',
-                        r.subrole && 'border-l-2 border-l-border bg-muted/20',
+                        'group border border-border bg-card p-4 text-left transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised',
+                        r.subrole && 'border-l-2 border-l-line bg-transparent',
                       )}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="min-w-0 truncate text-sm font-medium">{r.title}</span>
+                        <span className="min-w-0 truncate text-[15px] font-medium tracking-[-0.2px]">{r.title}</span>
                         {editable ? (
                           <PencilSimple className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                         ) : null}
                       </div>
-                      <code className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                      <code className="mt-1 block truncate font-mono text-xs text-muted-foreground">
                         {r.name}
                       </code>
-                      <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">{r.summary}</p>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
+                      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{r.summary}</p>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
                         {editable ? (
                           <Badge variant="secondary">{t('roles.custom')}</Badge>
                         ) : (
@@ -237,13 +237,13 @@ export default function RolesPage() {
                         {r.toolset ? (
                           <Badge variant="outline">{t('roles.tools', { set: r.toolset })}</Badge>
                         ) : null}
-                        {r.model ? <Badge variant="outline">{r.model}</Badge> : null}
+                        {r.model ? <Badge variant="outline" className="font-mono font-normal">{r.model}</Badge> : null}
                       </div>
                     </button>
                   )
                 })}
               </div>
-            </div>
+            </section>
           ))}
         </>
       )}
@@ -277,25 +277,25 @@ function PerformanceView({ performance }: { performance: Perf[] }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Lightning className="size-4 text-primary" weight="fill" />
+          <Lightning className="size-4 text-muted-foreground" />
           {t('roles.performance')}
         </CardTitle>
         <CardDescription>{t('roles.performanceDesc')}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-1.5">
+      <CardContent className="space-y-2.5">
         {performance.map((p) => (
           <div key={p.role} className="flex items-center gap-3 text-xs">
-            <span className="w-40 shrink-0 truncate font-medium">{p.role}</span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+            <span className="w-40 shrink-0 truncate font-mono">{p.role}</span>
+            <div className="h-1 flex-1 overflow-hidden bg-raised">
               <div
-                className="h-full rounded-full bg-primary"
+                className="h-full bg-foreground"
                 style={{ width: `${Math.max(2, Math.min(100, p.score))}%` }}
               />
             </div>
             <span className="w-10 shrink-0 text-right tabular-nums text-muted-foreground">
               {p.score.toFixed(0)}
             </span>
-            <span className="w-16 shrink-0 text-right text-[10px] text-muted-foreground">
+            <span className="w-16 shrink-0 text-right font-mono text-[11px] text-dim">
               {t('roles.missions', { n: p.missions })}
             </span>
           </div>
@@ -454,7 +454,7 @@ function RoleEditor({
         </DialogHeader>
 
         {!readOnly ? (
-          <div className="px-6 pt-1">
+          <div className="shrink-0 px-4 pt-3 sm:px-5">
             <Tabs value={tab} onValueChange={(v) => setTab(v as 'form' | 'raw')}>
               <TabsList>
                 <TabsTrigger value="form">{t('roles.tabForm')}</TabsTrigger>
@@ -467,7 +467,7 @@ function RoleEditor({
         <DialogBody className="space-y-3.5">
           {readOnly ? (
             <>
-              <div className="rounded-[var(--radius-sm)] border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <div className="border border-border bg-raised px-3 py-2 text-xs text-muted-foreground">
                 {t('roles.builtinReadonly')}
               </div>
               <ReadOnlyView role={role!} />
@@ -491,6 +491,7 @@ function RoleEditor({
                     value={d.name}
                     disabled={!isNew}
                     placeholder="my-role"
+                    className="font-mono text-xs"
                     onChange={(e) => set('name', e.target.value)}
                   />
                 </Field>
@@ -544,7 +545,7 @@ function RoleEditor({
                 </Field>
               </div>
 
-              <div className="flex items-center justify-between rounded-[var(--radius-sm)] border border-border px-3 py-2">
+              <div className="flex items-center justify-between gap-3 border border-border px-3.5 py-2.5">
                 <div>
                   <p className="text-xs font-medium">{t('roles.fDanger')}</p>
                   <p className="text-[11px] text-muted-foreground">{t('roles.dangerHint')}</p>
@@ -552,7 +553,7 @@ function RoleEditor({
                 <Switch checked={d.danger} onCheckedChange={(v) => set('danger', v)} />
               </div>
 
-              <div className="rounded-[var(--radius-sm)] border border-border px-3 py-2">
+              <div className="border border-border px-3.5 py-2.5">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-medium">{t('roles.fSubrole')}</p>
@@ -561,7 +562,7 @@ function RoleEditor({
                   <Switch checked={d.subrole} onCheckedChange={(v) => set('subrole', v)} />
                 </div>
                 {d.subrole ? (
-                  <div className="mt-2">
+                  <div className="m-open mt-2.5">
                     <Input
                       value={d.parent}
                       placeholder={t('roles.parentPlaceholder')}
@@ -583,7 +584,7 @@ function RoleEditor({
             </>
           )}
 
-          {err ? <p className="text-xs text-destructive">{err}</p> : null}
+          {err ? <p className="m-rise text-xs text-destructive">{err}</p> : null}
         </DialogBody>
 
         <DialogFooter className="flex items-center">
@@ -621,7 +622,7 @@ function ReadOnlyView({ role }: { role: Role }) {
   const row = (label: string, value?: string) =>
     value ? (
       <div className="flex gap-2 text-xs">
-        <span className="w-24 shrink-0 text-muted-foreground">{label}</span>
+        <span className="eyebrow w-24 shrink-0 pt-px text-[0.66rem]">{label}</span>
         <span className="min-w-0 flex-1 break-words">{value}</span>
       </div>
     ) : null
@@ -669,7 +670,7 @@ function NativeSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-9 w-full rounded-[var(--radius-sm)] border border-border bg-card px-2 text-sm outline-none transition-colors focus-visible:border-ring"
+      className="h-9 w-full border border-border bg-card px-2 font-mono text-xs outline-none transition-colors focus-visible:border-foreground"
     >
       {children}
     </select>

@@ -126,7 +126,7 @@ export default function ChannelsPage() {
         <TabsTrigger value="devices" className="gap-1.5">
           {t('channels.tabDevices')}
           {pending > 0 ? (
-            <span className="rounded-full bg-[var(--warning)]/15 px-1.5 text-[10px] font-medium tabular-nums text-[var(--warning)]">
+            <span className="rounded-full bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] px-1.5 font-mono text-[10px] tabular-nums text-[var(--warning)]">
               {pending}
             </span>
           ) : null}
@@ -152,25 +152,25 @@ export default function ChannelsPage() {
       ) : loading && !data ? (
         <SkeletonList count={4} />
       ) : (
-        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {channels.map((c) => {
             const Icon = ICONS[c.id] ?? Plugs
-            const tone = c.connected
-              ? 'text-[var(--success)]'
-              : c.enabled
-                ? 'text-[var(--warning)]'
-                : 'text-muted-foreground'
+            // Status colour stays on the badge; the icon only dims when off.
+            const tone = c.enabled ? 'text-foreground' : 'text-muted-foreground'
             return (
               <div
                 key={c.id}
-                className="flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5"
+                data-reveal
+                className="tp-panel flex flex-col border border-border bg-card p-4 transition-colors duration-200 hover:border-line"
               >
-                <div className="flex items-start gap-2.5">
-                  <Icon className={cn('mt-0.5 size-5 shrink-0', tone)} weight="fill" />
+                <div className="flex items-start gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center border border-border">
+                    <Icon className={cn('size-[18px]', tone)} weight="fill" />
+                  </span>
                   <div className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{c.label}</span>
+                    <span className="block truncate text-[15px] font-medium">{c.label}</span>
                     {c.connected && c.bot_name ? (
-                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{c.bot_name}</p>
+                      <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{c.bot_name}</p>
                     ) : (
                       <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{c.detail}</p>
                     )}
@@ -186,7 +186,7 @@ export default function ChannelsPage() {
                   />
                 </div>
 
-                <div className="mb-3 mt-2.5 flex flex-wrap items-center gap-1.5">
+                <div className="mb-3.5 mt-3 flex flex-wrap items-center gap-1.5">
                   <Badge variant={c.connected ? 'success' : c.enabled ? 'warning' : 'outline'}>
                     {c.connected
                       ? t('channels.connected')
@@ -202,7 +202,7 @@ export default function ChannelsPage() {
                   ) : null}
                 </div>
 
-                <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-border pt-3">
+                <div className="-mx-4 mt-auto flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-border px-4 pt-3">
                   <Button
                     size="sm"
                     variant={c.configured ? 'outline' : 'default'}
@@ -213,7 +213,7 @@ export default function ChannelsPage() {
                     {c.configured ? t('channels.changeToken') : t('channels.connect')}
                   </Button>
                   {!c.configured ? (
-                    <span className="text-[11px] text-muted-foreground">{t('channels.tokenNeeded')}</span>
+                    <span className="text-xs text-muted-foreground">{t('channels.tokenNeeded')}</span>
                   ) : null}
                   {c.configured && (c.id === 'discord' || c.id === 'telegram') ? (
                     <Button
@@ -261,11 +261,12 @@ function DevicesPanel({
     )
   }
   return (
-    <div className="grid gap-2.5 sm:grid-cols-2">
+    <div className="grid gap-3 sm:grid-cols-2">
       {pairings.map((p) => (
         <div
           key={p.id}
-          className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-border bg-card p-3.5"
+          data-reveal
+          className="tp-panel flex items-center gap-3 border border-border bg-card p-4 transition-colors duration-200 hover:border-line"
         >
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -273,7 +274,7 @@ function DevicesPanel({
               <span className="truncate text-sm font-medium">{p.display_name || p.external_id}</span>
               <Badge variant={p.status === 'approved' ? 'success' : 'warning'}>{p.status}</Badge>
             </div>
-            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+            <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
               {p.external_id} · {timeAgo(p.created_at)}
             </p>
           </div>
@@ -380,7 +381,7 @@ function ConfigDialog({
         <DialogBody>
           {saved ? (
             <div className="space-y-3">
-              <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--success)]/40 bg-[color-mix(in_oklch,var(--success)_10%,transparent)] p-3 text-xs">
+              <div className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--success)_45%,var(--border))] bg-card px-4 py-3 text-sm">
                 <CheckCircle className="mt-0.5 size-4 shrink-0 text-[var(--success)]" weight="fill" />
                 <span className="min-w-0">{t('channels.tokenSet')} — {channel?.label}</span>
               </div>
@@ -398,7 +399,7 @@ function ConfigDialog({
                     <Label htmlFor={`ch-${f.key}`} className="flex items-center gap-2">
                       {f.label}
                       {f.set ? (
-                        <span className="text-[10px] font-normal text-muted-foreground">· {t('channels.tokenSet').toLowerCase()}</span>
+                        <span className="font-mono text-[11px] font-normal text-muted-foreground">· {t('channels.tokenSet').toLowerCase()}</span>
                       ) : null}
                     </Label>
                     <div className="flex gap-2">
@@ -432,7 +433,7 @@ function ConfigDialog({
                   href={channel.docs}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2"
+                  className="inline-flex items-center gap-1.5 text-xs text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground"
                 >
                   {t('channels.getToken', { channel: channel?.label ?? '' })}
                   <ArrowSquareOut className="size-3.5" />
@@ -440,7 +441,7 @@ function ConfigDialog({
               ) : null}
 
               {error ? (
-                <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                <div className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
                   <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
                   <span className="min-w-0 break-words">{error}</span>
                 </div>
@@ -584,7 +585,7 @@ function CommandsPanel({ id }: { id: string }) {
           {t('channels.cmdClearHint')}
         </p>
       </div>
-      {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      {note ? <p className="m-rise text-xs text-muted-foreground">{note}</p> : null}
     </div>
   )
 }
@@ -629,19 +630,21 @@ function AppearancePanel({ id, current }: { id: string; current: string }) {
             disabled={busy}
             onClick={() => void choose(o.value)}
             className={cn(
-              'rounded-[var(--radius-md)] border p-3 text-left transition-colors',
-              style === o.value ? 'border-primary bg-primary/8' : 'border-border hover:border-primary/40',
+              'border p-3.5 text-left transition-[border-color,background-color] duration-200',
+              style === o.value
+                ? 'border-foreground bg-raised'
+                : 'border-border hover:border-line hover:bg-raised',
             )}
           >
             <div className="flex items-center gap-2 text-sm font-medium">
-              {style === o.value ? <CheckCircle className="size-4 text-primary" weight="fill" /> : null}
+              {style === o.value ? <CheckCircle className="size-4 text-foreground" weight="fill" /> : null}
               {o.label}
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{o.desc}</p>
           </button>
         ))}
       </div>
-      {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      {note ? <p className="m-rise text-xs text-muted-foreground">{note}</p> : null}
     </div>
   )
 }
@@ -698,7 +701,7 @@ const emptyBinding = (platform: 'discord' | 'telegram' = 'discord'): Binding => 
 })
 
 const selectClass =
-  'flex h-9 w-full rounded-[var(--radius-sm)] border border-input bg-background px-3 text-sm transition-colors focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50'
+  'flex h-9 w-full border border-input bg-transparent px-3 text-sm transition-colors focus-visible:border-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50'
 
 /**
  * Routing binds a specific chat channel to an agent role / model / toolset so
@@ -772,20 +775,23 @@ function RoutingPanel({ platform }: { platform?: 'discord' | 'telegram' } = {}) 
           }
         />
       ) : (
-        <div className="grid gap-2.5 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           {bindings.map((b) => {
             const Icon = ICONS[b.platform] ?? Plugs
             const title = b.label || b.channel_id || b.guild_id || b.platform
             return (
               <div
                 key={b.id}
-                className="flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5"
+                data-reveal
+                className="tp-panel flex flex-col border border-border bg-card p-4 transition-colors duration-200 hover:border-line"
               >
-                <div className="flex items-start gap-2.5">
-                  <Icon className="mt-0.5 size-5 shrink-0 text-muted-foreground" weight="fill" />
+                <div className="flex items-start gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center border border-border">
+                    <Icon className="size-[18px] text-muted-foreground" weight="fill" />
+                  </span>
                   <div className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{title}</span>
-                    <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                    <span className="block truncate text-[15px] font-medium">{title}</span>
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
                       {b.guild_id ? `${b.guild_id} · ` : ''}
                       {b.channel_id || t('channels.bChannelAll')}
                     </p>
@@ -798,13 +804,13 @@ function RoutingPanel({ platform }: { platform?: 'discord' | 'telegram' } = {}) 
                   />
                 </div>
 
-                <div className="mb-3 mt-2.5 flex flex-wrap items-center gap-1.5">
+                <div className="mb-3.5 mt-3 flex flex-wrap items-center gap-1.5">
                   <Badge variant="outline">{b.platform}</Badge>
                   <Badge variant="secondary">{b.role || t('channels.bRoleDefault')}</Badge>
-                  {b.model ? <Badge variant="outline">{b.model}</Badge> : null}
+                  {b.model ? <Badge variant="outline" className="font-mono">{b.model}</Badge> : null}
                 </div>
 
-                <div className="mt-auto flex items-center gap-x-2 border-t border-border pt-3">
+                <div className="-mx-4 mt-auto flex items-center gap-x-2 border-t border-border px-4 pt-3">
                   <Button
                     size="sm"
                     variant="outline"
@@ -992,15 +998,15 @@ function BindingDialog({
           {lockedPlatform ? null : (
             <div className="grid gap-1.5">
               <Label>{t('channels.bPlatform')}</Label>
-              <div className="inline-flex w-fit rounded-[var(--radius-sm)] border border-border p-0.5">
+              <div className="inline-flex w-fit rounded-full border border-border p-0.5">
                 {(['discord', 'telegram'] as const).map((p) => (
                   <button
                     key={p}
                     onClick={() => update('platform', p)}
                     className={cn(
-                      'rounded-[calc(var(--radius-sm)-2px)] px-3 py-1 text-xs font-medium transition-colors',
+                      'rounded-full px-3 py-1 text-xs transition-colors',
                       form.platform === p
-                        ? 'bg-primary text-primary-foreground'
+                        ? 'bg-nav-active text-foreground'
                         : 'text-muted-foreground hover:text-foreground',
                     )}
                   >
@@ -1181,7 +1187,11 @@ function BindingDialog({
             />
           </div>
 
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? (
+            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
         </DialogBody>
         <DialogFooter>
           <DialogClose asChild>

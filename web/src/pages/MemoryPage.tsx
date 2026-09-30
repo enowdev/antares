@@ -207,17 +207,20 @@ function MemoryCard({
   const { t } = useI18n()
   const timeAgo = useTimeAgo()
   return (
-    <div className="group flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5 transition-colors hover:border-primary/40">
+    <div
+      data-reveal
+      className="group flex flex-col border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
+    >
       <button onClick={onEdit} className="min-w-0 flex-1 text-left">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{m.scope}</Badge>
-          {m.key ? <span className="min-w-0 truncate font-mono text-[11px] font-medium">{m.key}</span> : null}
+          <Badge variant="outline" className="font-mono font-normal">{m.scope}</Badge>
+          {m.key ? <span className="min-w-0 truncate font-mono text-xs text-foreground">{m.key}</span> : null}
           <PencilSimple className="ml-auto size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
-        <p className="mt-1.5 line-clamp-4 text-xs">{m.content}</p>
+        <p className="mt-2 line-clamp-4 text-[13px] leading-relaxed">{m.content}</p>
       </button>
-      <div className="mt-2.5 flex items-center justify-between border-t border-border pt-2">
-        <span className="text-[10px] text-muted-foreground">{timeAgo(m.updated_at)}</span>
+      <div className="mt-3 flex items-center justify-between border-t border-border pt-2.5">
+        <span className="font-mono text-[11px] text-dim">{timeAgo(m.updated_at)}</span>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -310,7 +313,7 @@ function MemoryEditor({
               />
             </div>
           </div>
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? <p className="m-rise text-xs text-destructive">{error}</p> : null}
         </DialogBody>
         <DialogFooter>
           <DialogClose asChild>
@@ -435,7 +438,7 @@ function RagTab() {
           </CardDescription>
         </CardHeader>
         {data?.pipeline ? (
-          <CardContent className="flex flex-wrap items-center gap-1.5 pb-3 text-[10px] text-muted-foreground">
+          <CardContent className="flex flex-wrap items-center gap-1.5 pb-3 text-[11px] text-muted-foreground">
             <PipeBadge label={t('memory.ragEmbed')} value={`${data.pipeline.embed_provider}·${data.pipeline.embed_model}`} />
             {data.pipeline.hybrid ? <PipeBadge label="hybrid" /> : null}
             <PipeBadge label="recall" value={String(data.pipeline.recall)} />
@@ -452,13 +455,13 @@ function RagTab() {
             {data.collections.map((c) => (
               <span
                 key={c}
-                className="group inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 py-0.5 pl-2.5 pr-1 text-xs"
+                className="group inline-flex items-center gap-1 rounded-full border border-border py-0.5 pl-2.5 pr-1 font-mono text-xs"
               >
                 {c}
                 <button
                   onClick={() => removeCollection(c)}
                   aria-label={t('common.delete')}
-                  className="rounded-full p-0.5 text-muted-foreground/50 transition-colors hover:bg-background hover:text-destructive"
+                  className="rounded-full p-0.5 text-muted-foreground/60 transition-colors hover:bg-raised hover:text-destructive"
                 >
                   <TrashSimple className="size-3" />
                 </button>
@@ -503,7 +506,7 @@ function RagTab() {
               value={searchCollection}
               onChange={(e) => setSearchCollection(e.target.value)}
               disabled={!data?.enabled}
-              className="h-8 rounded-[var(--radius-sm)] border border-border bg-background px-2 text-xs outline-none focus:border-ring"
+              className="h-8 border border-border bg-card px-2 font-mono text-xs outline-none transition-colors focus:border-foreground"
             >
               <option value="">{t('memory.ragAllCollections')}</option>
               {(data?.collections ?? []).map((c) => (
@@ -520,17 +523,21 @@ function RagTab() {
                 max={20}
                 value={topK}
                 onChange={(e) => setTopK(Number(e.target.value))}
-                className="w-28 accent-[var(--primary)]"
+                className="w-28 accent-[var(--foreground)]"
               />
-              <span className="w-5 tabular-nums text-foreground">{topK}</span>
+              <span className="w-5 font-mono tabular-nums text-foreground">{topK}</span>
             </label>
           </div>
 
-          {searchErr ? <p className="text-xs text-destructive">{searchErr}</p> : null}
+          {searchErr ? (
+            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2 text-xs text-destructive">
+              {searchErr}
+            </p>
+          ) : null}
 
           {/* Pipeline + latency readout, so it's clear how a result was produced. */}
           {searchMeta ? (
-            <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+            <div className="m-rise flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
               <PipeBadge label={t('memory.ragEmbed')} value={searchMeta.pipeline.embed_model} />
               {searchMeta.pipeline.hybrid ? <PipeBadge label="hybrid" /> : null}
               <PipeBadge label="recall" value={String(searchMeta.pipeline.recall)} />
@@ -539,7 +546,7 @@ function RagTab() {
               ) : null}
               {searchMeta.pipeline.compress ? <PipeBadge label="dedup" /> : null}
               <PipeBadge label="top" value={String(searchMeta.pipeline.top_k)} />
-              <span className="ml-auto tabular-nums">{searchMeta.took} ms</span>
+              <span className="ml-auto font-mono tabular-nums">{searchMeta.took} ms</span>
             </div>
           ) : null}
 
@@ -556,9 +563,9 @@ function RagTab() {
                   const top = results[0]?.score || 1
                   const pct = Math.max(4, Math.min(100, Math.round((r.score / (top || 1)) * 100)))
                   return (
-                    <div key={i} className="rounded-[var(--radius-sm)] border border-border p-2.5">
-                      <div className="mb-1 flex items-center gap-2">
-                        <span className="grid size-4 shrink-0 place-items-center rounded-full bg-muted text-[9px] font-medium tabular-nums text-muted-foreground">
+                    <div key={i} className="m-rise border border-border px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <span className="shrink-0 font-mono text-[11px] tabular-nums text-dim">
                           {i + 1}
                         </span>
                         {r.path ? (
@@ -567,13 +574,13 @@ function RagTab() {
                           </span>
                         ) : null}
                         <div className="ml-auto flex shrink-0 items-center gap-2">
-                          <div className="h-1 w-12 overflow-hidden rounded-full bg-muted">
+                          <div className="h-1 w-12 overflow-hidden bg-raised">
                             <div
-                              className="h-full rounded-full bg-primary"
+                              className="h-full bg-foreground"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
-                          <Badge variant="secondary" className="tabular-nums">
+                          <Badge variant="secondary" className="font-mono font-normal tabular-nums">
                             {r.score.toFixed(3)}
                           </Badge>
                         </div>
@@ -584,7 +591,7 @@ function RagTab() {
                       {long ? (
                         <button
                           onClick={() => setExpanded((e) => ({ ...e, [i]: !open }))}
-                          className="mt-1 text-[10px] text-primary hover:underline"
+                          className="mt-1.5 font-mono text-[11px] text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground"
                         >
                           {open ? t('memory.ragCollapse') : t('memory.ragExpand')}
                         </button>
@@ -630,7 +637,7 @@ function RagTab() {
           <Button size="sm" onClick={index} loading={busy} disabled={!data?.enabled || !path.trim()}>
             {t('memory.indexNow')}
           </Button>
-          {message ? <p className="text-xs text-muted-foreground">{message}</p> : null}
+          {message ? <p className="m-rise text-xs text-muted-foreground">{message}</p> : null}
         </CardContent>
       </Card>
     </div>
@@ -640,8 +647,8 @@ function RagTab() {
 // PipeBadge is a small pill describing one stage of the retrieval pipeline.
 function PipeBadge({ label, value }: { label: string; value?: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-1.5 py-0.5">
-      <span className="font-medium">{label}</span>
+    <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
+      <span>{label}</span>
       {value ? <span className="font-mono text-foreground/80">{value}</span> : null}
     </span>
   )
