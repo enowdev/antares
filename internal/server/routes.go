@@ -94,6 +94,9 @@ func (s *Server) routes() {
 	// Soul — the agent's identity (SOUL.md)
 	m.HandleFunc("GET /api/soul", s.handleGetSoul)
 	m.HandleFunc("POST /api/soul", s.handleSaveSoul)
+	// Persona — SOUL.md, global AGENTS.md and USER.md; /api/soul is the old alias.
+	m.HandleFunc("GET /api/persona/{file}", s.handleGetPersona)
+	m.HandleFunc("POST /api/persona/{file}", s.handleSavePersona)
 
 	// Update — check for a newer release and run the in-place upgrade.
 	m.HandleFunc("GET /api/update/check", s.handleUpdateCheck)

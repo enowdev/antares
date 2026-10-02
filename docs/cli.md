@@ -127,8 +127,34 @@ antares soul reset      go back to the default, which re-runs the first-conversa
 antares soul path       where the file lives
 ```
 
-This is the same file the dashboard's Soul page edits. It is read fresh for
-every turn, so a change applies to the next message, even on a running server.
+This is the same file the dashboard's Persona page (Agent › Persona, Soul tab)
+edits. It is read fresh for every turn, so a change applies to the next
+message, even on a running server.
+
+### Global instructions and facts about you: `AGENTS.md` and `USER.md`
+
+Two more files sit beside `SOUL.md` in the Antares home (`$ANTARES_HOME`,
+`~/.antares` by default):
+
+- `AGENTS.md` holds standing instructions the agent follows in every
+  conversation ("always answer in Indonesian", "never push without asking").
+  It goes into the system prompt as `## Your instructions`, right after the
+  soul.
+- `USER.md` holds what the agent knows about you: name, role, time zone,
+  preferences. It goes in as `## About the user`.
+
+Both start absent, and an absent or empty file adds nothing to the prompt.
+They apply to every session, channel gateways included, but not to delegated
+sub-agents and background tasks, which get a narrowed prompt from their
+parent. Each is capped at 16 KB in the prompt; anything longer is cut with a
+note. In a project session the project's own `AGENTS.md`/`CLAUDE.md` are added
+after these and win where they conflict.
+
+Edit them with any editor, or on the dashboard's Persona page (the
+Instructions and About you tabs). Saving a tab empty removes the file. Like
+`SOUL.md`, they are read for every turn, so changes apply to the next message.
+Over HTTP, `GET`/`POST /api/persona/{soul|agents|user}` read and write them as
+`{content, path}`; `/api/soul` remains as the older alias for the soul.
 
 ## Server log: `antares logs`
 
@@ -203,4 +229,4 @@ running, these commands remind you:
 note: the running server (pid 4242) picks this up on restart: antares stop && antares
 ```
 
-Sessions, memories, and `SOUL.md` are read live and need no restart.
+Sessions, memories, `SOUL.md`, `AGENTS.md` and `USER.md` are read live and need no restart.

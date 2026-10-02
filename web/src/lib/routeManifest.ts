@@ -134,7 +134,7 @@ export const ROUTE_MANIFEST: RouteManifestEntry[] = [
     hub: 'agent',
     tabKey: 'nav.soul',
     titleKey: 'soul.title',
-    descKey: 'soul.desc',
+    descKey: 'persona.desc',
     staticHeight: true,
   },
   {

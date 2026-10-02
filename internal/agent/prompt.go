@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/enowdev/antares/internal/config"
 	"github.com/enowdev/antares/internal/engagement"
@@ -53,6 +54,7 @@ user clearly just wants to get straight to a task, offer to set this up later an
 help them now — do not block them.
 `)
 	}
+	b.WriteString(personaBlock(req))
 
 	b.WriteString(`## How you work
 
@@ -241,9 +243,15 @@ func projectBlock(projectDir, antaresWorkspace string) string {
 	b.WriteString("- Follow the project's own conventions below over your defaults.\n")
 	b.WriteString("- Keep the project sidebar current with the project_info tool: record the essential facts (summary, main languages/frameworks, a few key libraries, build/run commands) after you understand the project, and update them when the stack meaningfully changes. Keep each list short.\n")
 
-	// AGENTS.md / CLAUDE.md — the project's instructions to an agent.
+	// AGENTS.md / CLAUDE.md — the project's instructions to an agent. They come
+	// after the global AGENTS.md and win where the two disagree.
+	noted := false
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
 		if txt := readCapped(filepath.Join(projectDir, name), 8000); txt != "" {
+			if !noted {
+				b.WriteString("- The project's instructions below take precedence over your global instructions where they conflict.\n")
+				noted = true
+			}
 			fmt.Fprintf(&b, "\n### %s\n\n%s\n", name, txt)
 		}
 	}
@@ -259,6 +267,49 @@ func projectBlock(projectDir, antaresWorkspace string) string {
 		fmt.Fprintf(&b, "\n### Project layout (top level)\n\n%s\n", tree)
 	}
 	return b.String()
+}
+
+// personaFileCap bounds how much of the global AGENTS.md and USER.md goes into
+// the prompt, so one runaway file cannot crowd out everything else.
+const personaFileCap = 16 * 1024
+
+// personaBlock renders the global AGENTS.md ("## Your instructions") and
+// USER.md ("## About the user") that follow the soul. Subordinate runs skip
+// both: their parent already carries them and hands over a narrowed task.
+func personaBlock(req Request) string {
+	if isSubordinateRun(req) {
+		return ""
+	}
+	var b strings.Builder
+	if txt := capPersonaText(config.LoadAgentsMD()); txt != "" {
+		b.WriteString("\n## Your instructions\n\n")
+		b.WriteString("Standing instructions from the user (their global AGENTS.md). Follow them in every conversation. A project's own AGENTS.md/CLAUDE.md, when present, takes precedence where they conflict.\n\n")
+		b.WriteString(txt)
+		b.WriteString("\n")
+	}
+	if txt := capPersonaText(config.LoadUserMD()); txt != "" {
+		b.WriteString("\n## About the user\n\n")
+		b.WriteString(txt)
+		b.WriteString("\n")
+	}
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// capPersonaText trims text to personaFileCap bytes on a rune boundary and says
+// so when it had to cut.
+func capPersonaText(text string) string {
+	text = strings.TrimSpace(text)
+	if len(text) <= personaFileCap {
+		return text
+	}
+	cut := personaFileCap
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(text[:cut]) + fmt.Sprintf("\n\n… (truncated: the file is %d KB, only the first %d KB is shown)", (len(text)+1023)/1024, personaFileCap/1024)
 }
 
 // readCapped returns a file's text truncated to max characters, or "" if
