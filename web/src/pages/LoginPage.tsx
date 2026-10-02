@@ -25,7 +25,12 @@ export default function LoginPage() {
   useTheme()
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
-  const [error, setError] = useState<string | undefined>()
+  // A desktop app's sign-in link that expired or was already used lands here.
+  const [error, setError] = useState<string | undefined>(() =>
+    new URLSearchParams(window.location.search).get('handoff') === 'expired'
+      ? t('login.handoffExpired')
+      : undefined,
+  )
   const [busy, setBusy] = useState(false)
 
   // If a login is not required (or already done), do not linger on this page.

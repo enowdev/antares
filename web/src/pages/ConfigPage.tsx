@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, MagnifyingGlass, PaintBrush, Sparkle } from '@phosphor-icons/react'
+import { ArrowRight, Laptop, MagnifyingGlass, PaintBrush, Sparkle } from '@phosphor-icons/react'
 import { post } from '@/lib/api'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
@@ -15,6 +15,7 @@ import {
 } from '@/lib/configGroups'
 import { usePageActions } from '@/components/layout/PageChrome'
 import { ModulesSettings, modulesMatchQuery } from '@/components/settings/ModulesSettings'
+import { DevicesSettings, devicesMatchQuery } from '@/components/settings/DevicesSettings'
 import { Button } from '@/components/ui/button'
 import {
   Badge,
@@ -41,6 +42,7 @@ import {
 
 const ESSENTIALS = '__essentials'
 const APPEARANCE = '__appearance'
+const DEVICES = '__devices'
 const YAML = '__yaml'
 
 export default function ConfigPage() {
@@ -80,8 +82,13 @@ export default function ConfigPage() {
     [t('settings.appearance'), t('settings.language'), t('settings.theme'), 'appearance', 'language', 'theme']
       .some((s) => s.toLowerCase().includes(query))
   const modulesMatch = searching && modulesMatchQuery(t, query)
+  const devicesMatch = searching && devicesMatchQuery(t, query)
   const matchCount =
-    results.local.length + results.moved.length + (appearanceMatch ? 1 : 0) + (modulesMatch ? 1 : 0)
+    results.local.length +
+    results.moved.length +
+    (appearanceMatch ? 1 : 0) +
+    (modulesMatch ? 1 : 0) +
+    (devicesMatch ? 1 : 0)
 
   const essentialFields = useMemo(() => fields.filter((f) => f.tier === 'essential'), [fields])
 
@@ -153,6 +160,7 @@ export default function ConfigPage() {
           {matchCount === 0 ? <EmptyState title={t('config.noMatch')} /> : null}
           {modulesMatch ? <ModulesSettings /> : null}
           {appearanceMatch ? <AppearanceCard /> : null}
+          {devicesMatch ? <DevicesSettings /> : null}
           {results.local.length > 0 ? (
             <ConfigFieldRows editor={editor} fields={results.local} showGroup />
           ) : null}
@@ -193,6 +201,8 @@ export default function ConfigPage() {
               </Card>
             ) : section === APPEARANCE ? (
               <AppearanceCard />
+            ) : section === DEVICES ? (
+              <DevicesSettings />
             ) : (
               <>
                 {section === ESSENTIALS ? (
@@ -313,6 +323,12 @@ function SectionRail({
               weight={section === APPEARANCE ? 'fill' : 'regular'}
             />,
           )}
+          {item(
+            DEVICES,
+            t('devices.title'),
+            undefined,
+            <Laptop className="size-4 shrink-0" weight={section === DEVICES ? 'fill' : 'regular'} />,
+          )}
           <div className="my-2 h-px bg-border" />
           {groups.map((g) => item(g, humanizeGroup(g), dot(dirtyPerGroup[g] ?? 0)))}
           <div className="my-2 h-px bg-border" />
@@ -329,6 +345,7 @@ function SectionRail({
         >
           <option value={ESSENTIALS}>{t('config.essentials')}</option>
           <option value={APPEARANCE}>{t('settings.appearance')}</option>
+          <option value={DEVICES}>{t('devices.title')}</option>
           {groups.map((g) => (
             <option key={g} value={g}>
               {humanizeGroup(g)}

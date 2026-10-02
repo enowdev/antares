@@ -46,19 +46,13 @@ func (s *Server) withDashboardAuth(next http.Handler) http.Handler {
 		// accept the current password to change it). /api/status and
 		// /api/setup/status are non-sensitive readiness checks the setup gate and
 		// status pill read before a login can happen.
-		switch r.URL.Path {
-		case "/api/health", "/api/status",
-			"/api/auth/login", "/api/auth/logout", "/api/auth/status", "/api/auth/password",
-			"/api/setup/status":
+		if authExemptPath(r.URL.Path) || r.URL.Path == "/api/status" || r.URL.Path == "/api/setup/status" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Bearer auth_token (header or allowlisted ?token= for EventSource).
-		if s.bearerAuthorizedOrQuery(r) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if s.dashSessionValid(r) {
+		// Bearer auth_token or device token (header, or allowlisted ?token= for
+		// EventSource), or a dashboard session cookie.
+		if ok, _ := s.clientAuthorized(r, true); ok {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -94,21 +88,66 @@ func (s *Server) requireDashboardPassword(w http.ResponseWriter, r *http.Request
 // dashSessionValid reports whether the request carries a live dashboard session
 // cookie, pruning it if expired.
 func (s *Server) dashSessionValid(r *http.Request) bool {
+	ok, _ := s.dashSession(r)
+	return ok
+}
+
+// dashSession is dashSessionValid plus the device whose handoff minted the
+// session ("" for a password login). A session minted by a device that has
+// since been revoked is dropped.
+func (s *Server) dashSession(r *http.Request) (bool, string) {
 	c, err := r.Cookie(dashCookie)
 	if err != nil || c.Value == "" {
-		return false
+		return false, ""
 	}
 	s.dashMu.Lock()
-	defer s.dashMu.Unlock()
 	exp, ok := s.dashSessions[c.Value]
-	if !ok {
-		return false
-	}
-	if time.Now().After(exp) {
+	if ok && time.Now().After(exp) {
 		delete(s.dashSessions, c.Value)
-		return false
+		delete(s.sessionDevice, c.Value)
+		ok = false
 	}
-	return true
+	device := s.sessionDevice[c.Value]
+	s.dashMu.Unlock()
+	if !ok {
+		return false, ""
+	}
+	if device != "" && !s.deviceLive(r.Context(), device) {
+		s.dropDeviceSessions(device)
+		return false, ""
+	}
+	return true, device
+}
+
+// mintDashSession creates a dashboard session and sets its cookie. deviceID
+// links it to the device whose handoff minted it ("" for a password login).
+func (s *Server) mintDashSession(w http.ResponseWriter, r *http.Request, deviceID string) {
+	tok := newSessionToken()
+	exp := time.Now().Add(dashSessionTTL)
+	s.dashMu.Lock()
+	if s.dashSessions == nil {
+		s.dashSessions = map[string]time.Time{}
+	}
+	s.dashSessions[tok] = exp
+	s.persistDashSessionsLocked()
+	if deviceID != "" {
+		if s.sessionDevice == nil {
+			s.sessionDevice = map[string]string{}
+		}
+		s.sessionDevice[tok] = deviceID
+		s.persistSessionDevicesLocked()
+	}
+	s.dashMu.Unlock()
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     dashCookie,
+		Value:    tok,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
+		MaxAge:   int(dashSessionTTL / time.Second),
+	})
 }
 
 // handleAuthStatus tells the dashboard whether a login is required and whether
@@ -138,27 +177,17 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
+	if s.authThrottled(r) {
+		writeThrottled(w)
+		return
+	}
 	if !config.CheckPassword(cfg.Server.DashboardPasswordHash, body.Password) {
+		s.authFailed(r)
 		writeError(w, http.StatusUnauthorized, errors.New("incorrect password"))
 		return
 	}
 
-	tok := newSessionToken()
-	exp := time.Now().Add(dashSessionTTL)
-	s.dashMu.Lock()
-	s.dashSessions[tok] = exp
-	s.persistDashSessionsLocked()
-	s.dashMu.Unlock()
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     dashCookie,
-		Value:    tok,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
-		MaxAge:   int(dashSessionTTL / time.Second),
-	})
+	s.mintDashSession(w, r, "")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -168,6 +197,10 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		s.dashMu.Lock()
 		delete(s.dashSessions, c.Value)
 		s.persistDashSessionsLocked()
+		if _, linked := s.sessionDevice[c.Value]; linked {
+			delete(s.sessionDevice, c.Value)
+			s.persistSessionDevicesLocked()
+		}
 		s.dashMu.Unlock()
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -241,7 +274,9 @@ func (s *Server) handleAuthSetPassword(w http.ResponseWriter, r *http.Request) {
 func (s *Server) invalidateDashSessions() {
 	s.dashMu.Lock()
 	s.dashSessions = map[string]time.Time{}
+	s.sessionDevice = map[string]string{}
 	s.persistDashSessionsLocked()
+	s.persistSessionDevicesLocked()
 	s.dashMu.Unlock()
 }
 

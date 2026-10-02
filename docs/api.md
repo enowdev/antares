@@ -25,7 +25,66 @@ Bearer tokens are accepted in query strings only for the explicitly documented
 SSE/media routes that cannot set request headers. Ordinary JSON and mutating
 routes require the `Authorization` header.
 
-`/api/health` is always open, so a health check needs no credential.
+`/api/health` and `/api/version` are always open, so a health check needs no
+credential.
+
+With `server.auth_token` set, a request is authorized by any of:
+
+- `Authorization: Bearer <server.auth_token>`;
+- `Authorization: Bearer <device token>` for a paired device that has not been
+  revoked (see [Devices](#devices));
+- a dashboard session cookie (`antares_dash`), minted by the password login or
+  by a device handoff.
+
+The same three are accepted wherever the dashboard password gate applies.
+Failed password attempts (login and pairing) are limited to 10 per 5 minutes
+per client address; past that both answer `429`.
+
+## Devices
+
+A device token (`atd_` + 48 hex) is a long-lived credential for one client,
+such as the desktop app. It is shown once, stored only as a SHA-256 hash,
+listed, and revocable. Revocation done through the API applies at once; one
+done from the CLI on the server applies within 30 seconds.
+
+| | |
+|---|---|
+| `POST /api/devices/pair` | Create a device and return its token, once |
+| `GET /api/devices` | List devices; `current` marks the caller's |
+| `DELETE /api/devices/{id}` | Revoke (also ends dashboard sessions it opened) |
+| `POST /api/auth/handoff` | One-time code to open the dashboard signed in |
+| `GET /auth/handoff?code=&next=` | Trade the code for a session cookie, redirect |
+| `GET /api/version` | `{"version", "contract", "min_desktop"}`, no auth |
+
+```bash
+curl -X POST http://localhost:8787/api/devices/pair \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "MacBook Pro", "platform": "desktop-macos", "password": "…"}'
+# {"device": {"id": "dev_…", "name": "MacBook Pro", "platform": "desktop-macos",
+#             "created_at": "…"}, "token": "atd_…"}
+```
+
+Pairing authenticates itself. An already authorized request (bearer or
+cookie) pairs without a password. Otherwise the dashboard password is
+required when one is set; a server with only `auth_token` refuses (pair with
+the token as bearer, or run `antares device pair` on the server); an open
+server pairs freely. `name` is 1–64 characters; `platform` is one of
+`desktop-macos`, `desktop-windows`, `desktop-linux`, `cli`, `other` (anything
+else becomes `other`).
+
+The handoff lets a client that holds a token open the dashboard in a browser
+or webview without putting the token in a URL:
+
+```bash
+curl -X POST http://localhost:8787/api/auth/handoff \
+  -H "Authorization: Bearer $DEVICE_TOKEN" -d '{"next": "/c/ses_123"}'
+# {"code": "ahc_…", "url": "/auth/handoff?code=ahc_…&next=%2Fc%2Fses_123", "expires_in": 60}
+```
+
+The code is single use and valid for 60 seconds. Opening `url` sets the
+session cookie and redirects to `next`; `next` must be a same-origin path, and
+anything else becomes `/`. An expired or used code redirects to
+`/login?handoff=expired`.
 
 ## Chat
 

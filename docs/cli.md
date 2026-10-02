@@ -173,6 +173,25 @@ available here; `antares <name>` says so. Use `antares sessions` for renaming
 and exporting. Dedicated subcommands (`config`, `model`, `provider`, `status`,
 `version`, `help`) keep their own meaning.
 
+## Devices
+
+```
+antares device pair [--name N] [--platform P] [--json]
+antares device list [--json]
+antares device revoke <id>
+```
+
+`pair` creates a device token straight in the local database, so it works
+whether or not the server is running; having access to `~/.antares` is the
+proof. The name defaults to the host name and the platform to `cli`. The token
+is printed once. `--json` prints
+`{"device": {...}, "token": "atd_…", "url": "http://127.0.0.1:8787"}`, where
+`url` is the running server's address, or the configured `server.host:port`
+when it is not running. The desktop app pairs its local connection this way.
+
+`revoke` keeps the row (shown as revoked in the list and in Settings ›
+Devices); a running server stops accepting the token within 30 seconds.
+
 ## Changes and a running server
 
 `antares config set`, `toolset`, `reasoning`, `skills enable|disable`,

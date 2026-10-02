@@ -73,7 +73,9 @@ Request:
 - If the server has `auth_token` but no password, an unauthorized request is
   refused: pair with the token (as bearer) or from the CLI.
 - Exempt from `withAuth`/`withDashboardAuth` (it authenticates itself), and
-  rate-limited like `/api/auth/login`.
+  rate-limited together with `/api/auth/login`: 10 failed password attempts
+  per 5 minutes per client address, then `429` (with `Retry-After`) on both.
+  (Login had no limiter before; one shared limiter now covers both.)
 
 Response `200`:
 ```json
@@ -95,6 +97,9 @@ trim; platform from the list, unknown → `other`).
 #### `DELETE /api/devices/{id}` (authorized)
 Revokes. `200 {"ok": true}`; `404` unknown id. Revoking the current device is
 allowed (the client then loses access).
+Revoking also ends every dashboard session minted by that device's handoffs,
+so a webview opened from it is signed out too (a revoke made from the CLI
+reaches those sessions within the 30 s cache window).
 
 #### `POST /api/auth/handoff` (authorized)
 Mints a one-time login code so a client holding a token can open the

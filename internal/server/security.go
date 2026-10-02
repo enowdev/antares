@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
@@ -36,34 +35,18 @@ func queryTokenAllowed(path string) bool {
 // (The query-token allowlist includes the raw file endpoint for browser media
 // elements. It is intentionally not used for JSON or mutating routes.)
 
+// bearerAuthorized reports whether the Authorization header carries
+// server.auth_token or a live (non-revoked) device token.
 func (s *Server) bearerAuthorized(r *http.Request) bool {
-	cfg := s.config()
-	if cfg == nil || cfg.Server.AuthDisabled {
-		return false
-	}
-	token := strings.TrimSpace(cfg.Server.AuthToken)
-	if token == "" {
-		return false
-	}
-	h := r.Header.Get("Authorization")
-	if !strings.HasPrefix(h, "Bearer ") {
-		return false
-	}
-	presented := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-	return subtle.ConstantTimeCompare([]byte(presented), []byte(token)) == 1
+	ok, _ := s.bearerClient(r, false)
+	return ok
 }
 
+// bearerAuthorizedOrQuery is bearerAuthorized plus ?token= (auth_token or a
+// device token) on the EventSource/media allowlist.
 func (s *Server) bearerAuthorizedOrQuery(r *http.Request) bool {
-	if s.bearerAuthorized(r) {
-		return true
-	}
-	cfg := s.config()
-	if cfg == nil || cfg.Server.AuthDisabled || !queryTokenAllowed(r.URL.Path) {
-		return false
-	}
-	token := strings.TrimSpace(cfg.Server.AuthToken)
-	presented := strings.TrimSpace(r.URL.Query().Get("token"))
-	return token != "" && subtle.ConstantTimeCompare([]byte(presented), []byte(token)) == 1
+	ok, _ := s.bearerClient(r, true)
+	return ok
 }
 
 // requestIsLoopback does not trust X-Forwarded-For. A proxy may opt into

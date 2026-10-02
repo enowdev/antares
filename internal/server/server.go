@@ -4,7 +4,6 @@ package server
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -69,6 +68,13 @@ type Server struct {
 	// passwordMu serializes first-password creation and password replacement.
 	passwordMu      sync.Mutex
 	creatorConfigMu sync.Mutex
+
+	// sessionDevice links a dashboard session (cookie value) to the device
+	// whose handoff minted it. Guarded by dashMu.
+	sessionDevice map[string]string
+	// devAuth caches device-token lookups and holds handoff codes and the
+	// failed-login counters.
+	devAuth deviceAuthState
 }
 
 // Options configures a Server.
@@ -119,6 +125,7 @@ func New(o Options) *Server {
 	// Restore dashboard logins so a daemon restart does not break EventSource
 	// reattach (/api/chat/attach) for browsers that still hold a valid cookie.
 	s.loadDashSessions()
+	s.loadDashSessionDevices()
 	// Finished background sub-agents resume (or wake) the delegating session
 	// instead of the main agent polling for them.
 	if s.agent != nil {
@@ -275,9 +282,11 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 	})
 }
 
-// withAuth enforces the bearer token when one is configured. An empty token
-// means the dashboard is open, which is the expected setup behind a private
-// network such as Tailscale.
+// withAuth enforces client authorization when server.auth_token is set. An
+// empty token means the API is open, which is the expected setup behind a
+// private network such as Tailscale. With a token, a request passes on the
+// token as bearer, a live device token, or a valid dashboard session cookie
+// (minted by the password login or a device handoff).
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.config()
@@ -286,34 +295,35 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Health stays reachable so the UI can report "needs token". The dashboard
-		// auth endpoints are also exempt: a browser authenticates with the
-		// dashboard PASSWORD (a cookie), not the bearer token, so it must reach
-		// login/status/logout without already holding the token. The password
-		// login then gates the rest of the dashboard via withDashboardAuth.
-		switch r.URL.Path {
-		case "/api/health", "/api/auth/status", "/api/auth/login", "/api/auth/logout", "/api/auth/password":
+		// Health and version stay reachable so a client can report "needs
+		// token" or "server too old". The dashboard auth endpoints are exempt:
+		// a browser authenticates with the dashboard PASSWORD (a cookie), so it
+		// must reach login/status/logout without already holding a credential.
+		// Pairing authenticates itself.
+		if authExemptPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
-
-		presented := ""
-		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-			presented = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-		}
-		if presented == "" && queryTokenAllowed(r.URL.Path) {
-			// EventSource and media elements cannot set headers, so only the
-			// narrow stream/media allowlist accepts a query capability.
-			presented = r.URL.Query().Get("token")
-		}
-		// Constant-time compare so the token isn't a timing oracle — this gate now
-		// also fronts SSH command execution via /api/vps.
-		if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
-			writeError(w, http.StatusUnauthorized, errors.New("invalid token"))
+		// Bearer compares are constant-time (this gate also fronts SSH command
+		// execution via /api/vps); ?token= is honoured only on the narrow
+		// EventSource/media allowlist.
+		if ok, _ := s.clientAuthorized(r, true); ok {
+			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+		writeError(w, http.StatusUnauthorized, errors.New("invalid token"))
 	})
+}
+
+// authExemptPath lists the /api paths every auth gate lets through.
+func authExemptPath(p string) bool {
+	switch p {
+	case "/api/health", "/api/version",
+		"/api/auth/status", "/api/auth/login", "/api/auth/logout", "/api/auth/password",
+		"/api/devices/pair":
+		return true
+	}
+	return false
 }
 
 // ---- helpers ----------------------------------------------------------------

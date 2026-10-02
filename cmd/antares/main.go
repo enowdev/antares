@@ -120,6 +120,8 @@ func run() error {
 		return cmdSkillsCLI(args)
 	case "memory", "memories":
 		return cmdMemoryCLI(args)
+	case "device", "devices":
+		return cmdDevice(args)
 	case "doctor":
 		return cmdDoctor()
 	case "version", "--version", "-v":
@@ -202,6 +204,11 @@ Automation:
   antares auth copilot           Sign in to GitHub Copilot
   antares rag index <path>       Index files into semantic search
   antares backup           Archive everything; also list, restore, prune
+
+Devices (desktop app, scripts):
+  antares device pair [--name N] [--platform P] [--json]   Create a device token
+  antares device list [--json]   Paired devices
+  antares device revoke <id>     Revoke one
 
 Changes made from the shell are written to config.yaml; a running server
 applies them on restart. See docs/cli.md.

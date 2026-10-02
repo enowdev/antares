@@ -75,6 +75,16 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/auth/login", s.handleAuthLogin)
 	m.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
 	m.HandleFunc("POST /api/auth/password", s.handleAuthSetPassword)
+	m.HandleFunc("POST /api/auth/handoff", s.handleHandoffCreate)
+	// Not under /api: a browser navigation that trades a handoff code for a
+	// session cookie. More specific than "/", so the SPA fallback never sees it.
+	m.HandleFunc("GET /auth/handoff", s.handleHandoffExchange)
+
+	// Paired devices (desktop app, CLI) and the desktop contract version.
+	m.HandleFunc("GET /api/version", s.handleVersion)
+	m.HandleFunc("POST /api/devices/pair", s.handlePairDevice)
+	m.HandleFunc("GET /api/devices", s.handleListDevices)
+	m.HandleFunc("DELETE /api/devices/{id}", s.handleRevokeDevice)
 
 	// Setup / onboarding
 	m.HandleFunc("GET /api/setup/status", s.handleSetupStatus)
