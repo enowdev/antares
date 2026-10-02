@@ -85,7 +85,8 @@ Antares"), device-bound WhatsApp (Baileys), one-shot schedules.
 
 - Paths: `config.AgentsMDPath()` = `<home>/AGENTS.md`, `config.UserMDPath()`
   = `<home>/USER.md`; `config.LoadAgentsMD()`, `config.SaveAgentsMD(s)`,
-  same for USER. Missing file = empty, no placeholder.
+  same for USER (already in `internal/config/persona.go`). Missing file =
+  empty, no placeholder; saving empty removes the file.
 - System prompt (`internal/agent/prompt.go`): after the soul block, add
   `## Your instructions` with AGENTS.md and `## About the user` with USER.md
   when non-empty, for every session including channel sessions, but not for
@@ -152,5 +153,6 @@ only. `--yes` applies all ready items and resolves conflicts with
   backup + undo round-trip, idempotence (re-applying a ready provider is a
   no-op), secrets absent from report/manifest/logs.
 - API: plan cache expiry, auth, item filtering.
-- Decryption: QwenPaw Fernet with a fixture master key; keychain paths behind
-  an interface with a fake in tests.
+- Decryption: QwenPaw Fernet with a fixture master key; keychain reads go
+  through `migrate.Keychain` / `migrate.DefaultKeychain`
+  (`internal/migrate/keychain.go`, go-keyring), replaced by a fake in tests.
