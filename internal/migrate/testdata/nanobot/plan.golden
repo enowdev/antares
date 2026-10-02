@@ -1,0 +1,87 @@
+root=<home>/.nanobot version=
+source=nanobot name="nanobot" profile="" running=false
+summary: 5 providers · model · soul · instructions · 3 memories · 2 skills · 3 MCP servers · 4 schedules · Matrix · Telegram
+
+[provider] provider:anthropic "Anthropic" status=ready selected=true secret
+  detail: claude-opus-4-5
+  provider: id=anthropic kind=anthropic base_url=https://api.anthropic.com/v1 key=••••0001 models=[claude-opus-4-5] headers={}
+
+[provider] provider:company-proxy "Company Proxy" status=ready selected=true secret
+  provider: id=company-proxy kind=openai-compatible base_url=https://llm.example.com/v1 key=••••0004 models=[] headers={X-Team=••••}
+
+[provider] provider:dashscope "Qwen (DashScope)" status=ready selected=true secret
+  provider: id=dashscope kind=openai-compatible base_url=https://dashscope.aliyuncs.com/compatible-mode/v1 key=••••0003 models=[] headers={}
+
+[provider] provider:deepseek "DeepSeek" status=ready selected=true secret
+  detail: deepseek-chat
+  provider: id=deepseek kind=openai-compatible base_url=https://api.deepseek.com key=••••0009 models=[deepseek-chat] headers={}
+
+[provider] provider:openrouter "OpenRouter" status=ready selected=true secret
+  provider: id=openrouter kind=openai-compatible base_url=https://openrouter.ai/api/v1 key=••••0002 models=[] headers={}
+
+[model] model:default "anthropic / claude-opus-4-5" status=ready selected=true
+  detail: 1 fallback(s): deepseek/deepseek-chat
+  model: provider=anthropic model=claude-opus-4-5 fallback=[deepseek/deepseek-chat]
+
+[soul] soul:file "SOUL.md" status=ready selected=true
+  detail: from nanobot SOUL.md · 68 chars
+  text: from=nanobot SOUL.md sha=4a511e10e0c1
+
+[agents_md] agents_md:file "AGENTS.md" status=ready selected=true
+  detail: from nanobot AGENTS.md · 113 chars
+  text: from=nanobot AGENTS.md sha=99814a105bc2
+
+[memory] memory:99e8d1ee7047 "The user's name is Eno." status=ready selected=true
+  memory: scope=global key=the-user-s-name-is-eno tags=[import:nanobot user-information]
+
+[memory] memory:df6b7cf78f3f "Eno lives in Jakarta." status=ready selected=true
+  memory: scope=global key=eno-lives-in-jakarta tags=[import:nanobot user-information]
+
+[memory] memory:835758083940 "Prefers short answers." status=ready selected=true
+  memory: scope=global key=prefers-short-answers tags=[import:nanobot preferences]
+
+[skill] skill:notes "notes" status=ready selected=true
+  skill: name=notes dir=notes
+
+[skill] skill:web-research "web-research" status=ready selected=true
+  detail: Search the web and summarise sources.
+  skill: name=web-research dir=web-research
+
+[mcp] mcp:filesystem "filesystem" status=ready selected=true
+  detail: npx -y @modelcontextprotocol/server-filesystem /srv/notes
+  mcp: name=filesystem transport=stdio command=npx args=[-y @modelcontextprotocol/server-filesystem /srv/notes] url= env={} headers={}
+
+[mcp] mcp:linear "linear" status=unsupported selected=false
+  reason: the server uses an OAuth login — connect it again in Antares
+
+[mcp] mcp:remote "remote" status=ready selected=true secret
+  detail: https://mcp.example.com/mcp
+  mcp: name=remote transport=http command= args=[] url=https://mcp.example.com/mcp env={} headers={Authorization=••••t-01}
+
+[cron] cron:a1b2c3 "Morning brief" status=ready selected=true
+  detail: 0 8 * * 1-5
+  cron: name=Morning brief schedule="0 8 * * 1-5" tz=Asia/Jakarta enabled=false prompt_sha=2fc800b739de
+
+[cron] cron:d4e5f6 "Water reminder" status=ready selected=true
+  detail: @every 1h30m · paused in source
+  cron: name=Water reminder schedule="@every 1h30m" tz= enabled=false prompt_sha=3b1fee3dd3e1
+
+[cron] cron:g7h8i9 "Dentist" status=unsupported selected=false
+  reason: one-shot schedule
+
+[cron] cron:heartbeat "Heartbeat" status=ready selected=true
+  detail: @every 1h
+  cron: name=Heartbeat schedule="@every 1h" tz= enabled=false prompt_sha=d78b74a2b36f
+
+[channel] channel:dingtalk "DingTalk" status=unsupported selected=false
+  reason: Antares has no DingTalk gateway
+
+[channel] channel:matrix "Matrix" status=needs_input selected=false secret input=access_token
+  reason: the access_token could not be read
+  channel: matrix {homeserver=https://matrix.org, user_id=@bot:matrix.org}
+
+[channel] channel:telegram "Telegram" status=ready selected=true secret
+  channel: telegram {allowed_users=[12345], bot_token=••••oken}
+
+[channel] channel:whatsapp "WhatsApp" status=unsupported selected=false
+  reason: nanobot's WhatsApp is a device-bound WhatsApp Web session; Antares supports the Meta Cloud API — set it up in Antares

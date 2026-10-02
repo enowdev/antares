@@ -929,6 +929,7 @@ const id: Dict = {
   'migrate.desc': 'Bawa provider dan key, persona, memori, skill, server MCP, jadwal, dan channel dari asisten lain. Riwayat chat tidak ikut.',
   'migrate.detected': 'Ditemukan di mesin ini',
   'migrate.otherAgents': 'Agent lain',
+  'migrate.showOthers': 'tidak ada? {n} agent lain',
   'migrate.notFound': 'tidak ditemukan di mesin ini',
   'migrate.noneDetected': 'Tidak ada agent lain di lokasi biasanya. Kalau ada di tempat lain, arahkan ke foldernya di bawah.',
   'migrate.running': 'berjalan',

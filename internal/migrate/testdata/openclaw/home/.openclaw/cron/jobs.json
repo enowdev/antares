@@ -1,0 +1,7 @@
+{"version": 1, "jobs": [
+  {"id": "job-morning", "name": "Morning brief", "enabled": true, "schedule": {"kind": "cron", "expr": "0 8 * * 1-5", "tz": "Asia/Jakarta"}, "sessionTarget": "isolated", "payload": {"kind": "agentTurn", "message": "Give me the morning brief"}},
+  {"id": "job-poll", "name": "", "enabled": false, "schedule": {"kind": "every", "everyMs": 1800000}, "payload": {"kind": "systemEvent", "text": "Check the queue"}},
+  {"id": "job-once", "name": "Once", "enabled": true, "schedule": {"kind": "at", "at": "2026-10-10T09:00:00Z"}, "payload": {"kind": "agentTurn", "message": "One time"}},
+  {"id": "job-cmd", "name": "Backup", "enabled": true, "schedule": {"kind": "cron", "expr": "0 3 * * *"}, "payload": {"kind": "command", "argv": ["backup"], "timeoutSeconds": 60}},
+  {"id": "job-hb", "name": "Heartbeat", "enabled": true, "schedule": {"kind": "every", "everyMs": 60000}, "payload": {"kind": "heartbeat"}}
+]}

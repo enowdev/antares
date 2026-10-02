@@ -1,0 +1,53 @@
+{
+  "env": {
+    "LETTA_BASE_URL": "http://localhost:8283",
+    "OPENROUTER_API_KEY": "sk-or-v1-FAKEltOPENROUTER0001"
+  },
+  "preferredBackendMode": "local",
+  "channelCredentialsStore": "keyring",
+  "deviceId": "dev-1",
+  "agents": [
+    {
+      "agentId": "agent-local-11111111-aaaa",
+      "pinned": true,
+      "memfs": true,
+      "mcpServers": [
+        {
+          "name": "filesystem",
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            "/tmp"
+          ],
+          "env": {}
+        },
+        {
+          "name": "linear",
+          "transport": "http",
+          "url": "https://mcp.linear.example/mcp",
+          "headers": {
+            "Authorization": "Bearer FAKEltLINEAR0002"
+          }
+        }
+      ]
+    },
+    {
+      "agentId": "agent-local-22222222-bbbb",
+      "mcpServers": [
+        {
+          "name": "filesystem",
+          "command": "uvx",
+          "args": [
+            "other"
+          ]
+        },
+        {
+          "name": "docs",
+          "transport": "sse",
+          "url": "https://docs.example/sse"
+        }
+      ]
+    }
+  ]
+}

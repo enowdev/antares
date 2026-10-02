@@ -1,0 +1,10 @@
+{
+  "id": "agent-local-33333333-cccc",
+  "name": "explore-subagent",
+  "system": "x",
+  "tags": [
+    "role:subagent"
+  ],
+  "model": "local/default",
+  "hidden": null
+}

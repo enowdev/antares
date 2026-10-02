@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
+  ArrowsLeftRight,
   CheckCircle,
   Database,
   Eye,
@@ -18,12 +19,14 @@ import { DEFAULT_PRESET, PRESET_IDS, PRESET_MODULES, type PresetId } from '@/lib
 import { hubsOfModules } from '@/lib/moduleNav'
 import { HUB_MANIFEST } from '@/lib/routeManifest'
 import { reloadModules } from '@/lib/useModules'
+import { detectedInstalls, type MigrateSource } from '@/lib/migrate'
 import { cn } from '@/lib/utils'
 import { useReveal } from '@/lib/motion'
 import { useTheme } from '@/lib/theme'
 import { Brand } from '@/components/brand/BrandMark'
 import { AgentField } from '@/components/brand/AgentField'
 import { ProviderHeadersField } from '@/components/providers/ProviderHeadersField'
+import { MigrateFlow } from '@/components/migrate/MigrateFlow'
 import { Button } from '@/components/ui/button'
 import {
   Badge,
@@ -70,9 +73,11 @@ interface TestResult {
   suggested?: string[]
 }
 
-type StepId = 'provider' | 'key' | 'model' | 'workspace' | 'extras' | 'done'
+type StepId = 'migrate' | 'provider' | 'key' | 'model' | 'workspace' | 'extras' | 'done'
 
 const STEPS: StepId[] = ['provider', 'key', 'model', 'workspace', 'extras', 'done']
+/** With another agent detected (or asked for), migrate comes first. */
+const MIGRATE_STEPS: StepId[] = ['migrate', ...STEPS]
 
 export default function SetupPage() {
   const { t } = useI18n()
@@ -108,17 +113,64 @@ export default function SetupPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
 
+  const [migrateSources, setMigrateSources] = useState<MigrateSource[]>()
+  const [withMigrate, setWithMigrate] = useState(false)
+  // Set after an import, from a fresh /setup/status: false means the import
+  // brought a working provider and model, so those steps are skipped.
+  const [migratedStatus, setMigratedStatus] = useState<SetupStatus>()
+  const [migratedReady, setMigratedReady] = useState(false)
+
+  const adoptStatus = (s: SetupStatus) => {
+    setStatus(s)
+    setWorkspace(s.workspace)
+    if (s.provider) setProviderId(s.provider)
+    if (s.model) setModel(s.model)
+  }
+
   useEffect(() => {
-    get<SetupStatus>('/setup/status')
-      .then((s) => {
-        setStatus(s)
-        setWorkspace(s.workspace)
-        if (s.provider) setProviderId(s.provider)
-        if (s.model) setModel(s.model)
+    // Sources are best effort: a server without the migrate API, or with
+    // nothing detected, simply starts at the provider step.
+    Promise.all([
+      get<SetupStatus>('/setup/status'),
+      get<{ sources: MigrateSource[] }>('/migrate/sources').catch(() => undefined),
+    ])
+      .then(([s, m]) => {
+        adoptStatus(s)
+        const sources = m?.sources ?? []
+        setMigrateSources(sources)
+        if (detectedInstalls(sources).length > 0) {
+          setWithMigrate(true)
+          setStep('migrate')
+        }
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
+
+  const steps = withMigrate ? MIGRATE_STEPS : STEPS
+
+  const afterImport = async () => {
+    try {
+      const s = await get<SetupStatus>('/setup/status')
+      setMigratedStatus(s)
+    } catch {
+      setMigratedStatus(undefined)
+    }
+  }
+
+  const continueAfterImport = () => {
+    const s = migratedStatus
+    if (s) adoptStatus(s)
+    setTest(undefined)
+    // /setup/complete refuses once setup is no longer needed, so an import
+    // that already configured a provider and model finishes the wizard here.
+    if (s && !s.needs_setup) {
+      setMigratedReady(true)
+      setStep('done')
+    } else {
+      setStep('provider')
+    }
+  }
 
   const provider = useMemo(
     () => status?.providers.find((p) => p.id === providerId),
@@ -128,14 +180,14 @@ export default function SetupPage() {
   // Local endpoints need no credential, so that step is skipped entirely.
   const skipsKey = !!provider?.local
 
-  const stepIndex = STEPS.indexOf(step)
+  const stepIndex = Math.max(steps.indexOf(step), 0)
   const goNext = () => {
-    let next = STEPS[Math.min(stepIndex + 1, STEPS.length - 1)]
+    let next = steps[Math.min(stepIndex + 1, steps.length - 1)]
     if (next === 'key' && skipsKey) next = 'model'
     setStep(next)
   }
   const goBack = () => {
-    let prev = STEPS[Math.max(stepIndex - 1, 0)]
+    let prev = steps[Math.max(stepIndex - 1, 0)]
     if (prev === 'key' && skipsKey) prev = 'provider'
     setStep(prev)
   }
@@ -234,7 +286,7 @@ export default function SetupPage() {
 
   if (loading) {
     return (
-      <SetupShell stepIndex={0}>
+      <SetupShell steps={steps} stepIndex={0}>
         <Skeleton className="h-9 w-56" />
         <Skeleton className="h-64 w-full" />
       </SetupShell>
@@ -242,7 +294,7 @@ export default function SetupPage() {
   }
 
   return (
-    <SetupShell stepIndex={stepIndex}>
+    <SetupShell steps={steps} stepIndex={stepIndex}>
       {error ? (
         <div
           role="alert"
@@ -253,12 +305,51 @@ export default function SetupPage() {
         </div>
       ) : null}
 
+      {step === 'migrate' ? (
+        <section className="space-y-4">
+          <StepHeading title={t('setup.migrateTitle')} description={t('setup.migrateDesc')} />
+          <MigrateFlow
+            sources={migrateSources}
+            compact
+            onApplied={() => void afterImport()}
+            onUndone={() => setMigratedStatus(undefined)}
+            resultActions={() => (
+              <Button size="sm" onClick={continueAfterImport} className="gap-1.5">
+                {migratedStatus && !migratedStatus.needs_setup ? t('setup.migrateFinish') : t('setup.migrateContinue')}
+                <ArrowRight />
+              </Button>
+            )}
+          />
+          {migratedStatus ? null : (
+            <div className="flex justify-end pt-1">
+              <Button variant="ghost" size="sm" onClick={() => setStep('provider')} className="gap-1.5">
+                {t('setup.migrateSkip')}
+                <ArrowRight className="size-4" />
+              </Button>
+            </div>
+          )}
+        </section>
+      ) : null}
+
       {step === 'provider' ? (
         <section className="space-y-4">
           <StepHeading
             title={t('setup.providerTitle')}
             description={t('setup.providerDesc')}
           />
+          {!withMigrate ? (
+            <button
+              type="button"
+              onClick={() => {
+                setWithMigrate(true)
+                setStep('migrate')
+              }}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground underline decoration-line underline-offset-4 transition-colors hover:text-foreground hover:decoration-foreground"
+            >
+              <ArrowsLeftRight className="size-3.5" />
+              {t('setup.migrateLink')}
+            </button>
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-2">
             {status?.providers.map((p) => (
               <button
@@ -313,6 +404,7 @@ export default function SetupPage() {
           {providerId === 'custom' ? <ProviderHeadersField id="setup-headers" value={headersText} onChange={setHeadersText} /> : null}
 
           <StepNav
+            onBack={withMigrate ? goBack : undefined}
             onNext={goNext}
             nextLabel={t('setup.next')}
             disabled={providerId === 'custom' && !baseURL.trim()}
@@ -639,6 +731,9 @@ export default function SetupPage() {
             <p className="mx-auto max-w-md text-sm text-muted-foreground">
               {t('setup.doneDesc', { model })}
             </p>
+            {migratedReady ? (
+              <p className="mx-auto max-w-md text-xs text-muted-foreground">{t('setup.migrateReady')}</p>
+            ) : null}
           </div>
           <div className="flex flex-wrap justify-center gap-2">
             <Button onClick={() => navigate('/', { state: { fresh: true } })} className="gap-1.5">
@@ -702,14 +797,22 @@ function PresetPicker({ value, onChange }: { value: PresetId; onChange: (id: Pre
   )
 }
 
-function SetupShell({ children, stepIndex }: { children: React.ReactNode; stepIndex: number }) {
+function SetupShell({
+  children,
+  steps,
+  stepIndex,
+}: {
+  children: React.ReactNode
+  steps: StepId[]
+  stepIndex: number
+}) {
   const { t } = useI18n()
   const root = useRef<HTMLDivElement>(null)
   // Outside the app shell, so the setup screen applies the saved theme and
   // runs its own reveal observer.
   useTheme()
   useReveal(root)
-  const total = STEPS.length - 1
+  const total = steps.length - 1
   const current = Math.min(stepIndex + 1, total)
   return (
     <div ref={root} className="relative min-h-dvh overflow-hidden">
@@ -727,7 +830,7 @@ function SetupShell({ children, stepIndex }: { children: React.ReactNode; stepIn
             <span className="text-dim"> / {String(total).padStart(2, '0')}</span>
           </span>
           <div className="flex flex-1 items-center gap-1.5" aria-hidden>
-            {STEPS.slice(0, -1).map((_, i) => (
+            {steps.slice(0, -1).map((_, i) => (
               <span
                 key={i}
                 className={cn(

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ]
+    },
+    "web": {
+      "type": "sse",
+      "url": "https://mcp.example.com/sse"
+    }
+  }
+}

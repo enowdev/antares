@@ -1,0 +1,3 @@
+CREATE TABLE auth_profile_store (store_key TEXT PRIMARY KEY, store_json TEXT NOT NULL, updated_at INTEGER NOT NULL) STRICT;
+CREATE TABLE auth_profile_state (state_key TEXT PRIMARY KEY, state_json TEXT NOT NULL, updated_at INTEGER NOT NULL) STRICT;
+INSERT INTO auth_profile_store VALUES ('primary', '{"version":1,"profiles":{"anthropic:default":{"type":"api_key","provider":"anthropic","key":"sk-ant-FAKEocANTH0102"},"openai-codex:me":{"type":"oauth","provider":"openai-codex","access":"FAKEocCODEX0109","refresh":"r","expires":0},"deepseek:default":{"type":"api_key","provider":"deepseek","keyRef":{"source":"env","provider":"default","id":"DEEPSEEK_UNSET_FIXTURE"}}}}', 0);

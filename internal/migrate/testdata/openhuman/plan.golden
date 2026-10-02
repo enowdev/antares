@@ -1,0 +1,90 @@
+source=openhuman name="OpenHuman" profile="" running=false
+summary: 5 providers · model · soul · instructions · user profile · 2 memories · 2 notes · 2 skills · 2 MCP servers · 3 schedules · Discord · Telegram
+warning: OpenHuman's memory database (memory/memory.db) is not imported; MEMORY.md and the Markdown memory vault are.
+
+[provider] provider:openhuman-account "OpenHuman account" status=unsupported selected=false
+  reason: OpenHuman account login (hosted models and integrations) — Antares has no equivalent; add a provider key instead
+
+[provider] provider:openai "OpenAI" status=ready selected=true secret
+  detail: key from auth-profiles
+  provider: id=openai kind=openai base_url=https://api.openai.com/v1 key=••••0001 models=[gpt-4o] headers={}
+
+[provider] provider:lab-vllm "Lab vLLM" status=ready selected=true secret
+  detail: key from auth-profiles
+  provider: id=lab-vllm kind=openai-compatible base_url=https://llm.lab.example/v1 key=••••0007 models=[] headers={}
+
+[provider] provider:anthropic "Anthropic" status=ready selected=true secret
+  detail: key from auth-profiles
+  provider: id=anthropic kind=anthropic base_url=https://api.anthropic.com/v1 key=••••0002 models=[] headers={}
+
+[provider] provider:openai-codex "OpenAI Codex" status=unsupported selected=false
+  reason: subscription/OAuth login — sign in again in Antares
+
+[model] model:default "openai / gpt-4o" status=ready selected=true
+  model: provider=openai model=gpt-4o fallback=[]
+
+[soul] soul:file "SOUL.md" status=ready selected=true
+  detail: from SOUL.md · 42 chars
+  text: from=SOUL.md sha=546b0bb2a9bc
+
+[agents_md] agents_md:file "AGENTS.md" status=ready selected=true
+  detail: from AGENTS.md · 42 chars
+  text: from=AGENTS.md sha=fd6819395b8e
+
+[user_md] user_md:file "USER.md" status=ready selected=true
+  detail: from PROFILE.md · 71 chars
+  text: from=PROFILE.md sha=51c9d5476086
+
+[memory] memory:af9e608c45b4 "Rina is allergic to peanuts." status=ready selected=true
+  memory: scope=global key=rina-is-allergic-to-peanuts tags=[import:openhuman]
+
+[memory] memory:fcfbf1cdb555 "Rina prefers dark mode everywhere." status=ready selected=true
+  memory: scope=global key=rina-prefers-dark-mode-everywhere tags=[import:openhuman]
+
+[knowledge] knowledge:people/budi.md "people/budi.md" status=ready selected=true
+  detail: 44 chars
+  knowledge: path=people/budi.md sha=6cdff70f5f0e
+
+[knowledge] knowledge:projects/billing.md "projects/billing.md" status=ready selected=true
+  detail: 34 chars
+  knowledge: path=projects/billing.md sha=b98debe21fe3
+
+[skill] skill:summarize "summarize" status=ready selected=true
+  detail: Summarise long text.
+  skill: name=summarize dir=summarize
+
+[skill] skill:old-skill "old-skill" status=ready selected=true
+  detail: A legacy workspace skill.
+  skill: name=old-skill dir=old-skill
+
+[mcp] mcp:notion "notion" status=ready selected=true secret
+  detail: https://mcp.notion.example/mcp
+  mcp: name=notion transport=http command= args=[] url=https://mcp.notion.example/mcp env={} headers={Authorization=••••0005}
+
+[mcp] mcp:files "files" status=conflict selected=false
+  detail: npx -y @modelcontextprotocol/server-filesystem ~/Documents
+  reason: Antares already has an MCP server "files"
+  mcp: name=files transport=stdio command=npx args=[-y @modelcontextprotocol/server-filesystem ~/Documents] url= env={} headers={}
+
+[cron] cron:c1 "Daily plan" status=ready selected=true
+  detail: 30 7 * * *
+  cron: name=Daily plan schedule="30 7 * * *" tz=Asia/Jakarta enabled=false prompt_sha=86aee8071b27
+
+[cron] cron:c2 "Sync flow" status=unsupported selected=false
+  reason: flow jobs are not migrated (Antares schedules run prompts)
+
+[cron] cron:c3 "Once" status=unsupported selected=false
+  reason: one-shot schedule (runs once at 2026-12-01T00:00:00Z)
+
+[channel] channel:discord "Discord" status=conflict selected=false secret
+  reason: Antares already has a Discord token
+  channel: discord {allowed_guilds=[123123], bot_token=••••0004}
+
+[channel] channel:email "Email" status=unsupported selected=false
+  reason: Antares has no Email gateway
+
+[channel] channel:telegram "Telegram" status=ready selected=true secret
+  channel: telegram {allowed_chats=[-100200300], allowed_users=[rina_dev], bot_token=••••0003}
+
+[channel] channel:whatsapp "WhatsApp" status=unsupported selected=false
+  reason: WhatsApp Web (a linked-device session) cannot be moved; Antares supports the WhatsApp Cloud API only

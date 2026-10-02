@@ -1,0 +1,2 @@
+default_model = "llama3"
+chat_provider = "ollama:llama3.1@0.5"

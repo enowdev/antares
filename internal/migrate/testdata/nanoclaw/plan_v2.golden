@@ -1,0 +1,56 @@
+source=nanoclaw name="NanoClaw" profile="" running=false
+summary: 1 provider · model · soul · instructions · 1 memory · 1 note · 1 skill · 2 MCP servers · 2 schedules · 1 role · Discord · Slack
+
+[provider] provider:anthropic "Anthropic" status=needs_input selected=false secret input=api_key
+  detail: NanoClaw's onecli credential gateway
+  reason: NanoClaw keeps the key in its onecli credential vault, which cannot be read; enter it to import this provider
+  provider: id=anthropic kind=anthropic base_url=https://api.anthropic.com/v1 key= models=[] headers={}
+
+[model] model:default "anthropic / claude-opus-4-1" status=ready selected=true
+  model: provider=anthropic model=claude-opus-4-1 fallback=[]
+
+[agents_md] agents_md:file "AGENTS.md" status=ready selected=true
+  detail: from groups/main/instructions.prepend.md · 53 chars
+  text: from=groups/main/instructions.prepend.md sha=090a98d54d6d
+
+[soul] soul:file "SOUL.md" status=ready selected=true
+  detail: from .env ASSISTANT_NAME · 18 chars
+  text: from=.env ASSISTANT_NAME sha=ed42e021e00e
+
+[memory] memory:a0001d39e639 "Rina works at Example Corp." status=ready selected=true
+  memory: scope=global key=rina-works-at-example-corp tags=[import:nanoclaw]
+
+[knowledge] knowledge:groups/main/memory/index.md "groups/main/memory/index.md" status=ready selected=true
+  detail: 27 chars
+  knowledge: path=groups/main/memory/index.md sha=90d7b926df37
+
+[skill] skill:standup "standup" status=ready selected=true
+  detail: Write a standup note.
+  skill: name=standup dir=standup
+
+[mcp] mcp:github "github" status=ready selected=true secret
+  detail: npx -y @modelcontextprotocol/server-github
+  mcp: name=github transport=stdio command=npx args=[-y @modelcontextprotocol/server-github] url= env={GITHUB_TOKEN=••••0007} headers={}
+
+[mcp] mcp:wiki "wiki" status=conflict selected=false
+  detail: https://wiki.example/mcp
+  reason: Antares already has an MCP server "wiki"
+  mcp: name=wiki transport=http command= args=[] url=https://wiki.example/mcp env={} headers={}
+
+[cron] cron:ser-a "Morning digest" status=ready selected=true
+  detail: 0 7 * * *
+  cron: name=Morning digest schedule="0 7 * * *" tz= enabled=false prompt_sha=e5a6021f02c8
+
+[cron] cron:t3 "Renew passport" status=unsupported selected=false
+  reason: one-shot schedule (runs once at 2026-10-20T09:00:00Z)
+
+[channel] channel:discord "Discord" status=ready selected=true secret
+  channel: discord {bot_token=••••0005}
+
+[channel] channel:slack "Slack" status=needs_input selected=false secret input=app_token
+  reason: the app_token could not be read
+  channel: slack {app_token=, bot_token=••••0006}
+
+[role] role:coder "Coder" status=ready selected=true
+  detail: NanoClaw agent group
+  role: name=coder title="Coder" model=claude-sonnet-4-5 prompt_sha=b885c724c185

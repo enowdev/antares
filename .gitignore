@@ -21,6 +21,8 @@ web/src/sample/
 *.db-shm
 .env
 .env.local
+# Migration fixtures are fake homes of other agents; their .env files hold fake keys.
+!internal/migrate/testdata/**/.env
 /tuishot
 
 # Local agent/editor tooling (not part of the project)

@@ -1,0 +1,15 @@
+{
+  "id": "my-proxy",
+  "name": "My Proxy",
+  "base_url": "https://proxy.example.com/v1",
+  "api_key": "ENC:gAAAAABqwAjYU9HsA3VCyF4X0P5WDqirtyYGej0FdQSYfQWqIObiBXIduDjC5VCxB3uxNv6UPqxc9h81b_JZtjnNFutdjbN_VuJloB7oPWDtP-O4zP75a9M=",
+  "chat_model": "OpenAIChatModel",
+  "models": [],
+  "extra_models": [
+    {
+      "id": "proxy-large",
+      "name": "Large"
+    }
+  ],
+  "is_custom": true
+}

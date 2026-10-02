@@ -1,0 +1,20 @@
+# ZeroClaw V1 config (no schema_version) — fixture
+api_key = "enc2:060606060606060606060606d945fd4e231de158f7234ba01b1150002244552881e85a6dce076b5012b1bd6d3a8a0af6ec"
+default_provider = "deepseek"
+default_model = "deepseek-chat"
+default_temperature = 0.7
+
+[model_providers.groq]
+api_key = "gsk_FAKEzcGROQ0008"
+model = "llama-3.3-70b"
+
+[reliability]
+fallback_providers = ["groq"]
+
+[channels_config.discord]
+bot_token = "FAKEzcDISCORD0009"
+guild_id = "998877"
+allowed_users = ["42"]
+
+[channels_config.imessage]
+allowed_contacts = ["+15550002222"]

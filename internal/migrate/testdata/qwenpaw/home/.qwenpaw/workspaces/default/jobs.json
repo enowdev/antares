@@ -1,0 +1,78 @@
+{
+  "version": 2,
+  "jobs": [
+    {
+      "id": "j1",
+      "name": "Weekly review",
+      "enabled": true,
+      "schedule": {
+        "type": "cron",
+        "cron": "0 18 * * 5",
+        "timezone": "Asia/Jakarta"
+      },
+      "task_type": "agent",
+      "request": {
+        "input": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Review my week."
+              }
+            ]
+          }
+        ]
+      },
+      "dispatch": {
+        "type": "channel",
+        "channel": "telegram",
+        "target": {
+          "user_id": "42",
+          "session_id": "s"
+        }
+      }
+    },
+    {
+      "id": "j2",
+      "name": "Hello",
+      "enabled": false,
+      "schedule": {
+        "type": "cron",
+        "cron": "0 9 * * *",
+        "timezone": "UTC"
+      },
+      "task_type": "text",
+      "text": "Good morning!",
+      "dispatch": {
+        "type": "channel",
+        "channel": "console",
+        "target": {
+          "user_id": "u",
+          "session_id": "s"
+        }
+      }
+    },
+    {
+      "id": "j3",
+      "name": "Once",
+      "enabled": true,
+      "schedule": {
+        "type": "once",
+        "run_at": "2026-11-01T09:00:00Z"
+      },
+      "task_type": "agent",
+      "request": {
+        "input": "Ping"
+      },
+      "dispatch": {
+        "type": "channel",
+        "channel": "console",
+        "target": {
+          "user_id": "u",
+          "session_id": "s"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "id": "agent-local-44444444-dddd",
+  "name": "Hidden one",
+  "system": "x",
+  "tags": [],
+  "model": "local/default",
+  "hidden": true
+}

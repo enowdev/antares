@@ -1,0 +1,68 @@
+// OpenClaw config — fake values for tests.
+{
+  meta: { lastTouchedVersion: "2026.9.7" },
+  env: {
+    vars: { OPENROUTER_API_KEY: "sk-or-v1-FAKEocOPENROUTER0101" },
+    LOCAL_ORG: "org-7",
+  },
+  secrets: {
+    providers: {
+      default: { source: "file", path: "~/.openclaw/secrets.json" },
+      vault: { source: "exec", command: "/usr/local/bin/vault-get" },
+    },
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      openrouter: {
+        baseUrl: "https://openrouter.ai/api/v1", api: "openai-completions",
+        apiKey: "${OPENROUTER_API_KEY}",
+        models: [{ id: "anthropic/claude-sonnet-4-6", name: "Sonnet 4.6", contextWindow: 200000 }],
+      },
+      local: {
+        baseUrl: "http://127.0.0.1:11434", api: "ollama",
+        apiKey: { source: "env", provider: "default", id: "OLLAMA_KEY_UNSET_FIXTURE" },
+        models: [{ id: "llama3.1", name: "Llama 3.1" }],
+      },
+      corp: {
+        baseUrl: "https://llm.corp.example/v1", api: "openai-completions",
+        apiKey: { source: "file", provider: "default", id: "/corp/key" },
+        headers: { "X-Org": "${LOCAL_ORG}" },
+        models: [{ id: "gpt-x", name: "GPT X" }],
+      },
+      vaulted: {
+        baseUrl: "https://vault.example/v1", api: "anthropic-messages",
+        apiKey: { source: "exec", provider: "vault", id: "llm/key" },
+      },
+      copilot: { api: "github-copilot", baseUrl: "https://api.githubcopilot.com" },
+    },
+  },
+  agents: {
+    ownership: "explicit",
+    defaults: {
+      model: { primary: "openrouter/anthropic/claude-sonnet-4-6", fallbacks: ["anthropic/claude-opus-4-1", "corp/gpt-x"] },
+    },
+    entries: {
+      main: { name: "Main", identity: { name: "Molty", emoji: "🦞" } },
+      work: { name: "Work", workspace: "~/.openclaw/work-ws", model: "openai/gpt-5" },
+      research: { identity: { name: "Scout" }, model: { primary: "corp/gpt-x" } },
+    },
+  },
+  mcp: {
+    servers: {
+      fs: { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"], env: { A: "b", N: 3 } },
+      web: { url: "https://mcp.example.com/mcp", transport: "streamable-http", headers: { Authorization: "Bearer ${MCP_TOKEN}" } },
+      off: { command: "echo", enabled: false },
+      oauthy: { url: "https://mcp.linear.app/mcp", auth: "oauth" },
+    },
+  },
+  channels: {
+    telegram: { botToken: "${TELEGRAM_TOKEN}", allowFrom: [12345], dmPolicy: "allowlist", groups: { "-100123": { requireMention: true } } },
+    discord: { token: { source: "env", provider: "default", id: "DISCORD_TOKEN" }, guilds: { "987": {} } },
+    slack: { botToken: "xoxb-FAKEocSLACK0104", mode: "http", signingSecret: "s" },
+    matrix: { homeserver: "https://matrix.org", userId: "@bot:matrix.org", password: "pw" },
+    whatsapp: { accounts: {} },
+    imessage: { cliPath: "imsg" },
+  },
+  cron: { enabled: true },
+}

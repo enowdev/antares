@@ -108,6 +108,8 @@ func run() error {
 		return cmdRag(args)
 	case "backup":
 		return cmdBackup(args)
+	case "migrate":
+		return cmdMigrate(args)
 	case "ask":
 		return cmdAsk(args)
 	case "logs", "log":
@@ -204,6 +206,7 @@ Automation:
   antares auth copilot           Sign in to GitHub Copilot
   antares rag index <path>       Index files into semantic search
   antares backup           Archive everything; also list, restore, prune
+  antares migrate [source] Import from another agent (Hermes, OpenClaw, …); undo <dir>
 
 Devices (desktop app, scripts):
   antares device pair [--name N] [--platform P] [--json]   Create a device token

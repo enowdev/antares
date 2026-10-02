@@ -1,0 +1,32 @@
+{
+  "channel_type": "telegram, dingtalk, weixin",
+  "model": "claude-sonnet-4-6",
+  "claude_api_key": "sk-ant-FAKE-cow-claude-0001",
+  "claude_api_base": "https://api.anthropic.com/v1",
+  "deepseek_api_key": "sk-FAKE-cow-deepseek-0002",
+  "deepseek_api_base": "https://api.deepseek.com/v1",
+  "open_ai_api_key": "",
+  "open_ai_api_base": "https://api.openai.com/v1",
+  "zhipu_ai_api_key": "FAKE-cow-zhipu-key-0003",
+  "baidu_wenxin_api_key": "FAKE-wenxin",
+  "custom_providers": [
+    {
+      "id": "3f2a9c1b",
+      "name": "My Gateway",
+      "api_key": "sk-FAKE-cow-gateway-0004",
+      "api_base": "https://gw.example.com/v1",
+      "model": "gw-large"
+    }
+  ],
+  "telegram_token": "424242:FAKE-cow-telegram-token",
+  "feishu_app_id": "cli_FAKEapp",
+  "feishu_app_secret": "",
+  "agent": true,
+  "agent_workspace": "~/cow",
+  "mcp_servers": [
+    {
+      "name": "ignored",
+      "command": "x"
+    }
+  ]
+}

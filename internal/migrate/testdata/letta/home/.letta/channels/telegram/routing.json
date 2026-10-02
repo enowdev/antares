@@ -1,0 +1,20 @@
+{
+  "routes": [
+    {
+      "accountId": "tg-main",
+      "chatId": "-1009998887",
+      "chatType": "channel",
+      "agentId": "agent-local-11111111-aaaa",
+      "conversationId": "default",
+      "enabled": true
+    },
+    {
+      "accountId": "tg-main",
+      "chatId": "-1001112223",
+      "chatType": "channel",
+      "agentId": "agent-local-11111111-aaaa",
+      "conversationId": "default",
+      "enabled": false
+    }
+  ]
+}

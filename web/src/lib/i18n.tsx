@@ -1001,6 +1001,7 @@ const en = {
   'migrate.desc': 'Bring providers and keys, persona, memory, skills, MCP servers, schedules and channels over from another assistant. Chat history stays behind.',
   'migrate.detected': 'Found on this machine',
   'migrate.otherAgents': 'Other agents',
+  'migrate.showOthers': 'not listed? {n} other agents',
   'migrate.notFound': 'not found on this machine',
   'migrate.noneDetected': 'No other agent was found in its usual place. If one lives somewhere else, point at its folder below.',
   'migrate.running': 'running',

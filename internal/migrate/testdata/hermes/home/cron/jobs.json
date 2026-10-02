@@ -1,0 +1,9 @@
+{
+  "jobs": [
+    {"id": "a1b2c3", "name": "Morning digest", "prompt": "Summarize my inbox", "schedule": {"kind": "cron", "expr": "0 9 * * *", "display": "0 9 * * *"}, "enabled": true, "state": "scheduled", "deliver": "telegram"},
+    {"id": "d4e5f6", "name": "", "prompt": "Check the build status", "skills": ["web-research"], "schedule": {"kind": "interval", "minutes": 90, "display": "every 90m"}, "enabled": false, "state": "paused"},
+    {"id": "g7h8i9", "name": "Dentist", "prompt": "Remind me about the dentist", "schedule": {"kind": "once", "run_at": "2026-02-03T14:00:00+07:00"}, "enabled": true},
+    {"id": "j0k1l2", "name": "Disk check", "prompt": "", "script": "df -h", "no_agent": true, "schedule": {"kind": "cron", "expr": "*/30 * * * *"}, "enabled": true}
+  ],
+  "updated_at": "2026-09-30T10:00:00+07:00"
+}

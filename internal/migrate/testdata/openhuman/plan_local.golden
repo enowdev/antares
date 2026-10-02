@@ -1,0 +1,13 @@
+source=openhuman name="OpenHuman" profile="local" running=false
+summary: 1 provider · model · 1 skill
+
+[provider] provider:ollama "Ollama" status=ready selected=true secret
+  detail: local model server
+  provider: id=ollama kind=openai-compatible base_url=http://127.0.0.1:11434/v1 key= models=[llama3.1] headers={}
+
+[model] model:default "ollama / llama3.1" status=ready selected=true
+  model: provider=ollama model=llama3.1 fallback=[]
+
+[skill] skill:summarize "summarize" status=ready selected=true
+  detail: Summarise long text.
+  skill: name=summarize dir=summarize

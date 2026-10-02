@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Laptop, MagnifyingGlass, PaintBrush, Sparkle } from '@phosphor-icons/react'
+import { ArrowRight, ArrowsLeftRight, Laptop, MagnifyingGlass, PaintBrush, Sparkle } from '@phosphor-icons/react'
 import { post } from '@/lib/api'
 import { useApi } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
@@ -16,6 +16,7 @@ import {
 import { usePageActions } from '@/components/layout/PageChrome'
 import { ModulesSettings, modulesMatchQuery } from '@/components/settings/ModulesSettings'
 import { DevicesSettings, devicesMatchQuery } from '@/components/settings/DevicesSettings'
+import { MigrateSettings, migrateMatchQuery } from '@/components/migrate/MigrateSettings'
 import { Button } from '@/components/ui/button'
 import {
   Badge,
@@ -43,6 +44,7 @@ import {
 const ESSENTIALS = '__essentials'
 const APPEARANCE = '__appearance'
 const DEVICES = '__devices'
+const MIGRATE = '__migrate'
 const YAML = '__yaml'
 
 export default function ConfigPage() {
@@ -53,7 +55,10 @@ export default function ConfigPage() {
 
   const [filter, setFilter] = useState('')
   const [yamlDraft, setYamlDraft] = useState<string | null>(null)
-  const [section, setSection] = useState<string>(ESSENTIALS)
+  // #migrate deep-links to Settings › Migrate (the setup wizard and docs use it).
+  const [section, setSection] = useState<string>(() =>
+    typeof window !== 'undefined' && window.location.hash === '#migrate' ? MIGRATE : ESSENTIALS,
+  )
 
   const query = filter.trim().toLowerCase()
   const searching = query.length > 0
@@ -83,12 +88,14 @@ export default function ConfigPage() {
       .some((s) => s.toLowerCase().includes(query))
   const modulesMatch = searching && modulesMatchQuery(t, query)
   const devicesMatch = searching && devicesMatchQuery(t, query)
+  const migrateMatch = searching && migrateMatchQuery(t, query)
   const matchCount =
     results.local.length +
     results.moved.length +
     (appearanceMatch ? 1 : 0) +
     (modulesMatch ? 1 : 0) +
-    (devicesMatch ? 1 : 0)
+    (devicesMatch ? 1 : 0) +
+    (migrateMatch ? 1 : 0)
 
   const essentialFields = useMemo(() => fields.filter((f) => f.tier === 'essential'), [fields])
 
@@ -161,6 +168,7 @@ export default function ConfigPage() {
           {modulesMatch ? <ModulesSettings /> : null}
           {appearanceMatch ? <AppearanceCard /> : null}
           {devicesMatch ? <DevicesSettings /> : null}
+          {migrateMatch ? <MigrateSettings /> : null}
           {results.local.length > 0 ? (
             <ConfigFieldRows editor={editor} fields={results.local} showGroup />
           ) : null}
@@ -203,6 +211,8 @@ export default function ConfigPage() {
               <AppearanceCard />
             ) : section === DEVICES ? (
               <DevicesSettings />
+            ) : section === MIGRATE ? (
+              <MigrateSettings />
             ) : (
               <>
                 {section === ESSENTIALS ? (
@@ -329,6 +339,12 @@ function SectionRail({
             undefined,
             <Laptop className="size-4 shrink-0" weight={section === DEVICES ? 'fill' : 'regular'} />,
           )}
+          {item(
+            MIGRATE,
+            t('migrate.nav'),
+            undefined,
+            <ArrowsLeftRight className="size-4 shrink-0" weight={section === MIGRATE ? 'fill' : 'regular'} />,
+          )}
           <div className="my-2 h-px bg-border" />
           {groups.map((g) => item(g, humanizeGroup(g), dot(dirtyPerGroup[g] ?? 0)))}
           <div className="my-2 h-px bg-border" />
@@ -346,6 +362,7 @@ function SectionRail({
           <option value={ESSENTIALS}>{t('config.essentials')}</option>
           <option value={APPEARANCE}>{t('settings.appearance')}</option>
           <option value={DEVICES}>{t('devices.title')}</option>
+          <option value={MIGRATE}>{t('migrate.nav')}</option>
           {groups.map((g) => (
             <option key={g} value={g}>
               {humanizeGroup(g)}

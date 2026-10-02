@@ -105,7 +105,10 @@ Antares"), device-bound WhatsApp (Baileys), one-shot schedules.
 ## HTTP API
 
 All under `/api/migrate`, authorized like other config endpoints, and
-`requireDashboardPassword` for plan/apply (secrets). JSON.
+`requireDashboardPassword` for plan/apply/undo (secrets) — except while
+`server.NeedsSetup(cfg)` is true: during first-run setup there is no
+dashboard password yet, so plan/apply/undo take the setup trust instead
+(loopback or the bearer token, as `/api/setup/complete` does). JSON.
 
 - `GET /api/migrate/sources` →
   `{ "sources": [ {"id","name","detected":[Detection…]} … ] }` — every
@@ -115,7 +118,23 @@ All under `/api/migrate`, authorized like other config endpoints, and
   minutes under `{plan_id}`; the response adds `"plan_id"`.
 - `POST /api/migrate/apply` `{ "plan_id": "…", "items": [Choice…] }` →
   `Report`. `410` if the plan expired (client re-plans).
+  `Report.Backup` is the backup **directory name** (e.g.
+  `migrate-hermes-20261003T101500Z`), the handle Undo takes. A successful
+  apply drops the plan from the cache (re-plan before applying again).
 - `POST /api/migrate/undo` `{ "backup": "<dir name>" }` → `{ "ok": true }`.
+  Only a bare name under `~/.antares/backups/` starting with `migrate-` is
+  accepted; anything with a path separator or `..` is a 400. A backup can be
+  undone once (its manifest is then marked `undone`).
+- `GET /api/migrate/backups` →
+  `{ "backups": [ {"name","source","profile","created_at","applied":n,"undone"} … ] }`,
+  newest first, read from each backup's `manifest.json`, for the Settings list.
+- After an import during setup, `needs_setup` is usually false, so
+  `POST /api/setup/complete` takes `{"after_migrate": true, …}`: the
+  provider/model part is skipped (no `provider`/`model` needed) and only the
+  remaining fields (workspace, database, rag, channel tokens, language,
+  dashboard password, modules) are saved. Accepted only from the setup trust
+  (loopback, bearer, or a dashboard session when locked) and while the newest
+  migration backup is under an hour old and not undone; otherwise 409.
 
 ## CLI
 
@@ -125,6 +144,8 @@ antares migrate <source> [--root DIR] [--profile P] [--dry-run]
                 [--only provider,skill,…] [--yes] [--conflict skip|replace|rename|append]
 antares migrate undo <backup-dir>
 ```
+`undo` takes the backup's directory name (a full path inside
+`~/.antares/backups/` is reduced to its name).
 Interactive by default: prints the plan grouped by category, asks to confirm,
 prompts for `needs_input` keys with hidden input. `--dry-run` prints the plan
 only. `--yes` applies all ready items and resolves conflicts with
@@ -143,6 +164,29 @@ only. `--yes` applies all ready items and resolves conflicts with
   plus the list of past migrations (backup dirs) with Undo.
 - Soft design: rounded panels, pill controls, monochrome, `data-reveal` on
   sections.
+
+## Go additions beside `types.go`
+
+`types.go` is unchanged. These live in other files of `internal/migrate`:
+
+- `Detect` returns `ErrNotFound` when nothing is installed (any error or an
+  empty `Root` is treated the same). A source with several installs may also
+  implement `MultiDetector.DetectAll(ctx, root) ([]Detection, error)`
+  (Hermes profiles); `DetectAll(ctx)` / `BuildPlan(ctx, id, root, profile, env)`
+  prefer it.
+- Optional Env extensions, type-asserted by the item builders:
+  `ProviderMatcher` (identical provider → ready no-op), `DefaultModelChecker`
+  (model conflict), `RAGChecker` (knowledge `unsupported` when RAG is off).
+  `NewEnv(cfg)` implements all of them.
+- `Apply(ctx, plan, choices, Deps{Store, RAG, Now})` and
+  `Undo(ctx, backupName, Deps)`; `ListBackups()`; `ResolveBackup(name)`.
+  Imported memory ids are `import-<source>-<content hash>` and cron ids
+  `import-<source>-<hash of item id>`, so re-applying is a no-op.
+- `common.go`: shared helpers for every source (item builders that set
+  status/conflicts consistently, `.env`/JSON5/YAML readers, MEMORY.md
+  splitter, SKILL.md scanner, vendor→provider mapping, `CustomProviderID`,
+  `RenderPlan` for goldens). Test helpers `FakeEnv`, `CheckGolden`,
+  `AssertNoSecrets`, `noRunning` are in `helpers_test.go`.
 
 ## Tests
 

@@ -1,0 +1,31 @@
+{
+  "agents": {
+    "active_agent": "default",
+    "agent_order": [
+      "default",
+      "coder"
+    ],
+    "profiles": {
+      "default": {
+        "id": "default",
+        "workspace_dir": "~/.qwenpaw/workspaces/default"
+      },
+      "coder": {
+        "id": "coder",
+        "workspace_dir": "~/.qwenpaw/workspaces/coder"
+      },
+      "QwenPaw_QA_Agent_0.2": {
+        "id": "QwenPaw_QA_Agent_0.2",
+        "workspace_dir": "~/.qwenpaw/workspaces/QwenPaw_QA_Agent_0.2"
+      }
+    },
+    "language": "en"
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "ROOT-LEVEL-IGNORED"
+    }
+  },
+  "user_timezone": "Asia/Jakarta"
+}

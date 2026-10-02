@@ -91,6 +91,13 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/setup/test", s.handleSetupTest)
 	m.HandleFunc("POST /api/setup/complete", s.handleSetupComplete)
 
+	// Migrate — import a setup from another assistant agent.
+	m.HandleFunc("GET /api/migrate/sources", s.handleMigrateSources)
+	m.HandleFunc("GET /api/migrate/backups", s.handleMigrateBackups)
+	m.HandleFunc("POST /api/migrate/plan", s.handleMigratePlan)
+	m.HandleFunc("POST /api/migrate/apply", s.handleMigrateApply)
+	m.HandleFunc("POST /api/migrate/undo", s.handleMigrateUndo)
+
 	// Soul — the agent's identity (SOUL.md)
 	m.HandleFunc("GET /api/soul", s.handleGetSoul)
 	m.HandleFunc("POST /api/soul", s.handleSaveSoul)

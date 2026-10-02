@@ -1,0 +1,67 @@
+root=<home>/.qwenpaw version=
+source=qwenpaw name="QwenPaw" profile="" running=false
+summary: 3 providers · model · soul · user profile · 1 memory · 1 note · 1 skill · 1 MCP server · 4 schedules · 1 role · Telegram
+
+[provider] provider:deepseek "DeepSeek" status=ready selected=true secret
+  detail: deepseek-chat
+  provider: id=deepseek kind=openai-compatible base_url=https://api.deepseek.com key=••••0002 models=[deepseek-chat] headers={}
+
+[provider] provider:openrouter "OpenRouter" status=ready selected=true secret
+  detail: 2 models
+  provider: id=openrouter kind=openai-compatible base_url=https://openrouter.ai/api/v1 key=••••0001 models=[anthropic/claude-sonnet-4.6 openai/gpt-5] headers={}
+
+[provider] provider:my-proxy "My Proxy" status=ready selected=true secret
+  detail: proxy-large
+  provider: id=my-proxy kind=openai-compatible base_url=https://proxy.example.com/v1 key=••••0003 models=[proxy-large] headers={}
+
+[model] model:default "openrouter / anthropic/claude-sonnet-4.6" status=ready selected=true
+  detail: 1 fallback(s): deepseek/deepseek-chat
+  model: provider=openrouter model=anthropic/claude-sonnet-4.6 fallback=[deepseek/deepseek-chat]
+
+[soul] soul:file "SOUL.md" status=ready selected=true
+  detail: from QwenPaw SOUL.md · 42 chars
+  text: from=QwenPaw SOUL.md sha=975f03591b73
+
+[user_md] user_md:file "USER.md" status=ready selected=true
+  detail: from QwenPaw PROFILE.md · 61 chars
+  text: from=QwenPaw PROFILE.md sha=15b138320c53
+
+[memory] memory:2009334866a5 "Eno's NAS is at 192.168.1.20." status=ready selected=true
+  memory: scope=global key=eno-s-nas-is-at-192-168-1-20 tags=[import:qwenpaw important-decisions-and-lessons]
+
+[knowledge] knowledge:memory/2026-10-01.md "memory/2026-10-01.md" status=ready selected=true
+  detail: 38 chars
+  knowledge: path=memory/2026-10-01.md sha=85b6978b7527
+
+[skill] skill:invoice-filler "invoice-filler" status=ready selected=true
+  detail: Fill Eno's invoice template.
+  skill: name=invoice-filler dir=invoice_filler
+
+[mcp] mcp:tavily "tavily" status=ready selected=true secret
+  detail: https://mcp.tavily.com/mcp
+  mcp: name=tavily transport=http command= args=[] url=https://mcp.tavily.com/mcp env={} headers={Authorization=••••y-01}
+
+[cron] cron:j1 "Weekly review" status=ready selected=true
+  detail: 0 18 * * 5
+  cron: name=Weekly review schedule="0 18 * * 5" tz=Asia/Jakarta enabled=false prompt_sha=fe4e4b5bdef5
+
+[cron] cron:j2 "Hello" status=ready selected=true
+  detail: 0 9 * * * · paused in source
+  cron: name=Hello schedule="0 9 * * *" tz=UTC enabled=false prompt_sha=401851003352
+
+[cron] cron:j3 "Once" status=unsupported selected=false
+  reason: one-shot schedule
+
+[cron] cron:heartbeat "Heartbeat" status=ready selected=true
+  detail: @every 2h
+  cron: name=Heartbeat schedule="@every 2h" tz= enabled=false prompt_sha=a8f62184b328
+
+[role] role:coder "Coder" status=ready selected=true
+  detail: Writes and reviews code.
+  role: name=coder title="Coder" model=deepseek/deepseek-reasoner prompt_sha=2d8df252c26c
+
+[channel] channel:dingtalk "DingTalk" status=unsupported selected=false
+  reason: Antares has no DingTalk gateway
+
+[channel] channel:telegram "Telegram" status=ready selected=true secret
+  channel: telegram {allowed_users=[42], bot_token=••••gram}

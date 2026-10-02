@@ -1,0 +1,98 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.nanobot/workspace",
+      "model": "anthropic/claude-opus-4-5",
+      "provider": "auto",
+      "fallbackModels": [
+        {
+          "model": "deepseek-chat",
+          "provider": "deepseek"
+        }
+      ],
+      "timezone": "Asia/Jakarta"
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "apiKey": "sk-ant-FAKE-nanobot-key-0001"
+    },
+    "openrouter": {
+      "api_key": "sk-or-FAKE-nanobot-key-0002"
+    },
+    "deepseek": {
+      "apiKey": "${NANOBOT_TEST_DEEPSEEK_KEY}"
+    },
+    "dashscope": {
+      "apiKey": "sk-ds-FAKE-nanobot-key-0003"
+    },
+    "companyProxy": {
+      "apiKey": "sk-proxy-FAKE-nanobot-0004",
+      "apiBase": "https://llm.example.com/v1",
+      "extraHeaders": {
+        "X-Team": "core"
+      }
+    },
+    "groq": {}
+  },
+  "tools": {
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-filesystem",
+          "/srv/notes"
+        ]
+      },
+      "remote": {
+        "type": "streamableHttp",
+        "url": "https://mcp.example.com/mcp",
+        "headers": {
+          "Authorization": "Bearer FAKE-mcp-token-nanobot-01"
+        }
+      },
+      "linear": {
+        "type": "sse",
+        "url": "https://mcp.linear.app/sse",
+        "auth": "oauth"
+      }
+    }
+  },
+  "channels": {
+    "sendProgress": true,
+    "telegram": {
+      "enabled": true,
+      "token": "123456:FAKE-telegram-nanobot-token",
+      "allowFrom": [
+        "12345"
+      ]
+    },
+    "discord": {
+      "enabled": false,
+      "token": ""
+    },
+    "whatsapp": {
+      "enabled": true
+    },
+    "dingtalk": {
+      "enabled": true,
+      "clientId": "ding-app"
+    },
+    "matrix": {
+      "enabled": true,
+      "homeserver": "https://matrix.org",
+      "userId": "@bot:matrix.org",
+      "password": "FAKE-matrix-password"
+    },
+    "websocket": {
+      "enabled": true
+    }
+  },
+  "gateway": {
+    "heartbeat": {
+      "enabled": true,
+      "intervalS": 3600
+    }
+  }
+}

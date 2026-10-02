@@ -1,0 +1,2 @@
+hermes profile= root= version=2026.9.24 summary=8 providers · model · soul · user profile · 3 memories · 3 skills · 5 MCP servers · 4 schedules · 2 roles · Telegram · Discord · Slack
+hermes profile=work root=/profiles/work version=2026.9.24 summary=1 provider · model · 1 memory

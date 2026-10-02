@@ -1,0 +1,15 @@
+channel_list:
+  telegram:
+    settings:
+      token: "7777:FAKE-pico-telegram-token"
+  slack:
+    settings:
+      bot_token: "xoxb-FAKE-pico-slack-token"
+model_list:
+  claude-sonnet:0:
+    api_keys:
+      - "enc://AAECAwQFBgcICQoLDA0OD2RlZmdoaWprbG1uby5rPwWWeYAr8OMSmU2eqEqdQg62tkf8qBfq2kewAhFlRKXE01gfDuqHbb/+Cl+8"
+  deepseek:0:
+    api_keys:
+      - "sk-FAKE-pico-deepseek-0002"
+  gpt-5.4:0: {}

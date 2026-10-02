@@ -1,0 +1,91 @@
+# ZeroClaw config (schema v3) — test fixture, all secrets fake
+schema_version = 3
+
+[providers.models.openrouter.default]
+api_key = "enc2:01010101010101010101010132c438edab69f716267a209e5652547e8865d63a5f77078b70d0734f4aec9cb4b07da42bfec0dfd30f71f7b1a6"
+model = "anthropic/claude-sonnet-4.5"
+fallback = ["anthropic.default"]
+
+[providers.models.anthropic.default]
+api_key = "enc:72692e656b722a4e48414e766e4f414459405c445c5527282928"
+model = "claude-sonnet-4-5"
+
+[providers.models.custom.lab]
+uri = "https://llm.lab.example/v1"
+api_key = "op://Private/lab/credential"
+model = "qwen3-32b"
+
+[agents.default]
+enabled = true
+model_provider = "openrouter.default"
+channels = ["telegram.default"]
+
+[agents.default.identity]
+format = "openclaw"
+
+[agents.coder]
+enabled = true
+model_provider = "anthropic.default"
+channels = []
+
+[channels]
+cli = true
+message_timeout_secs = 300
+
+[channels.telegram.default]
+enabled = true
+bot_token = "enc2:0202020202020202020202025dbc625dfcde46cd1202f1d2947c18b8316cb19806dd837af9ce20965dcf336759ba8c523843244985"
+mention_only = false
+
+[channels.whatsapp.default]
+enabled = true
+session_path = "~/.zeroclaw/data/whatsapp"
+pair_phone = "+15550001111"
+
+[channels.dingtalk.default]
+enabled = false
+client_id = "ding-client"
+client_secret = "enc2:030303030303030303030303f83cbeb3b471ff1b1bb9d1e36a091286f59df0a2b792af6535f5453f83aa46b75253"
+
+[channels.lark.feishu]
+enabled = true
+use_feishu = true
+app_id = "cli_fake_app"
+app_secret = "enc2:0404040404040404040404041a5e55889b9244e12cd6f05b3541e203af34dce569f3ccc0ef360b6ae2b55b7dbf752766"
+
+[peer_groups.telegram_default]
+channel = "telegram"
+agents = ["default"]
+external_peers = ["12345", "*"]
+
+[mcp]
+enabled = true
+deferred_loading = true
+
+[[mcp.servers]]
+name = "github"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "enc2:0505050505050505050505051d0c4a7d27ffc6b9e8c84440eb9a8505f30fb611bb27c2bcbfdd97c1d2aa7c0cabe4b650" }
+
+[[mcp.servers]]
+name = "search"
+transport = "sse"
+url = "https://mcp.search.example/sse"
+
+[cron.morning]
+name = "Morning brief"
+job_type = "agent"
+prompt = "Summarise my calendar and unread mail."
+schedule = { kind = "cron", expr = "0 8 * * 1-5", tz = "Asia/Jakarta" }
+enabled = true
+
+[cron.backup]
+name = "Backup notes"
+job_type = "shell"
+command = "tar czf ~/notes.tgz ~/notes"
+schedule = { kind = "every", every_ms = 3600000 }
+
+[memory]
+backend = "sqlite"

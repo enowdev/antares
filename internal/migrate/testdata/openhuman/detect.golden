@@ -1,0 +1,4 @@
+openhuman profile= root=<root>/users/u_123
+  summary: 5 providers · model · soul · instructions · user profile · 2 memories · 2 notes · 2 skills · 2 MCP servers · 3 schedules · Discord · Telegram
+openhuman profile=local root=<root>/users/local
+  summary: 1 provider · model · 1 skill

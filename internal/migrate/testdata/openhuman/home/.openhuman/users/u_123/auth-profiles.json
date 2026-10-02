@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-10-01T00:00:00Z",
+  "active_profiles": {
+    "provider:openai": "provider:openai:default",
+    "provider:anthropic": "provider:anthropic:default"
+  },
+  "profiles": {
+    "app-session": {
+      "provider": "app-session",
+      "profile_name": "default",
+      "kind": "token",
+      "token": null,
+      "metadata": {
+        "user_id": "u_123"
+      }
+    },
+    "provider:openai:default": {
+      "provider": "provider:openai",
+      "profile_name": "default",
+      "kind": "token",
+      "token": null,
+      "access_token": null
+    },
+    "provider:anthropic:default": {
+      "provider": "provider:anthropic",
+      "profile_name": "default",
+      "kind": "token",
+      "token": "enc2:020202020202020202020202d8746b2e3ca6dad83c7c78981a9e0273ddeaff766928333cd64ae6d8a89942985e59bffaaa21f0b2792a"
+    },
+    "provider:lab:default": {
+      "provider": "provider:lab",
+      "profile_name": "default",
+      "kind": "token",
+      "token": "FAKEohLAB0007"
+    },
+    "provider:openai-codex:oauth": {
+      "provider": "provider:openai-codex",
+      "profile_name": "oauth",
+      "kind": "o-auth",
+      "access_token": "FAKEohCODEX0008"
+    }
+  }
+}

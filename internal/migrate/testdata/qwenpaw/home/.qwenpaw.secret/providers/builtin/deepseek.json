@@ -1,0 +1,9 @@
+{
+  "id": "deepseek",
+  "name": "DeepSeek",
+  "base_url": "https://api.deepseek.com",
+  "api_key": "ENC:gAAAAABqwAjY-QAMmqNQSzQ87vHzF7my18NJgzsYW3RNKr5r87_I2SSPk3D0lWEtH7D2MrWMgvm8Giz0PSrLzf9XwanMq2fwcK15LlAu-Ot0jkxcv9Wy8Yk=",
+  "chat_model": "OpenAIChatModel",
+  "models": [],
+  "extra_models": []
+}

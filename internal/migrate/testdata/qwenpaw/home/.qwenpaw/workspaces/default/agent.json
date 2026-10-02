@@ -1,0 +1,54 @@
+{
+  "id": "default",
+  "name": "Default Agent",
+  "workspace_dir": "~/.qwenpaw/workspaces/default",
+  "active_model": {
+    "provider_id": "openrouter",
+    "model": "anthropic/claude-sonnet-4.6"
+  },
+  "fallback_models": [
+    {
+      "provider_id": "deepseek",
+      "model": "deepseek-chat"
+    }
+  ],
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "8888:FAKE-qwenpaw-telegram",
+      "allow_from": [
+        "42"
+      ]
+    },
+    "dingtalk": {
+      "enabled": true,
+      "client_id": "ding"
+    },
+    "imessage": {
+      "enabled": false
+    },
+    "discord": {
+      "enabled": false,
+      "bot_token": ""
+    },
+    "console": {
+      "enabled": true
+    }
+  },
+  "mcp": {
+    "clients": {
+      "tavily": {
+        "name": "tavily",
+        "transport": "streamable_http",
+        "url": "https://mcp.tavily.com/mcp",
+        "headers": {
+          "Authorization": "Bearer FAKE-qwenpaw-tavily-01"
+        }
+      }
+    }
+  },
+  "heartbeat": {
+    "enabled": true,
+    "every": "2h"
+  }
+}

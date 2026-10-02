@@ -1,0 +1,16 @@
+{
+  "accounts": [
+    {
+      "channel": "discord",
+      "accountId": "dc-1",
+      "enabled": true,
+      "allowedUsers": [
+        "42"
+      ],
+      "agentId": "agent-local-11111111-aaaa",
+      "__letta_secret_refs": {
+        "token": true
+      }
+    }
+  ]
+}
