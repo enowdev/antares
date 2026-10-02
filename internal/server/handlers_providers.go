@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -292,6 +293,7 @@ func (s *Server) handleProviderSettings(w http.ResponseWriter, r *http.Request) 
 	id := r.PathValue("id")
 	var body struct {
 		BaseURL     *string           `json:"base_url"`
+		Kind        *string           `json:"kind"`
 		Label       *string           `json:"label"`
 		TimeoutSecs *int              `json:"timeout_seconds"`
 		Headers     map[string]string `json:"headers"`
@@ -329,6 +331,20 @@ func (s *Server) handleProviderSettings(w http.ResponseWriter, r *http.Request) 
 		}
 		p.BaseURL = baseURL
 	}
+	if body.Kind != nil {
+		// A built-in's wire format is part of what it is; only a provider
+		// the user defined may switch, e.g. after picking the wrong format.
+		if !custom {
+			writeError(w, http.StatusBadRequest, errors.New("the API format of a built-in provider cannot be changed"))
+			return
+		}
+		kind, err := customProviderKind(*body.Kind)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		p.Kind = kind
+	}
 	if body.Label != nil {
 		if label := strings.TrimSpace(*body.Label); label != "" {
 			p.Label = label
@@ -350,8 +366,32 @@ func (s *Server) handleProviderSettings(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleCreateProvider adds a user-defined provider: a name, an
-// OpenAI-compatible base URL, and an optional key. Any number may exist, and
+// customProviderKinds are the wire formats a user-defined provider may speak.
+// Each takes a custom base URL, so a gateway or proxy that re-serves one of
+// these APIs can be added as its own provider. The empty kind means OpenAI
+// chat completions, the one nearly every gateway serves.
+var customProviderKinds = map[string]bool{
+	"openai-compatible": true,
+	"anthropic":         true,
+	"gemini":            true,
+	"codex":             true,
+}
+
+// customProviderKind validates the kind a user picked for a custom provider.
+func customProviderKind(kind string) (string, error) {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" || kind == "custom" {
+		return "openai-compatible", nil
+	}
+	if !customProviderKinds[kind] {
+		return "", fmt.Errorf("unsupported API format %q: use openai-compatible, anthropic, gemini or codex", kind)
+	}
+	return kind, nil
+}
+
+// handleCreateProvider adds a user-defined provider: a name, a base URL in
+// one of the customProviderKinds formats, and an optional key. Any number may
+// exist side by side, each under its own id, and
 // loopback/LAN endpoints are accepted — the user is pointing Antares at their
 // own service.
 func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
@@ -360,11 +400,17 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Name    string            `json:"name"`
+		Kind    string            `json:"kind"`
 		BaseURL string            `json:"base_url"`
 		APIKey  string            `json:"api_key"`
 		Headers map[string]string `json:"headers"`
 	}
 	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	kind, err := customProviderKind(body.Kind)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -400,7 +446,7 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimSpace(body.APIKey)
 	if key != "" || len(headers) > 0 {
 		client, err := llm.New(llm.Options{
-			Kind: "openai-compatible", BaseURL: baseURL, APIKey: key, Headers: headers,
+			Kind: kind, BaseURL: baseURL, APIKey: key, Headers: headers,
 			ProviderID: id, Timeout: 30 * time.Second,
 		})
 		if err != nil {
@@ -424,7 +470,7 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg.Providers[id] = config.Provider{
-		Kind: "openai-compatible", BaseURL: baseURL, APIKey: key, Headers: headers,
+		Kind: kind, BaseURL: baseURL, APIKey: key, Headers: headers,
 		Enabled: true, Label: name,
 	}
 	if err := config.Save(cfg); err != nil {

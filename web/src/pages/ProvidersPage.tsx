@@ -19,6 +19,7 @@ import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { ProviderHeadersField } from '@/components/providers/ProviderHeadersField'
 import { PageLayout } from '@/components/layout/PageLayout'
+import { usePageActions } from '@/components/layout/PageChrome'
 import { Button } from '@/components/ui/button'
 import { Badge, EmptyState, Input, Label, Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives'
 import {
@@ -72,21 +73,64 @@ function providerName(label: string): string {
   return label.replace(/\s*\((local|lokal)\)\s*$/i, '').trim()
 }
 
-type Group = 'oauth' | 'apikey' | 'local'
+type Group = 'custom' | 'oauth' | 'apikey' | 'local'
 
 // How a provider authenticates decides its group. Only Copilot uses a device
 // (OAuth) flow today; local endpoints need no credential; everything else is an
 // API key (or cloud env credentials, which still live under "API key" here).
-// A custom provider is always "API key" — even a localhost endpoint is a
-// service the user configured, not a built-in local runtime.
+// Providers the user added sit in their own group, first, whatever their
+// format — even a localhost endpoint is a service the user configured, not a
+// built-in local runtime.
 function groupOf(p: ProviderInfo): Group {
+  if (p.custom) return 'custom'
   if (p.kind === 'copilot') return 'oauth'
-  if (p.custom) return 'apikey'
   if (p.local) return 'local'
   return 'apikey'
 }
 
-const GROUP_ORDER: Group[] = ['oauth', 'apikey', 'local']
+const GROUP_ORDER: Group[] = ['custom', 'oauth', 'apikey', 'local']
+
+/** Wire formats a custom provider may speak, with an example base URL each. */
+const CUSTOM_KINDS = [
+  { id: 'openai-compatible', label: 'OpenAI', example: 'https://api.example.com/v1' },
+  { id: 'anthropic', label: 'Anthropic', example: 'https://api.example.com/v1' },
+  { id: 'gemini', label: 'Gemini', example: 'https://api.example.com/v1beta' },
+  { id: 'codex', label: 'OpenAI Responses', example: 'https://api.example.com/v1' },
+] as const
+
+function kindLabel(kind: string): string {
+  return CUSTOM_KINDS.find((k) => k.id === kind)?.label ?? kind
+}
+
+/** Pill strip to pick a custom provider's API format. */
+function KindPicker({ value, onChange }: { value: string; onChange: (kind: string) => void }) {
+  const { t } = useI18n()
+  return (
+    <div className="space-y-1.5">
+      <Label>{t('providers.format')}</Label>
+      <div role="radiogroup" aria-label={t('providers.format')} className="flex flex-wrap gap-1.5">
+        {CUSTOM_KINDS.map((k) => (
+          <button
+            key={k.id}
+            type="button"
+            role="radio"
+            aria-checked={value === k.id}
+            onClick={() => onChange(k.id)}
+            className={cn(
+              'rounded-full border px-3 py-1.5 text-xs transition-colors duration-200',
+              value === k.id
+                ? 'border-transparent bg-nav-active text-foreground'
+                : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground">{t('providers.formatHint')}</p>
+    </div>
+  )
+}
 
 function ProviderStatus({ provider }: { provider: ProviderInfo }) {
   const { t } = useI18n()
@@ -125,10 +169,18 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
   const [creating, setCreating] = useState(false)
 
   const grouped = useMemo(() => {
-    const g: Record<Group, ProviderInfo[]> = { oauth: [], apikey: [], local: [] }
+    const g: Record<Group, ProviderInfo[]> = { custom: [], oauth: [], apikey: [], local: [] }
     for (const p of data?.providers ?? []) g[groupOf(p)].push(p)
     return g
   }, [data])
+
+  usePageActions(
+    <Button size="sm" onClick={() => setCreating(true)}>
+      <Plus />
+      {t('providers.addCustom')}
+    </Button>,
+    [t],
+  )
 
   return (
     <PageLayout>
@@ -139,10 +191,12 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
       ) : (
         <div className="space-y-6">
           {GROUP_ORDER.map((g) =>
-            grouped[g].length === 0 ? null : (
+            grouped[g].length === 0 && g !== 'custom' ? null : (
               <section key={g} data-reveal className="space-y-3">
                 <div className="flex items-center gap-2">
-                  {g === 'oauth' ? (
+                  {g === 'custom' ? (
+                    <Plugs className="size-4 text-muted-foreground" />
+                  ) : g === 'oauth' ? (
                     <ShieldCheck className="size-4 text-muted-foreground" />
                   ) : g === 'local' ? (
                     <Desktop className="size-4 text-muted-foreground" />
@@ -173,6 +227,13 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
                         <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">
                           {p.base_url || p.kind}
                         </span>
+                        {p.custom ? (
+                          <span className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-dim">
+                            <span className="font-mono">{p.id}</span>
+                            <span aria-hidden>·</span>
+                            <span>{kindLabel(p.kind || 'openai-compatible')}</span>
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <ProviderStatus provider={p} />
@@ -192,7 +253,7 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
                       </div>
                     </div>
                   ))}
-                  {g === 'apikey' ? (
+                  {g === 'custom' ? (
                     <button
                       onClick={() => setCreating(true)}
                       className="flex min-h-24 flex-col items-center justify-center gap-1.5 border border-dashed border-border p-4 text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
@@ -227,9 +288,9 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
 }
 
 /**
- * Create a custom provider: a name, an OpenAI-compatible base URL, and an
- * optional key. Local endpoints are accepted; the backend verifies the pair
- * before saving.
+ * Create a custom provider: a name, an API format, a base URL, and an
+ * optional key. Each one becomes a new provider beside the others; local
+ * endpoints are accepted, and the backend verifies the pair before saving.
  */
 function AddProviderDialog({
   onClose,
@@ -240,6 +301,7 @@ function AddProviderDialog({
 }) {
   const { t } = useI18n()
   const [name, setName] = useState('')
+  const [kind, setKind] = useState<string>('openai-compatible')
   const [baseURL, setBaseURL] = useState('')
   const [key, setKey] = useState('')
   const [headersText, setHeadersText] = useState('')
@@ -261,6 +323,7 @@ function AddProviderDialog({
     try {
       const r = await post<{ ok: boolean; error?: string }>('/providers', {
         name: name.trim(),
+        kind,
         base_url: baseURL.trim(),
         api_key: key.trim(),
         headers,
@@ -297,13 +360,14 @@ function AddProviderDialog({
               autoComplete="off"
             />
           </div>
+          <KindPicker value={kind} onChange={setKind} />
           <div className="space-y-1.5">
             <Label htmlFor="np-url">{t('setup.baseUrl')}</Label>
             <Input
               id="np-url"
               value={baseURL}
               onChange={(e) => setBaseURL(e.target.value)}
-              placeholder="https://api.example.com/v1"
+              placeholder={CUSTOM_KINDS.find((k) => k.id === kind)?.example}
               className="font-mono text-xs"
               autoComplete="off"
               onKeyDown={(e) => e.key === 'Enter' && create()}
@@ -421,6 +485,7 @@ function ProviderModal({
 
   // Advanced
   const [label, setLabel] = useState(p.label)
+  const [kind, setKind] = useState(p.kind || 'openai-compatible')
   const [timeout, setTimeoutSecs] = useState(String(p.timeout_seconds ?? ''))
   const [headersText, setHeadersText] = useState(() => formatProviderHeaders(p.headers))
 
@@ -516,7 +581,7 @@ function ProviderModal({
       await post(`/providers/${encodeURIComponent(p.id)}/settings`, {
         base_url: baseURL.trim(),
         timeout_seconds: timeout ? Number(timeout) : 0,
-        ...(p.custom ? { label: label.trim(), headers } : {}),
+        ...(p.custom ? { label: label.trim(), kind, headers } : {}),
       })
       onChanged()
     } catch (e) {
@@ -695,6 +760,7 @@ function ProviderModal({
                   <Input id="m-name" value={label} onChange={(e) => setLabel(e.target.value)} autoComplete="off" />
                 </div>
               ) : null}
+              {p.custom ? <KindPicker value={kind} onChange={setKind} /> : null}
               <div className="space-y-1.5">
                 <Label htmlFor="m-baseurl2">{t('models.baseUrl')}</Label>
                 <Input id="m-baseurl2" value={baseURL} onChange={(e) => setBaseURL(e.target.value)} placeholder={p.kind} autoComplete="off" />
