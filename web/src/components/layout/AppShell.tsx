@@ -260,11 +260,11 @@ function PageFrame() {
         <header
           key={hub?.id ?? route.path}
           className={cn(
-            'm-page-head m-rule mb-7 flex flex-col gap-4 pb-6 lg:flex-row lg:items-end lg:justify-between lg:gap-6',
+            'm-page-head m-rule mb-7 flex flex-col gap-4 pb-6 lg:flex-row lg:items-end lg:gap-6',
             fill && 'lg:shrink-0',
           )}
         >
-          <div className="min-w-0">
+          <div className="min-w-0 shrink-0">
             <p className="eyebrow mb-2">{hub ? t(hub.titleKey) : 'Antares'}</p>
             <h1 className="text-[clamp(22px,2.2vw,28px)] font-medium leading-tight tracking-[-0.6px] text-balance">
               {tabbed ? t(tabbed.titleKey) : t(route.titleKey)}
@@ -273,14 +273,12 @@ function PageFrame() {
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{t(route.descKey)}</p>
             ) : null}
           </div>
-          {tabbed ? (
-            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center lg:justify-end">
-              <HubTabs hub={tabbed} className="min-w-0" />
-              {actionsNode}
-            </div>
-          ) : (
-            actionsNode
-          )}
+          {/* The tabs sit right after the title, where nothing moves them;
+              each page's own actions take the far end. When the tabs sat at
+              the far end, a page with wider actions pushed them sideways and
+              the strip jumped as you moved between the hub's pages. */}
+          {tabbed ? <HubTabs hub={tabbed} className="min-w-0" /> : null}
+          {actionsNode ? <div className="flex min-w-0 lg:ml-auto">{actionsNode}</div> : null}
         </header>
       ) : null}
 

@@ -369,17 +369,19 @@ export default function ContentCreatorPage() {
       </PageLayout>
     );
 
+  // On desktop the project list and the open project each scroll on their
+  // own, so working down a long project never scrolls the list away.
   return (
-    <PageLayout>
+    <PageLayout bodyClassName="lg:flex lg:flex-col lg:overflow-hidden lg:pr-0">
       {!creating && <Failure text={error} />}
-      <div className="grid min-w-0 gap-4 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-6">
+      <div className="grid min-w-0 gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-6">
         <ProjectList
           projects={projects}
           activeId={project?.id}
           disabled={!!busy}
           onChoose={choose}
         />
-        <section aria-label="Video project" className="min-w-0 space-y-4">
+        <section aria-label="Video project" className="min-w-0 space-y-4 lg:min-h-0 lg:overflow-y-auto lg:pb-6 lg:pr-1">
           {!project ? (
             <div data-reveal className="tp-panel rounded-[var(--radius-lg)] border border-border bg-card px-6 py-12 text-center">
               <FilmStrip className="mx-auto mb-3 size-7 text-muted-foreground" />

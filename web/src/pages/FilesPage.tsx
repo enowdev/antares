@@ -189,8 +189,11 @@ export default function FilesPage() {
   )
 
   return (
+    // On desktop the list and the preview each scroll on their own, so
+    // reading a long file never carries the list away (and vice versa).
     <PageLayout
       header={header}
+      bodyClassName="lg:flex lg:flex-col lg:overflow-hidden lg:pr-0"
       footer={
         entries.length > PAGE ? (
           <Pagination offset={offset} limit={PAGE} total={entries.length} onChange={setOffset} />
@@ -198,9 +201,9 @@ export default function FilesPage() {
       }
     >
       <SensitiveGate>
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         {/* file list */}
-        <div className="min-w-0">
+        <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
           {loading && !data ? (
             <SkeletonList count={8} />
           ) : entries.length === 0 ? (
@@ -240,7 +243,7 @@ export default function FilesPage() {
         </div>
 
         {/* preview pane */}
-        <div className="min-w-0">
+        <div className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
           {preview ? (
             <PreviewPane
               preview={preview}
@@ -282,7 +285,7 @@ function PreviewPane({
   useEffect(() => setView('rendered'), [entry.path])
 
   return (
-    <Card className="flex max-h-[calc(100vh-12rem)] flex-col overflow-hidden">
+    <Card className="flex max-h-[calc(100vh-12rem)] flex-col overflow-hidden lg:max-h-full lg:min-h-0">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         {iconFor(kind)}
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{entry.name}</span>

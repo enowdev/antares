@@ -45,7 +45,7 @@ export function ProjectList({
   return (
     <nav
       aria-label="Video projects"
-      className="min-w-0 lg:sticky lg:top-0 lg:max-h-full lg:self-start lg:overflow-y-auto"
+      className="min-w-0 lg:min-h-0 lg:overflow-y-auto"
     >
       <h2 className="eyebrow mb-3 hidden px-3 lg:block">
         Video projects
