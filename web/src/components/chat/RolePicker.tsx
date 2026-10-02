@@ -91,7 +91,7 @@ export function RolePicker({
         aria-label={current ? current.title : t('roles.orchestrator')}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex items-center gap-1.5 border border-border bg-transparent text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground aria-expanded:border-line aria-expanded:bg-nav-active aria-expanded:text-foreground',
+          'flex items-center gap-1.5 rounded-full border border-border bg-transparent text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground aria-expanded:border-line aria-expanded:bg-nav-active aria-expanded:text-foreground',
           compact ? 'h-8 min-w-8 justify-center rounded-full px-2 text-xs sm:px-3' : 'h-[3.25rem] px-3 text-sm',
         )}
       >
@@ -103,7 +103,7 @@ export function RolePicker({
       </button>
 
       {open ? (
-        <div className="m-open absolute bottom-full left-0 z-30 mb-2 max-h-72 w-72 max-w-[calc(100vw-2rem)] overflow-y-auto border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
+        <div className="m-open absolute bottom-full left-0 z-30 mb-2 max-h-72 w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
           {groups.map((g) => (
             <div key={g.category}>
               <div className="eyebrow px-2.5 pb-1 pt-2 !text-[10px]">
@@ -117,7 +117,7 @@ export function RolePicker({
                   // role" rather than a pinned name.
                   onClick={() => pick(r.name === 'assistant' ? '' : r.name)}
                   className={cn(
-                    'flex w-full items-start gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
+                    'flex w-full items-start gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
                     selected === r.name && 'bg-nav-active',
                   )}
                 >

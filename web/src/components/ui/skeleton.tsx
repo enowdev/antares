@@ -5,7 +5,7 @@ export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivEl
   return (
     <div
       aria-hidden
-      className={cn('shimmer bg-raised', className)}
+      className={cn('shimmer rounded-[var(--radius-xs)] bg-raised', className)}
       {...props}
     />
   )
@@ -16,7 +16,7 @@ export function SkeletonText({ lines = 3, className }: { lines?: number; classNa
   return (
     <div className={cn('space-y-2', className)}>
       {Array.from({ length: lines }).map((_, i) => (
-        <Skeleton key={i} className={cn('h-3.5', i === lines - 1 ? 'w-2/3' : 'w-full')} />
+        <Skeleton key={i} className={cn('h-3.5 rounded-full', i === lines - 1 ? 'w-2/3' : 'w-full')} />
       ))}
     </div>
   )
@@ -25,13 +25,13 @@ export function SkeletonText({ lines = 3, className }: { lines?: number; classNa
 /** Placeholder matching the Card layout used across list pages. */
 export function SkeletonCard({ className }: { className?: string }) {
   return (
-    <div className={cn('tp-panel border border-border bg-card p-4', className)}>
+    <div className={cn('tp-panel rounded-[var(--radius-lg)] border border-border bg-card p-4', className)}>
       <div className="flex items-start gap-3">
-        <Skeleton className="size-9" />
+        <Skeleton className="size-9 rounded-[var(--radius-md)]" />
         <div className="min-w-0 flex-1 space-y-2">
-          <Skeleton className="h-4 w-1/3" />
-          <Skeleton className="h-3 w-full" />
-          <Skeleton className="h-3 w-4/5" />
+          <Skeleton className="h-4 w-1/3 rounded-full" />
+          <Skeleton className="h-3 w-full rounded-full" />
+          <Skeleton className="h-3 w-4/5 rounded-full" />
         </div>
       </div>
     </div>
@@ -52,16 +52,16 @@ export function SkeletonList({ count = 5, className }: { count?: number; classNa
 /** Placeholder rows for tabular data. */
 export function SkeletonTable({ rows = 6, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div className="overflow-hidden border border-border bg-card">
+    <div className="overflow-hidden rounded-[var(--radius-lg)] border border-border bg-card">
       <div className="flex gap-4 border-b border-border px-4 py-3">
         {Array.from({ length: cols }).map((_, i) => (
-          <Skeleton key={i} className="h-3 flex-1" />
+          <Skeleton key={i} className="h-3 flex-1 rounded-full" />
         ))}
       </div>
       {Array.from({ length: rows }).map((_, r) => (
         <div key={r} className="flex gap-4 border-b border-border px-4 py-3.5 last:border-0">
           {Array.from({ length: cols }).map((_, c) => (
-            <Skeleton key={c} className={cn('h-3.5 flex-1', c === 0 && 'max-w-40')} />
+            <Skeleton key={c} className={cn('h-3.5 flex-1 rounded-full', c === 0 && 'max-w-40')} />
           ))}
         </div>
       ))}
@@ -74,9 +74,9 @@ export function SkeletonStats({ count = 4 }: { count?: number }) {
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="border border-border px-4 py-3.5">
-          <Skeleton className="h-3 w-20" />
-          <Skeleton className="mt-3 h-7 w-24" />
+        <div key={i} className="rounded-[var(--radius-lg)] border border-border px-4 py-3.5">
+          <Skeleton className="h-3 w-20 rounded-full" />
+          <Skeleton className="mt-3 h-7 w-24 rounded-[var(--radius-xs)]" />
         </div>
       ))}
     </div>
@@ -89,10 +89,10 @@ export function SkeletonMessage() {
     <div className="flex gap-3 px-1 py-3">
       <Skeleton className="size-7 shrink-0 rounded-full" />
       <div className="min-w-0 flex-1 space-y-2">
-        <Skeleton className="h-3 w-24" />
-        <Skeleton className="h-3.5 w-full" />
-        <Skeleton className="h-3.5 w-11/12" />
-        <Skeleton className="h-3.5 w-2/3" />
+        <Skeleton className="h-3 w-24 rounded-full" />
+        <Skeleton className="h-3.5 w-full rounded-full" />
+        <Skeleton className="h-3.5 w-11/12 rounded-full" />
+        <Skeleton className="h-3.5 w-2/3 rounded-full" />
       </div>
     </div>
   )

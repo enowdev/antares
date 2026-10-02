@@ -170,7 +170,7 @@ export function EnvDialog({
                           value={e.key}
                           onChange={(ev) => setEntry(i, { key: ev.target.value })}
                           spellCheck={false}
-                          className="h-8 w-2/5 border border-border bg-transparent px-2 font-mono text-[11px] outline-none transition-colors focus:border-foreground/60"
+                          className="h-8 w-2/5 rounded-full border border-border bg-transparent px-3.5 font-mono text-[11px] outline-none transition-colors focus:border-foreground/60"
                           placeholder="KEY"
                         />
                         <div className="relative flex-1">
@@ -179,14 +179,14 @@ export function EnvDialog({
                             onChange={(ev) => setEntry(i, { value: ev.target.value })}
                             type={shown ? 'text' : 'password'}
                             spellCheck={false}
-                            className="h-8 w-full border border-border bg-transparent px-2 pr-8 font-mono text-[11px] outline-none transition-colors focus:border-foreground/60"
+                            className="h-8 w-full rounded-full border border-border bg-transparent pl-3.5 pr-9 font-mono text-[11px] outline-none transition-colors focus:border-foreground/60"
                             placeholder="value"
                           />
                           {secret ? (
                             <button
                               type="button"
                               onClick={() => setReveal((r) => ({ ...r, [rk]: !r[rk] }))}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                             >
                               {shown ? <EyeSlash className="size-3.5" /> : <Eye className="size-3.5" />}
                             </button>
@@ -204,14 +204,14 @@ export function EnvDialog({
                   })}
                   <button
                     onClick={addEntry}
-                    className="flex items-center gap-1.5 border border-dashed border-border px-2 py-1.5 font-mono text-[11px] lowercase text-muted-foreground transition-colors hover:border-line hover:text-foreground"
+                    className="flex items-center gap-1.5 rounded-full border border-dashed border-border px-3.5 py-1.5 font-mono text-[11px] lowercase text-muted-foreground transition-colors hover:border-line hover:text-foreground"
                   >
                     <Plus className="size-3.5" />
                     {t('env.add')}
                   </button>
                 </div>
               ) : (
-                <pre className="max-h-[50vh] overflow-auto border border-border bg-background/40 p-3 font-mono text-[11px] leading-relaxed">
+                <pre className="max-h-[50vh] overflow-auto rounded-[var(--radius-lg)] border border-border bg-background/40 p-3 font-mono text-[11px] leading-relaxed">
                   {file?.raw || '(empty)'}
                 </pre>
               )}

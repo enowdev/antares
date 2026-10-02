@@ -132,7 +132,7 @@ export default function SkillsPage() {
       {toggleError ? (
         <p
           role="alert"
-          className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+          className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
         >
           {toggleError}
         </p>
@@ -185,7 +185,7 @@ export default function SkillsPage() {
             <div
               key={s.name}
               data-reveal
-              className="group flex flex-col border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
+              className="group flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
             >
               <button
                 onClick={() => setEditing(s)}
@@ -310,7 +310,7 @@ function SkillEditor({
         <DialogBody className="space-y-3.5">
           {readOnly ? (
             <>
-              <div className="border border-border bg-raised px-3 py-2 text-xs text-muted-foreground">
+              <div className="rounded-[var(--radius-lg)] border border-border bg-raised px-3 py-2 text-xs text-muted-foreground">
                 {t('skills.discoveredReadOnly')}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -488,7 +488,7 @@ function SecurityLibrary() {
               key={s.name}
               data-reveal
               className={cn(
-                'border transition-[border-color,background-color] duration-200',
+                'rounded-[var(--radius-md)] overflow-hidden border transition-[border-color,background-color] duration-200',
                 reading === s.name ? 'border-line' : 'border-border hover:border-line hover:bg-raised',
               )}
             >

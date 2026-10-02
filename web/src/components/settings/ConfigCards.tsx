@@ -124,7 +124,7 @@ export function GoogleOsintCard({ cookieEdited }: { cookieEdited?: string }) {
                     onClick={() => choose(a.authuser)}
                     disabled={selecting !== null}
                     className={cn(
-                      'flex w-full items-center gap-2 border px-3 py-2 text-left text-xs transition-[border-color,background-color] duration-200',
+                      'flex w-full items-center gap-2 rounded-[var(--radius-md)] border px-3 py-2 text-left text-xs transition-[border-color,background-color] duration-200',
                       active ? 'border-foreground' : 'border-border hover:border-line hover:bg-raised',
                     )}
                   >
@@ -152,12 +152,12 @@ export function GoogleOsintCard({ cookieEdited }: { cookieEdited?: string }) {
           </div>
         ) : null}
         {result && !result.connected ? (
-          <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive">
+          <p className="m-rise rounded-[var(--radius-md)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive">
             {result.error || t('osintg.notConnected')}
           </p>
         ) : null}
 
-        <div className="border border-border px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+        <div className="rounded-[var(--radius-lg)] border border-border px-4 py-3 text-xs leading-relaxed text-muted-foreground">
           <p className="eyebrow mb-2">{t('osintg.howto')}</p>
           <ol className="list-decimal space-y-1 pl-4 marker:font-mono marker:text-dim">
             <li>
@@ -285,7 +285,7 @@ export function DashboardPasswordCard() {
         </div>
 
         {error ? (
-          <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive">
+          <p className="m-rise rounded-[var(--radius-md)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive">
             {error}
           </p>
         ) : null}

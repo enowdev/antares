@@ -68,7 +68,7 @@ interface SessionRow {
   intel: number
 }
 
-// A square per phase: filled once complete, outlined in ink while in
+// A dot per phase: filled once complete, outlined in ink while in
 // progress, amber when blocked, a faint outline before it starts.
 const PHASE_MARK: Record<Phase['status'], string> = {
   complete: 'bg-foreground',
@@ -236,7 +236,7 @@ function Overview({ eng }: { eng: Engagement | null }) {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {stats.map((s) => (
-          <div key={s.label} data-reveal className="border border-border px-4 py-3.5">
+          <div key={s.label} data-reveal className="rounded-[var(--radius-lg)] border border-border px-4 py-3.5">
             <p className="eyebrow">{s.label}</p>
             <p className={cn('mt-2 text-2xl font-medium tabular-nums', s.tone)}>{s.value}</p>
           </div>
@@ -248,7 +248,7 @@ function Overview({ eng }: { eng: Engagement | null }) {
         <CardHeader className="p-0 pb-4">
           <CardTitle>{t('engagement.methodology')}</CardTitle>
         </CardHeader>
-        <ol className="border border-border">
+        <ol className="overflow-hidden rounded-[var(--radius-lg)] border border-border">
           {(eng?.phases ?? []).map((p) => (
             <li
               key={p.name}
@@ -256,9 +256,9 @@ function Overview({ eng }: { eng: Engagement | null }) {
               className="relative flex items-start gap-3 border-t border-border px-4 py-3 text-sm first:border-t-0"
             >
               {p.status === 'in_progress' ? (
-                <span aria-hidden className="absolute inset-y-0 -left-px w-px bg-foreground" />
+                <span aria-hidden className="absolute inset-y-2.5 left-0 w-[2px] rounded-full bg-foreground" />
               ) : null}
-              <span aria-hidden className={cn('mt-[7px] size-[7px] shrink-0', PHASE_MARK[p.status])} />
+              <span aria-hidden className={cn('mt-[7px] size-[7px] shrink-0 rounded-full', PHASE_MARK[p.status])} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{p.title}</span>
@@ -274,7 +274,7 @@ function Overview({ eng }: { eng: Engagement | null }) {
           ))}
         </ol>
         {eng?.next ? (
-          <p className="mt-3 border border-border px-4 py-3 text-xs text-muted-foreground">
+          <p className="mt-3 rounded-[var(--radius-md)] border border-border px-4 py-3 text-xs text-muted-foreground">
             <span className="font-mono text-foreground">→</span> {eng.next}
           </p>
         ) : null}
@@ -288,9 +288,9 @@ function Overview({ eng }: { eng: Engagement | null }) {
             <span className="font-mono text-xs font-normal tabular-nums text-muted-foreground">{pct}%</span>
           </CardTitle>
         </CardHeader>
-        <div className="mb-4 h-1 overflow-hidden bg-raised">
+        <div className="mb-4 h-1 overflow-hidden rounded-full bg-raised">
           <div
-            className="h-full bg-foreground transition-[width] duration-500"
+            className="h-full rounded-full bg-foreground transition-[width] duration-500"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -300,7 +300,7 @@ function Overview({ eng }: { eng: Engagement | null }) {
               {a.covered ? (
                 <Check className="size-3.5 shrink-0 text-[var(--success)]" weight="bold" />
               ) : (
-                <span className="size-3.5 shrink-0 border border-line" />
+                <span className="size-3.5 shrink-0 rounded-full border border-line" />
               )}
               <span className={a.covered ? '' : 'text-muted-foreground'}>{a.title}</span>
             </div>
@@ -341,7 +341,7 @@ function Overview({ eng }: { eng: Engagement | null }) {
         {findings.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t('engagement.noFindings')}</p>
         ) : (
-          <div className="border border-border">
+          <div className="overflow-hidden rounded-[var(--radius-lg)] border border-border">
             {findings.map((f) => (
               <div
                 key={f.id}
@@ -378,7 +378,7 @@ function Overview({ eng }: { eng: Engagement | null }) {
               </span>
             </CardTitle>
           </CardHeader>
-          <div className="border border-border">
+          <div className="overflow-hidden rounded-[var(--radius-lg)] border border-border">
             {intel.map((it) => (
               <div
                 key={it.id}
@@ -430,7 +430,7 @@ function RawReport({ session, title }: { session: string; title: string }) {
 
   if (err)
     return (
-      <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+      <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
         {err}
       </p>
     )

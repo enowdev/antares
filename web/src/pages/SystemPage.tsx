@@ -65,7 +65,7 @@ function Stat({
   return (
     <div
       data-reveal
-      className="border border-border px-4 py-3.5 transition-[border-color,background-color] duration-200 hover:border-line"
+      className="rounded-[var(--radius-lg)] border border-border px-4 py-3.5 transition-[border-color,background-color] duration-200 hover:border-line"
     >
       <div className="flex items-center justify-between gap-2">
         <span className="eyebrow truncate">{label}</span>

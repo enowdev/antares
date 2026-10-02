@@ -99,7 +99,7 @@ export default function SocialMediaPage() {
 
   return (
     <PageLayout>
-      {error && <p role="alert" className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">{error}</p>}
+      {error && <p role="alert" className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">{error}</p>}
 
       {s && !s.encryption_ready && (
         <Card className="border-[color-mix(in_oklch,var(--warning)_45%,var(--border))]">
@@ -123,7 +123,7 @@ export default function SocialMediaPage() {
             <CardDescription>{t('social.onboarding.recoveryKeyDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <code className="block break-all border border-border bg-background p-3 font-mono text-sm">{recoveryKey}</code>
+            <code className="block break-all rounded-[var(--radius-md)] border border-border bg-background p-3 font-mono text-sm">{recoveryKey}</code>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => {
                 const blob = new Blob([recoveryKey], { type: 'text/plain' })
@@ -257,13 +257,13 @@ function SetupItem({
 }) {
   return (
     <div className="relative flex min-w-0 flex-col gap-2 border-border p-5 [&:not(:first-child)]:border-t lg:[&:not(:first-child)]:border-l lg:[&:not(:first-child)]:border-t-0">
-      {/* A square that fills once this piece is set up, as on a stage strip. */}
+      {/* A dot that fills once this piece is set up, as on a stage strip. */}
       {/* Fixed height: a column without a badge keeps its title level with the others. */}
       <div className="flex h-6 min-w-0 items-center gap-2">
         <span
           aria-hidden
           className={cn(
-            'size-[7px] shrink-0 transition-colors duration-300',
+            'size-[7px] shrink-0 rounded-full transition-colors duration-300',
             done ? 'bg-foreground' : 'shadow-[inset_0_0_0_1px_var(--line)]',
           )}
         />
@@ -322,7 +322,7 @@ function IMAPDialog({ open, defaults, onOpenChange, onDone }: { open: boolean; d
           </div>
           <div className="space-y-1.5"><Label>{t('social.gmail.username')}</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="email@example.com" autoComplete="off" /></div>
           <div className="space-y-1.5"><Label>{t('social.gmail.password')}</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></div>
-          <details className="border border-border p-3 text-xs">
+          <details className="rounded-[var(--radius-md)] border border-border p-3 text-xs">
             <summary className="flex cursor-pointer items-center gap-1.5 font-medium text-muted-foreground">
               <Info className="size-3.5" />
               {t('social.gmail.appPasswordTutorial')}
@@ -358,7 +358,7 @@ function AccountCard({ acct, onRemoved }: { acct: SocialAccount; onRemoved: () =
     <Card className="flex flex-col">
       <CardContent className="flex flex-1 flex-col gap-3 p-4 sm:p-4">
         <div className="flex items-start gap-3">
-          <div className="grid size-9 shrink-0 place-items-center border border-line bg-raised text-sm font-medium text-foreground">
+          <div className="grid size-9 shrink-0 place-items-center rounded-full border border-line bg-raised text-sm font-medium text-foreground">
             {initial}
           </div>
           <div className="min-w-0 flex-1">
@@ -394,7 +394,7 @@ function AccountCard({ acct, onRemoved }: { acct: SocialAccount; onRemoved: () =
           ) : (
             <span className="text-xs text-muted-foreground">{t('social.accounts.noProfile')}</span>
           )}
-          <Button size="sm" variant="ghost" className="h-8 shrink-0 px-2 text-muted-foreground hover:text-destructive" loading={removing} onClick={remove}>
+          <Button size="sm" variant="ghost" className="h-8 shrink-0 px-3.5 text-muted-foreground hover:text-destructive" loading={removing} onClick={remove}>
             <Trash className="mr-1.5 size-3.5" />{t('social.accounts.remove')}
           </Button>
         </div>
@@ -434,7 +434,7 @@ function AddAccountDialog({ open, onOpenChange, onDone }: { open: boolean; onOpe
           <div className="space-y-1.5"><Label>{t('social.accounts.password')}</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></div>
           <div className="space-y-1.5"><Label>{t('social.accounts.recovery')}</Label><Input value={recovery} onChange={(e) => setRecovery(e.target.value)} placeholder="Optional recovery codes" /></div>
           <div className="space-y-1.5"><Label>{t('social.accounts.profileUrl')}</Label><Input type="url" value={profileUrl} onChange={(e) => setProfileUrl(e.target.value)} placeholder="https://..." /></div>
-          {err && <p role="alert" className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-4 py-3 text-sm text-destructive">{err}</p>}
+          {err && <p role="alert" className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-4 py-3 text-sm text-destructive">{err}</p>}
         </DialogBody>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>{t('common.cancel')}</Button>

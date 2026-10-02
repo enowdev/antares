@@ -164,7 +164,7 @@ export default function LogsPage() {
       }
     >
       {loading ? (
-        <div className="space-y-2 border border-border bg-card p-4">
+        <div className="space-y-2 rounded-[var(--radius-lg)] border border-border bg-card p-4">
           {Array.from({ length: 12 }).map((_, i) => (
             <Skeleton key={i} className="h-4" style={{ width: `${60 + ((i * 37) % 40)}%` }} />
           ))}
@@ -172,10 +172,10 @@ export default function LogsPage() {
       ) : visible.length === 0 ? (
         <EmptyState icon={<Terminal className="size-8" />} title={t('logs.none')} />
       ) : (
-        <div className="tp-panel overflow-hidden border border-border bg-card">
+        <div className="tp-panel overflow-hidden rounded-[var(--radius-lg)] border border-border bg-card">
           <div className="px-4 py-3 font-mono text-[11px] leading-relaxed">
             {visible.map((e, i) => (
-              <div key={i} className="-mx-2 flex items-baseline gap-2.5 px-2 py-0.5 transition-colors duration-150 hover:bg-raised">
+              <div key={i} className="-mx-2 flex items-baseline gap-2.5 rounded-[var(--radius-xs)] px-2 py-0.5 transition-colors duration-150 hover:bg-raised">
                 <span
                   className={cn(
                     'mt-1.5 size-1.5 shrink-0 self-start rounded-full',

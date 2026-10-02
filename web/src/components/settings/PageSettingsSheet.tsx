@@ -51,7 +51,7 @@ export function PageSettingsSheet({ route }: { route: RouteManifestEntry }) {
           // Phone: full screen. From sm up: a sheet pinned to the right edge.
           'inset-0 h-dvh max-h-none border-0 ' +
           'sm:inset-y-0 sm:left-auto sm:right-0 sm:top-0 sm:bottom-0 sm:h-dvh sm:max-h-none sm:max-w-xl ' +
-          'sm:translate-x-0 sm:translate-y-0 sm:border-0 sm:border-l'
+          'sm:translate-x-0 sm:translate-y-0 sm:rounded-r-none sm:border sm:border-r-0'
         }
       >
         <DialogHeader className="pt-[calc(env(safe-area-inset-top)+1rem)] sm:pt-5">

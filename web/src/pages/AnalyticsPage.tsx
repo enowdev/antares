@@ -110,7 +110,7 @@ export default function AnalyticsPage() {
 
           <section data-reveal className="space-y-3">
             <h3 className="text-[15px] font-medium tracking-[-0.2px]">{t('analytics.byModel')}</h3>
-            <div className="overflow-auto border border-border bg-card">
+            <div className="overflow-auto rounded-[var(--radius-lg)] border border-border bg-card">
               <table className="w-full text-[13px]">
                 <thead>
                   <tr>
@@ -237,7 +237,7 @@ function ChartTooltip({
   if (!active || !payload?.length) return null
   const point = (payload[0] as { payload?: UsagePoint })?.payload
   return (
-    <div className="border border-border bg-popover px-3 py-2.5 text-xs shadow-[0_10px_28px_-14px_#00000080]">
+    <div className="rounded-[var(--radius-lg)] border border-border bg-popover px-3 py-2.5 text-xs shadow-[0_10px_28px_-14px_#00000080]">
       <p className="font-mono text-[11px] text-dim">{label}</p>
       <div className="mt-1.5 flex flex-col gap-1">
         {payload.map((e) => (
@@ -261,7 +261,7 @@ function ChartTooltip({
 function Legend({ swatch, label, value }: { swatch: string; label: string; value?: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="size-2" style={{ background: swatch }} />
+      <span className="rounded-full size-2" style={{ background: swatch }} />
       <span className="text-muted-foreground">{label}</span>
       {value != null ? <span className="ml-1 font-medium tabular-nums text-foreground">{value}</span> : null}
     </span>
@@ -270,7 +270,7 @@ function Legend({ swatch, label, value }: { swatch: string; label: string; value
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div data-reveal className="flex flex-col gap-1 border border-border px-4 py-3.5">
+    <div data-reveal className="flex flex-col gap-1 rounded-[var(--radius-lg)] border border-border px-4 py-3.5">
       <p className="eyebrow">{label}</p>
       <p className="text-2xl font-medium tabular-nums tracking-[-0.4px]">{value}</p>
     </div>

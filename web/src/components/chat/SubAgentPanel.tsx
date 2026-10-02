@@ -173,7 +173,7 @@ export function SubAgentPanel({ agent, onBack }: { agent: ActiveAgent; onBack: (
         <button
           type="button"
           onClick={onBack}
-          className="tp-btn inline-flex min-h-8 items-center gap-1.5 border border-border px-2.5 py-1 font-mono text-xs lowercase text-muted-foreground transition-colors hover:border-line hover:bg-raised hover:text-foreground"
+          className="tp-btn inline-flex min-h-8 items-center gap-1.5 rounded-full border border-border px-3.5 py-1 font-mono text-xs lowercase text-muted-foreground transition-colors hover:border-line hover:bg-raised hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" />
           {t('subagents.backToMain')}
@@ -192,7 +192,7 @@ export function SubAgentPanel({ agent, onBack }: { agent: ActiveAgent; onBack: (
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
         <div className="mx-auto w-full max-w-3xl space-y-5">
           {agent.task ? (
-            <div className="m-rise tp-panel border border-border bg-card px-4 py-3">
+            <div className="m-rise tp-panel rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3">
               <p className="eyebrow">
                 {t('subagents.task')}
               </p>

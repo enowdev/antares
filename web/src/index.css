@@ -1,20 +1,21 @@
 @import 'tailwindcss';
 
 /* Antares design tokens, after the enowx site: near-black surfaces, one light
-   ink, square panels with corner markers, IBM Plex Sans for reading and a
+   ink, soft rounded panels and pill controls, IBM Plex Sans for reading and a
    monospace voice for actions. Colour is kept for meaning (state, the mark's
    core); everything else is greys. */
 @theme {
   --font-sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'SFMono-Regular', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 
-  /* Square by default: panels, fields and actions have hard corners. Pills
-     (navigation, badges, switches) use rounded-full explicitly. */
-  --radius-xs: 0px;
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-  --radius-xl: 0px;
+  /* Soft throughout: actions, fields, chips and tabs are pills
+     (rounded-full); surfaces round off by size — rows and small blocks at
+     sm/md, panels at lg, dialogs and sheets at xl. */
+  --radius-xs: 0.5rem;
+  --radius-sm: 0.75rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.5rem;
 }
 
 @layer base {

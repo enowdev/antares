@@ -174,7 +174,7 @@ export function CommandPalette({ theme, onToggleTheme }: { theme: 'dark' | 'ligh
         className={cn(
           // Phone: a panel under the top edge so the on-screen keyboard never
           // covers the input or the results.
-          'inset-x-3 bottom-auto top-[calc(env(safe-area-inset-top)+0.75rem)] max-h-[70dvh] border shadow-[0_10px_28px_-14px_#00000080]',
+          'inset-x-3 bottom-auto top-[calc(env(safe-area-inset-top)+0.75rem)] max-h-[70dvh] rounded-[var(--radius-xl)] border shadow-[0_10px_28px_-14px_#00000080]',
           // Desktop: anchored high rather than centred, so the input stays put
           // while the result list grows and shrinks.
           'sm:top-[12vh] sm:max-h-[76dvh] sm:max-w-xl sm:translate-y-0',
@@ -243,7 +243,7 @@ export function CommandPalette({ theme, onToggleTheme }: { theme: 'dark' | 'ligh
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => run(item)}
                         className={cn(
-                          'flex cursor-pointer items-center gap-2.5 px-2.5 py-2 text-sm transition-colors duration-150',
+                          'flex cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 text-sm transition-colors duration-150',
                           isActive ? 'bg-raised text-foreground' : 'text-muted-foreground',
                         )}
                       >
@@ -300,7 +300,7 @@ function Kbd({ children, className }: { children: React.ReactNode; className?: s
   return (
     <kbd
       className={cn(
-        'inline-flex h-5 min-w-5 items-center justify-center border border-border bg-raised px-1 font-mono text-[10px] normal-case text-muted-foreground',
+        'inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-border bg-raised px-2 font-mono text-[10px] normal-case text-muted-foreground',
         className,
       )}
     >
@@ -338,7 +338,7 @@ export function CommandPaletteTrigger({ variant }: { variant: 'sidebar' | 'icon'
       className={
         variant === 'topbar'
           ? 'flex h-9 w-56 items-center gap-2 rounded-full border border-border bg-card px-3.5 text-xs text-muted-foreground transition-[border-color,color] duration-200 hover:border-line hover:text-foreground xl:w-64'
-          : 'flex h-9 w-full items-center gap-2 border border-border bg-transparent px-3 text-sm text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground'
+          : 'flex h-9 w-full items-center gap-2 rounded-full border border-border bg-transparent px-4 text-sm text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground'
       }
     >
       <MagnifyingGlass className="size-4 shrink-0" />

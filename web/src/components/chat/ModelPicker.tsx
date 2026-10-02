@@ -156,7 +156,7 @@ export function ModelPicker({
       </button>
 
       {open ? (
-        <div className="m-open absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-72 max-w-[calc(100vw-2rem)] flex-col border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
+        <div className="m-open absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-72 max-w-[calc(100vw-2rem)] flex-col rounded-[var(--radius-lg)] border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
           <div className="relative p-1">
             <MagnifyingGlass className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -164,13 +164,13 @@ export function ModelPicker({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("models.searchAll")}
-              className="h-8 w-full border border-border bg-transparent pl-8 pr-2 font-mono text-xs outline-none transition-colors focus:border-foreground/60"
+              className="h-8 w-full rounded-full border border-border bg-transparent pl-8 pr-3.5 font-mono text-xs outline-none transition-colors focus:border-foreground/60"
             />
           </div>
           {pickError ? (
             <p
               role="alert"
-              className="m-rise mx-1 mb-1 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-2.5 py-2 text-[11px] leading-snug text-destructive"
+              className="m-rise mx-1 mb-1 rounded-[var(--radius-sm)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-2.5 py-2 text-[11px] leading-snug text-destructive"
             >
               {pickError}{" "}
               {pickGate ? (
@@ -203,7 +203,7 @@ export function ModelPicker({
                     onClick={() => pick(m)}
                     disabled={!!saving}
                     className={cn(
-                      "flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-raised",
+                      "flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors hover:bg-raised",
                       isActive && "bg-nav-active",
                     )}
                   >

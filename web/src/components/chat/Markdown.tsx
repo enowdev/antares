@@ -167,7 +167,7 @@ function EmbeddedImage({ alt, url }: { alt: string; url: string }) {
 
   if (failed) {
     return (
-      <span className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+      <span className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 font-mono text-xs text-muted-foreground">
         <ImageIcon className="size-3" /> {alt || 'image'}
       </span>
     )
@@ -181,7 +181,7 @@ function EmbeddedImage({ alt, url }: { alt: string; url: string }) {
       onClick={() => setExpanded(!expanded)}
       onError={() => setFailed(true)}
       className={cn(
-        'cursor-zoom-in border border-border object-contain transition-all',
+        'cursor-zoom-in rounded-[var(--radius-md)] border border-border object-contain transition-all',
         expanded ? 'max-w-full' : 'max-h-48 max-w-xs',
       )}
     />
@@ -232,7 +232,7 @@ function RichBlock({ block }: { block: Block }) {
       )
     case 'table':
       return (
-        <div className="overflow-x-auto border border-border bg-card">
+        <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-border bg-card">
           <table className="w-full text-xs">
             <thead>
               <tr>
@@ -283,7 +283,7 @@ function Inline({ text }: { text: string }) {
       nodes.push(
         <code
           key={key++}
-          className="bg-raised px-1 py-0.5 font-mono text-[0.85em] text-foreground"
+          className="rounded-[var(--radius-xs)] bg-raised px-1 py-0.5 font-mono text-[0.85em] text-foreground"
         >
           {token.slice(1, -1)}
         </code>,
@@ -345,7 +345,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     }
   }
   return (
-    <div className="group relative overflow-hidden border border-border bg-card">
+    <div className="group relative overflow-hidden rounded-[var(--radius-lg)] border border-border bg-card">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <span className="font-mono text-[10px] lowercase tracking-[0.04em] text-dim">
           {lang || t('chat.codeText')}

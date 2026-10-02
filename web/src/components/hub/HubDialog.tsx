@@ -175,14 +175,14 @@ export function HubDialog({
           </div>
 
           {note ? (
-            <div className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--success)_45%,var(--border))] bg-card px-4 py-3 text-xs">
+            <div className="m-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--success)_45%,var(--border))] bg-card px-4 py-3 text-xs">
               <CheckCircle className="mt-0.5 size-4 shrink-0 text-[var(--success)]" weight="fill" />
               <span className="min-w-0">{note}</span>
             </div>
           ) : null}
 
           {error ? (
-            <div className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-xs text-destructive">
+            <div className="m-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-xs text-destructive">
               <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
               <span className="min-w-0 break-words">{error}</span>
             </div>
@@ -198,7 +198,7 @@ export function HubDialog({
                 <div
                   key={e.id}
                   className={cn(
-                    'flex items-start gap-3 border border-border p-3.5 transition-[border-color,background-color] duration-200',
+                    'flex items-start gap-3 rounded-[var(--radius-md)] border border-border p-3.5 transition-[border-color,background-color] duration-200',
                     e.installed ? 'bg-raised/60' : 'hover:border-line hover:bg-raised',
                   )}
                 >
@@ -218,7 +218,7 @@ export function HubDialog({
                     </div>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{e.summary}</p>
                     {kind === 'plugins' && e.command ? (
-                      <p className="mt-1.5 break-all border border-border bg-background px-2 py-1 font-mono text-[11px] text-foreground">
+                      <p className="mt-1.5 break-all rounded-[var(--radius-xs)] border border-border bg-background px-2 py-1 font-mono text-[11px] text-foreground">
                         $ {e.command}
                         {e.args?.length ? ' ' + e.args.join(' ') : ''}
                         {e.hooks?.length ? `  · ${e.hooks.join(', ')}` : ''}
@@ -261,7 +261,7 @@ export function HubDialog({
             <p className="text-xs leading-relaxed text-muted-foreground">{t('hub.sourceHint')}</p>
           ) : null}
           {kind === 'plugins' ? (
-            <div className="flex items-start gap-2 border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card px-4 py-3 text-xs leading-relaxed">
+            <div className="flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card px-4 py-3 text-xs leading-relaxed">
               <Warning className="mt-0.5 size-4 shrink-0 text-[var(--warning)]" weight="fill" />
               <span className="min-w-0">{t('hub.pluginsWarn')}</span>
             </div>

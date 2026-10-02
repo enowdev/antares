@@ -209,7 +209,7 @@ function MemoryCard({
   return (
     <div
       data-reveal
-      className="group flex flex-col border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
+      className="group flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
     >
       <button onClick={onEdit} className="min-w-0 flex-1 text-left">
         <div className="flex flex-wrap items-center gap-2">
@@ -506,7 +506,7 @@ function RagTab() {
               value={searchCollection}
               onChange={(e) => setSearchCollection(e.target.value)}
               disabled={!data?.enabled}
-              className="h-8 border border-border bg-card px-2 font-mono text-xs outline-none transition-colors focus:border-foreground"
+              className="h-8 rounded-full border border-border bg-card px-3 font-mono text-xs outline-none transition-colors focus:border-foreground"
             >
               <option value="">{t('memory.ragAllCollections')}</option>
               {(data?.collections ?? []).map((c) => (
@@ -530,7 +530,7 @@ function RagTab() {
           </div>
 
           {searchErr ? (
-            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2 text-xs text-destructive">
+            <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2 text-xs text-destructive">
               {searchErr}
             </p>
           ) : null}
@@ -563,7 +563,7 @@ function RagTab() {
                   const top = results[0]?.score || 1
                   const pct = Math.max(4, Math.min(100, Math.round((r.score / (top || 1)) * 100)))
                   return (
-                    <div key={i} className="m-rise border border-border px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
+                    <div key={i} className="m-rise rounded-[var(--radius-md)] border border-border px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
                       <div className="mb-1.5 flex items-center gap-2">
                         <span className="shrink-0 font-mono text-[11px] tabular-nums text-dim">
                           {i + 1}
@@ -574,9 +574,9 @@ function RagTab() {
                           </span>
                         ) : null}
                         <div className="ml-auto flex shrink-0 items-center gap-2">
-                          <div className="h-1 w-12 overflow-hidden bg-raised">
+                          <div className="h-1 w-12 rounded-full overflow-hidden bg-raised">
                             <div
-                              className="h-full bg-foreground"
+                              className="h-full rounded-full bg-foreground"
                               style={{ width: `${pct}%` }}
                             />
                           </div>

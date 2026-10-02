@@ -208,7 +208,7 @@ function AllModelsView({
                 key={`${m.provider}/${m.id}`}
                 data-reveal
                 className={cn(
-                  'flex items-center gap-3.5 border px-4 py-3.5 transition-[border-color,background-color] duration-200',
+                  'flex items-center gap-3.5 rounded-[var(--radius-md)] border px-4 py-3.5 transition-[border-color,background-color] duration-200',
                   isActive
                     ? 'border-foreground bg-transparent'
                     : 'border-border bg-transparent hover:border-line hover:bg-raised',

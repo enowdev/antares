@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 /** Native select styled like the Input primitive (same height and radius). */
 export const control =
-  "h-11 w-full border border-input bg-transparent px-3 text-base sm:h-9 sm:text-sm disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
+  "h-11 w-full rounded-full border border-input bg-transparent px-4 text-base sm:h-9 sm:text-sm disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
 
 /** Inputs grow to a 44px tap target on phones and match `control` above. */
 export const inputTap = "h-11 sm:h-9";
@@ -34,7 +34,7 @@ export function Failure({ text }: { text?: string }) {
   return text ? (
     <pre
       role="alert"
-      className="m-rise whitespace-pre-wrap break-words border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 font-mono text-xs text-destructive"
+      className="m-rise whitespace-pre-wrap break-words rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 font-mono text-xs text-destructive"
     >
       {JSON.stringify({ error: text }, null, 2)}
     </pre>
@@ -81,7 +81,7 @@ export function PaneTabs<T extends string>({
               aria-pressed={active}
               onClick={() => onChange(t.id)}
               className={cn(
-                "inline-flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs transition-colors lg:h-8",
+                "inline-flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-4 text-xs transition-colors lg:h-8 lg:px-3.5",
                 active
                   ? "border-transparent bg-nav-active text-foreground"
                   : "border-border text-muted-foreground hover:text-foreground",

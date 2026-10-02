@@ -186,7 +186,7 @@ export function TaskBar({
               <button
                 type="button"
                 onClick={() => onOpenSubAgent?.(a)}
-                className="flex w-full items-start gap-2 px-2 py-1.5 text-left transition-colors hover:bg-raised"
+                className="flex w-full items-start gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left transition-colors hover:bg-raised"
               >
                 <CircleNotch className="mt-0.5 size-3.5 shrink-0 animate-spin text-foreground" />
                 <span className="min-w-0 flex-1">

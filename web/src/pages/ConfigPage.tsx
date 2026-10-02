@@ -227,7 +227,7 @@ export default function ConfigPage() {
 function MovedResults({ moved }: { moved: MovedField<Field>[] }) {
   const { t } = useI18n()
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardContent className="divide-y divide-border p-0">
         {moved.map(({ field, route }) => {
           const { hubKey, tabKey } = movedLabelKeys(route)
@@ -279,7 +279,7 @@ function SectionRail({
       key={id}
       onClick={() => onSelect(id)}
       className={cn(
-        'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-[background-color,color] duration-200',
+        'flex w-full items-center gap-2 rounded-full px-3.5 py-2 text-left text-sm transition-[background-color,color] duration-200',
         section === id
           ? 'bg-nav-active text-foreground'
           : 'text-muted-foreground hover:bg-raised hover:text-foreground',
@@ -324,7 +324,7 @@ function SectionRail({
         <select
           value={section}
           onChange={(e) => onSelect(e.target.value)}
-          className="h-10 w-full cursor-pointer border border-input bg-transparent px-3 text-sm transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none"
+          className="h-10 w-full cursor-pointer rounded-full border border-input bg-transparent px-4 text-sm transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none"
           aria-label={t('config.title')}
         >
           <option value={ESSENTIALS}>{t('config.essentials')}</option>

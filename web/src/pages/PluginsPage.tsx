@@ -117,7 +117,7 @@ export default function PluginsPage() {
       ) : (
         <>
           {!data?.enabled ? (
-            <p className="border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card px-4 py-3 text-sm text-muted-foreground">
+            <p className="rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card px-4 py-3 text-sm text-muted-foreground">
               {t('plugins.disabled')}
             </p>
           ) : null}
@@ -135,7 +135,7 @@ export default function PluginsPage() {
                   key={p.name}
                   data-reveal
                   className={cn(
-                    'flex flex-col border bg-card p-4 transition-[border-color,background-color] duration-200',
+                    'flex flex-col rounded-[var(--radius-lg)] border bg-card p-4 transition-[border-color,background-color] duration-200',
                     p.error
                       ? 'border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))]'
                       : 'border-border hover:border-line',
@@ -199,7 +199,7 @@ function PluginDocs() {
         <CardDescription>{t('plugins.howtoDesc')}</CardDescription>
       </CardHeader>
       <CardContent>
-        <pre className="overflow-x-auto border border-border bg-background p-3.5 font-mono text-[11px] leading-relaxed">
+        <pre className="overflow-x-auto rounded-[var(--radius-lg)] border border-border bg-background p-3.5 font-mono text-[11px] leading-relaxed">
 {`# ~/.antares/plugins/audit/plugin.yaml
 name: audit
 description: Log every terminal command
@@ -349,7 +349,7 @@ function AddPluginDialog({
             </div>
           </div>
 
-          <div className="flex items-start gap-2 border border-border bg-raised p-3 text-[11px] leading-relaxed text-muted-foreground">
+          <div className="flex items-start gap-2 rounded-[var(--radius-lg)] border border-border bg-raised p-3 text-[11px] leading-relaxed text-muted-foreground">
             <PuzzlePiece className="mt-0.5 size-4 shrink-0" />
             <span className="min-w-0">{t('plugins.addHint')}</span>
           </div>

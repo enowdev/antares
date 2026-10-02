@@ -136,7 +136,7 @@ export function ProjectPicker({
       </button>
 
       {open && !locked ? (
-        <div className="m-open absolute bottom-full left-0 z-30 mb-2 w-96 max-w-[calc(100vw-2rem)] overflow-hidden border border-border bg-popover shadow-[0_10px_28px_-14px_#00000080]">
+        <div className="m-open absolute bottom-full left-0 z-30 mb-2 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-[var(--radius-lg)] border border-border bg-popover shadow-[0_10px_28px_-14px_#00000080]">
           <div className="border-b border-border px-3 py-2">
             <div className="text-xs font-medium">{t('project.pick')}</div>
             <div className="mt-0.5 text-[11px] text-muted-foreground">{t('project.pickHint')}</div>
@@ -156,11 +156,11 @@ export function ProjectPicker({
                 }}
                 placeholder="/path/to/project"
                 spellCheck={false}
-                className="h-8 min-w-0 flex-1 border border-border bg-transparent px-2 font-mono text-[11px] outline-none transition-colors focus:border-foreground/60"
+                className="h-8 min-w-0 flex-1 rounded-full border border-border bg-transparent px-3.5 font-mono text-[11px] outline-none transition-colors focus:border-foreground/60"
               />
               <button
                 onClick={() => browse(typed || '')}
-                className="h-8 shrink-0 border border-border px-2.5 font-mono text-[11px] lowercase transition-colors hover:border-line hover:bg-raised"
+                className="h-8 shrink-0 rounded-full border border-border px-3.5 font-mono text-[11px] lowercase transition-colors hover:border-line hover:bg-raised"
               >
                 {t('project.go')}
               </button>
@@ -172,7 +172,7 @@ export function ProjectPicker({
             <button
               onClick={() => browse('')}
               title={t('project.home')}
-              className="grid size-6 place-items-center transition-colors hover:bg-raised"
+              className="grid size-6 place-items-center rounded-full transition-colors hover:bg-raised"
             >
               <House className="size-3.5 text-muted-foreground" />
             </button>
@@ -180,7 +180,7 @@ export function ProjectPicker({
               onClick={() => parent && browse(parent)}
               disabled={!parent}
               title={t('project.up')}
-              className="grid size-6 place-items-center transition-colors hover:bg-raised disabled:opacity-40"
+              className="grid size-6 place-items-center rounded-full transition-colors hover:bg-raised disabled:opacity-40"
             >
               <ArrowUp className="size-3.5 text-muted-foreground" />
             </button>
@@ -198,7 +198,7 @@ export function ProjectPicker({
               shownEntries.map((e) => (
                 <div
                   key={e.path}
-                  className="group flex items-center gap-1.5 px-2 py-1 transition-colors hover:bg-raised"
+                  className="group flex items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1 transition-colors hover:bg-raised"
                 >
                   <button
                     onClick={() => browse(e.path)}
@@ -223,7 +223,7 @@ export function ProjectPicker({
           <div className="border-t border-border p-2">
             <button
               onClick={() => cwd && choose(cwd)}
-              className="tp-btn tp-btn-solid w-full bg-primary px-2 py-1.5 font-mono text-xs lowercase text-primary-foreground transition-opacity hover:opacity-90"
+              className="tp-btn tp-btn-solid w-full rounded-full bg-primary px-3.5 py-1.5 font-mono text-xs lowercase text-primary-foreground transition-opacity hover:opacity-90"
             >
               {t('project.useThis')}
             </button>

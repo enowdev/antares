@@ -137,14 +137,14 @@ export function ProjectSidebar({
         <button
           onClick={() => setEnvOpen(true)}
           title={t('env.title')}
-          className="grid size-8 shrink-0 place-items-center text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
+          className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
         >
           <Gear className="size-4" />
         </button>
         <button
           onClick={onCollapse}
           title={t('project.sidebarHide')}
-          className="grid size-8 shrink-0 place-items-center text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
+          className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
         >
           <SidebarSimple className="size-4" mirrored />
         </button>
@@ -275,7 +275,7 @@ function PlanView({ plan }: { plan: PlanResp | null }) {
       {!plan?.exists ? (
         <p className="text-[11px] leading-relaxed text-muted-foreground">{t('plan.none')}</p>
       ) : view === 'raw' ? (
-        <pre className="max-h-80 overflow-auto border border-border bg-background/40 p-2.5 font-mono text-[11px] leading-relaxed">
+        <pre className="max-h-80 overflow-auto rounded-[var(--radius-md)] border border-border bg-background/40 p-2.5 font-mono text-[11px] leading-relaxed">
           {plan.raw}
         </pre>
       ) : (
@@ -312,7 +312,7 @@ function PlanView({ plan }: { plan: PlanResp | null }) {
                 .map((s) => {
                   const isOpen = openSection === s.title
                   return (
-                    <div key={s.title} className="border border-border transition-colors hover:border-line">
+                    <div key={s.title} className="overflow-hidden rounded-[var(--radius-md)] border border-border transition-colors hover:border-line">
                       <button
                         onClick={() => setOpenSection(isOpen ? null : s.title)}
                         className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px] font-medium transition-colors hover:bg-raised"
@@ -438,7 +438,7 @@ function CmdSection({ title, value }: { title: string; value?: string }) {
   return (
     <div className="space-y-1">
       <SectionLabel>{title}</SectionLabel>
-      <code className="block overflow-x-auto border border-border bg-background/40 px-2 py-1 font-mono text-[11px]">
+      <code className="block overflow-x-auto rounded-[var(--radius-sm)] border border-border bg-background/40 px-2 py-1 font-mono text-[11px]">
         {value}
       </code>
     </div>

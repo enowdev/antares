@@ -203,7 +203,7 @@ export default function RolesPage() {
                       type="button"
                       onClick={() => setEditing(r)}
                       className={cn(
-                        'group border border-border bg-card p-4 text-left transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised',
+                        'group rounded-[var(--radius-lg)] border border-border bg-card p-4 text-left transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised',
                         r.subrole && 'border-l-2 border-l-line bg-transparent',
                       )}
                     >
@@ -286,9 +286,9 @@ function PerformanceView({ performance }: { performance: Perf[] }) {
         {performance.map((p) => (
           <div key={p.role} className="flex items-center gap-3 text-xs">
             <span className="w-40 shrink-0 truncate font-mono">{p.role}</span>
-            <div className="h-1 flex-1 overflow-hidden bg-raised">
+            <div className="h-1 flex-1 rounded-full overflow-hidden bg-raised">
               <div
-                className="h-full bg-foreground"
+                className="h-full rounded-full bg-foreground"
                 style={{ width: `${Math.max(2, Math.min(100, p.score))}%` }}
               />
             </div>
@@ -467,7 +467,7 @@ function RoleEditor({
         <DialogBody className="space-y-3.5">
           {readOnly ? (
             <>
-              <div className="border border-border bg-raised px-3 py-2 text-xs text-muted-foreground">
+              <div className="rounded-[var(--radius-lg)] border border-border bg-raised px-3 py-2 text-xs text-muted-foreground">
                 {t('roles.builtinReadonly')}
               </div>
               <ReadOnlyView role={role!} />
@@ -545,7 +545,7 @@ function RoleEditor({
                 </Field>
               </div>
 
-              <div className="flex items-center justify-between gap-3 border border-border px-3.5 py-2.5">
+              <div className="flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-border px-3.5 py-2.5">
                 <div>
                   <p className="text-xs font-medium">{t('roles.fDanger')}</p>
                   <p className="text-[11px] text-muted-foreground">{t('roles.dangerHint')}</p>
@@ -553,7 +553,7 @@ function RoleEditor({
                 <Switch checked={d.danger} onCheckedChange={(v) => set('danger', v)} />
               </div>
 
-              <div className="border border-border px-3.5 py-2.5">
+              <div className="rounded-[var(--radius-md)] border border-border px-3.5 py-2.5">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-medium">{t('roles.fSubrole')}</p>
@@ -670,7 +670,7 @@ function NativeSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-9 w-full border border-border bg-card px-2 font-mono text-xs outline-none transition-colors focus-visible:border-foreground"
+      className="h-9 w-full rounded-full border border-border bg-card px-3.5 font-mono text-xs outline-none transition-colors focus-visible:border-foreground"
     >
       {children}
     </select>

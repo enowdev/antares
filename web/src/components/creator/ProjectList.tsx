@@ -63,7 +63,7 @@ export function ProjectList({
                 onClick={() => onChoose(p.id)}
                 aria-current={active ? "true" : undefined}
                 className={cn(
-                  "flex min-h-11 w-full flex-col items-start border px-3 py-2 text-left transition-[border-color,background-color,color] duration-200 disabled:cursor-wait lg:border-transparent",
+                  "flex min-h-11 w-full flex-col items-start rounded-[var(--radius-md)] border px-3 py-2 text-left transition-[border-color,background-color,color] duration-200 disabled:cursor-wait lg:border-transparent",
                   active
                     ? "border-foreground bg-nav-active text-foreground lg:border-transparent"
                     : "border-border hover:border-line hover:bg-raised hover:text-foreground",

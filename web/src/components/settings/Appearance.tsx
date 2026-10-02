@@ -14,7 +14,7 @@ export function LanguagePicker({ id, className }: { id?: string; className?: str
         id={id}
         value={lang}
         onChange={(e) => setLang(e.target.value as typeof lang)}
-        className="h-9 w-full cursor-pointer border border-input bg-transparent pl-9 pr-3 text-sm transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none"
+        className="h-9 w-full cursor-pointer rounded-full border border-input bg-transparent pl-9 pr-4 text-sm transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none"
         aria-label={t('nav.language')}
       >
         {LANGUAGES.map((l) => (

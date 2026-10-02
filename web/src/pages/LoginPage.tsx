@@ -77,7 +77,7 @@ export default function LoginPage() {
 
         <form
           onSubmit={submit}
-          className="tp-panel m-rise mt-8 w-full space-y-4 border border-border bg-card p-5 text-left"
+          className="tp-panel m-rise mt-8 w-full space-y-4 rounded-[var(--radius-lg)] border border-border bg-card p-5 text-left"
           style={{ animationDelay: '280ms' }}
         >
           <div className="flex flex-col gap-2">
@@ -106,7 +106,7 @@ export default function LoginPage() {
           {error ? (
             <p
               role="alert"
-              className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive"
+              className="m-rise flex items-start gap-2 rounded-[var(--radius-md)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive"
             >
               <Warning className="mt-px size-3.5 shrink-0" weight="fill" />
               <span className="min-w-0 break-words">{error}</span>

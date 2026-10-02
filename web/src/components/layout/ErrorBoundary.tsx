@@ -54,7 +54,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <CardDescription>{this.props.labels.description}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 font-mono text-[11px] text-muted-foreground">
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-md)] border border-border bg-background p-3 font-mono text-[11px] text-muted-foreground">
             {error.message}
           </pre>
           <Button size="sm" variant="outline" onClick={() => this.setState({ error: null })} className="gap-1.5">

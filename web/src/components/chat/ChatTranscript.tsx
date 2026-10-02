@@ -93,7 +93,7 @@ export function ErrorBanner({ message, className }: { message: string; className
   return (
     <div
       className={cn(
-        'm-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive',
+        'm-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive',
         className,
       )}
     >
@@ -126,7 +126,7 @@ export function AssistantErrorBlock({
     }
   }
   return (
-    <div className="border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card text-destructive">
+    <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card text-destructive">
       <div className="flex items-center justify-between gap-2 border-b border-[color-mix(in_oklch,var(--destructive)_30%,var(--border))] px-3 py-1">
         <div className="flex items-center gap-2 font-mono text-xs lowercase">
           <Warning className="size-4 shrink-0" weight="fill" />
@@ -138,7 +138,7 @@ export function AssistantErrorBlock({
             onClick={doCopy}
             title={t('chat.copyError')}
             aria-label={t('chat.copyError')}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2 font-mono text-xs lowercase transition-colors hover:bg-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-destructive"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 font-mono text-xs lowercase transition-colors hover:bg-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-destructive"
           >
             {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
             <span className="hidden sm:inline">{copied ? t('common.copied') : t('common.copy')}</span>
@@ -150,7 +150,7 @@ export function AssistantErrorBlock({
               disabled={retryDisabled}
               title={t('chat.retry')}
               aria-label={t('chat.retry')}
-              className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2 font-mono text-xs lowercase transition-colors hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-destructive"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 font-mono text-xs lowercase transition-colors hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-destructive"
             >
               <ArrowClockwise className="size-3.5" />
               <span className="hidden sm:inline">{t('chat.retry')}</span>
@@ -219,7 +219,7 @@ export const MessageBubble = memo(function MessageBubble({
                 key={i}
                 src={src}
                 alt=""
-                className="max-h-48 border border-border object-contain"
+                className="max-h-48 rounded-[var(--radius-md)] border border-border object-contain"
               />
             ))}
           </div>
@@ -229,7 +229,7 @@ export const MessageBubble = memo(function MessageBubble({
             {message.docs.map((d, i) => (
               <div
                 key={i}
-                className="flex max-w-56 items-center gap-1.5 border border-border px-2 py-1 font-mono text-xs"
+                className="flex max-w-56 items-center gap-1.5 rounded-full border border-border px-3 py-1 font-mono text-xs"
               >
                 <FileText className="size-4 shrink-0 text-muted-foreground" />
                 <span className="truncate" title={d.name}>
@@ -269,7 +269,7 @@ export const MessageBubble = memo(function MessageBubble({
   // transcript honest about what came from where.
   if (message.role === 'system') {
     return (
-      <div className="fade-up border border-border bg-card px-3.5 py-3">
+      <div className="fade-up rounded-[var(--radius-lg)] border border-border bg-card px-3.5 py-3">
         <div className="mb-1.5 flex items-center gap-1.5 font-mono text-[11px] lowercase text-dim">
           <Terminal className="size-3" />
           {t('chat.command')}

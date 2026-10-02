@@ -137,7 +137,7 @@ export default function ToolsPage() {
               key={item.name}
               data-reveal
               className={cn(
-                'flex flex-col border border-border bg-card p-3.5 transition-[border-color,background-color,opacity] duration-200 hover:border-line hover:bg-raised',
+                'flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5 transition-[border-color,background-color,opacity] duration-200 hover:border-line hover:bg-raised',
                 !item.enabled && 'opacity-60',
               )}
             >

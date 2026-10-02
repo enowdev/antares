@@ -192,7 +192,7 @@ export default function SessionsPage() {
           </p>
           {hits.map((h, i) => (
             <Link key={`${h.session_id}-${i}`} to={`/c/${h.session_id}`} className="block">
-              <div className="border border-border bg-transparent transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised p-3.5">
+              <div className="rounded-[var(--radius-lg)] border border-border bg-transparent transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised p-3.5">
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">{h.role}</Badge>
                   <span className="truncate text-xs font-medium">{h.session_title || h.session_id}</span>
@@ -227,7 +227,7 @@ export default function SessionsPage() {
               ? s.meta.project_dir.split('/').filter(Boolean).pop()
               : ''
             return (
-            <div key={s.id} data-reveal className="group flex items-center gap-3 border border-border bg-transparent transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised px-4 py-3.5">
+            <div key={s.id} data-reveal className="group flex items-center gap-3 rounded-[var(--radius-md)] border border-border bg-transparent transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised px-4 py-3.5">
               <Link to={`/c/${s.id}`} className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{s.title || t('sessions.untitled')}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] tabular-nums text-muted-foreground">

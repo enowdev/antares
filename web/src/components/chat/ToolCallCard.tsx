@@ -217,7 +217,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
   return (
     <div
       className={cn(
-        'overflow-hidden border bg-card transition-[border-color] duration-200',
+        'overflow-hidden rounded-[var(--radius-md)] border bg-card transition-[border-color] duration-200',
         call.isError
           ? 'border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))]'
           : incomplete
@@ -322,7 +322,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
                 <p className="mb-1 font-mono text-[10px] lowercase tracking-[0.04em] text-dim">
                   {t('chat.toolArgs')}
                 </p>
-                <pre className="max-h-48 overflow-auto border border-border bg-background/40 p-2 font-mono text-[11px]">
+                <pre className="max-h-48 overflow-auto rounded-[var(--radius-sm)] border border-border bg-background/40 p-2 font-mono text-[11px]">
                   {prettyJSON(call.args)}
                 </pre>
               </div>
@@ -334,7 +334,7 @@ export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCal
                 </p>
                 <pre
                   className={cn(
-                    'max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border bg-background/40 p-2 font-mono text-[11px]',
+                    'max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] border border-border bg-background/40 p-2 font-mono text-[11px]',
                     call.isError && 'text-destructive',
                     incomplete && 'text-[var(--warning)]',
                   )}

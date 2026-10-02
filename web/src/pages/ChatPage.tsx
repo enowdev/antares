@@ -1305,7 +1305,7 @@ export default function ChatPage() {
                     textareaRef.current?.focus()
                   }}
                   style={rise(800 + i * 60)}
-                  className="m-rise group flex min-h-12 items-center gap-3 border border-border bg-card/60 px-4 py-3 text-left text-sm text-muted-foreground backdrop-blur-sm transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
+                  className="m-rise group flex min-h-12 items-center gap-3 rounded-[var(--radius-md)] border border-border bg-card/60 px-4 py-3 text-left text-sm text-muted-foreground backdrop-blur-sm transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
                 >
                   <span className="min-w-0 flex-1">{t(key)}</span>
                   <ArrowRight className="size-4 shrink-0 text-dim transition-[transform,color] duration-200 group-hover:translate-x-0.5 group-hover:text-foreground" />
@@ -1480,7 +1480,7 @@ export default function ChatPage() {
                 className="m-fade absolute inset-0 bg-black/50"
                 onClick={() => setSidebarMobileOpen(false)}
               />
-              <div className="m-slide absolute inset-y-0 right-0 w-[85%] max-w-sm bg-background">
+              <div className="m-slide absolute inset-y-0 right-0 w-[85%] max-w-sm overflow-hidden rounded-l-[var(--radius-xl)] bg-background">
                 <ProjectSidebar
                   projectDir={projectDir}
                   sessionId={sessionId}
@@ -1529,7 +1529,7 @@ interface ComposerProps {
   contextSlot?: React.ReactNode
 }
 
-/** The enowx waitlist box: one square surface with the actions inside it. */
+/** The enowx waitlist box: one soft rounded surface with the actions inside it. */
 const Composer = ({
   ref,
   value,
@@ -1557,7 +1557,7 @@ const Composer = ({
   return (
     // No overflow-hidden: the role picker's dropdown pops upward out of this
     // card, and clipping would cut it off.
-    <div className="tp-panel border border-border bg-card/80 backdrop-blur-md transition-[border-color] duration-200 focus-within:border-foreground/60">
+    <div className="tp-panel rounded-[var(--radius-xl)] border border-border bg-card/80 backdrop-blur-md transition-[border-color] duration-200 focus-within:border-foreground/60">
       {/* Task list / sub-agents (when present) sit above the input, in the same
           card. The section renders its own bottom divider only when it actually
           has content, so an empty TaskBar leaves no phantom line. */}
@@ -1573,7 +1573,7 @@ const Composer = ({
                 <img
                   src={src}
                   alt=""
-                  className="size-16 border border-border object-cover"
+                  className="size-16 rounded-[var(--radius-md)] border border-border object-cover"
                 />
                 <button
                   onClick={() => onRemoveImage(i)}
@@ -1592,7 +1592,7 @@ const Composer = ({
             {docs.map((d, i) => (
               <div
                 key={i}
-                className="group flex max-w-56 items-center gap-1.5 border border-border py-1 pl-2 pr-1 font-mono text-xs"
+                className="group flex max-w-56 items-center gap-1.5 rounded-full border border-border py-1 pl-3 pr-1.5 font-mono text-xs"
               >
                 <FileText className="size-4 shrink-0 text-muted-foreground" />
                 <span className="truncate" title={d.name}>
@@ -1749,7 +1749,7 @@ function ContextBar({ used, window }: { used: number; window: number }) {
           hover (desktop). */}
       {open ? (
         <div className="absolute bottom-full right-0 z-30 mb-2 w-60 origin-bottom-right">
-          <div className="m-open border border-border bg-popover p-3 shadow-[0_10px_28px_-14px_#00000080]">
+          <div className="m-open rounded-[var(--radius-lg)] border border-border bg-popover p-3 shadow-[0_10px_28px_-14px_#00000080]">
             <div className="flex items-baseline justify-between">
               <span className="eyebrow !text-[10px]">{t('chat.contextLabel')}</span>
               <span className="font-mono text-[11px] tabular-nums text-muted-foreground">

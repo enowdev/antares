@@ -112,7 +112,7 @@ export default function CronPage() {
               key={j.id}
               data-reveal
               className={cn(
-                'tp-panel group flex flex-col border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line',
+                'tp-panel group flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line',
                 !j.enabled && 'opacity-60',
               )}
             >
@@ -125,7 +125,7 @@ export default function CronPage() {
                     </Badge>
                   ) : null}
                 </div>
-                <p className="mt-2 inline-block border border-border px-2 py-0.5 font-mono text-xs text-foreground">
+                <p className="mt-2 inline-block rounded-full border border-border px-2.5 py-0.5 font-mono text-xs text-foreground">
                   {j.schedule}
                 </p>
                 <p className="mt-2.5 line-clamp-2 text-sm text-muted-foreground">{j.prompt}</p>
@@ -213,7 +213,7 @@ function RunsDialog({ job, onClose }: { job: CronJob; onClose: () => void }) {
           ) : (
             <div className="space-y-2">
               {runs.map((r) => (
-                <div key={r.id} data-reveal className="border border-border px-3.5 py-3 transition-colors duration-200 hover:border-line hover:bg-raised">
+                <div key={r.id} data-reveal className="rounded-[var(--radius-md)] border border-border px-3.5 py-3 transition-colors duration-200 hover:border-line hover:bg-raised">
                   <div className="flex items-center gap-2">
                     {glyph(r.status)}
                     <span className="font-mono text-xs">{r.status}</span>
@@ -365,7 +365,7 @@ function NewJobDialog({
           </div>
 
           {error ? (
-            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+            <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
               {error}
             </p>
           ) : null}

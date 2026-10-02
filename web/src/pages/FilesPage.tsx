@@ -169,7 +169,7 @@ export default function FilesPage() {
     <nav className="flex items-center gap-1 overflow-x-auto text-xs">
       <button
         onClick={() => setPath('.')}
-        className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
       >
         <House className="size-3.5" />
         {t('files.workspace')}
@@ -179,7 +179,7 @@ export default function FilesPage() {
           <CaretRight className="size-3 text-dim" />
           <button
             onClick={() => setPath(c.path)}
-            className="px-1.5 py-1 font-mono text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
+            className="rounded-full px-2.5 py-1 font-mono text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
           >
             {c.name}
           </button>
@@ -249,7 +249,7 @@ export default function FilesPage() {
               t={t}
             />
           ) : (
-            <div className="hidden h-full items-center justify-center border border-dashed border-line text-center lg:flex">
+            <div className="hidden h-full items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-line text-center lg:flex">
               <div className="p-6 text-xs text-muted-foreground">
                 <FileText className="mx-auto mb-2 size-7 opacity-50" />
                 {t('files.selectHint')}
@@ -310,7 +310,7 @@ function PreviewPane({
         )}
         <button
           onClick={() => void downloadFile(`/files/raw?path=${encodeURIComponent(entry.path)}&download=1`, entry.name)}
-          className="shrink-0 p-1 text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
+          className="shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
           aria-label={t('files.download')}
           title={t('files.download')}
         >
@@ -325,13 +325,13 @@ function PreviewPane({
         {loading ? (
           <Skeleton className="m-3 h-64" />
         ) : preview.error ? (
-          <p className="m-rise m-4 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-4 py-3 text-sm text-destructive">{preview.error}</p>
+          <p className="m-rise m-4 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-4 py-3 text-sm text-destructive">{preview.error}</p>
         ) : kind === 'image' ? (
           <div className="flex items-center justify-center bg-[repeating-conic-gradient(var(--muted)_0_25%,transparent_0_50%)] bg-[length:16px_16px] p-4">
-            <img src={rawUrl} alt={entry.name} className="max-h-full max-w-full object-contain" />
+            <img src={rawUrl} alt={entry.name} className="max-h-full max-w-full rounded-[var(--radius-md)] object-contain" />
           </div>
         ) : kind === 'video' ? (
-          <video src={rawUrl} controls className="max-h-[70vh] w-full bg-black" />
+          <video src={rawUrl} controls className="max-h-[70vh] w-full rounded-[var(--radius-md)] bg-black" />
         ) : kind === 'audio' ? (
           <div className="p-4">
             <audio src={rawUrl} controls className="w-full" />

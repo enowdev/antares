@@ -29,10 +29,10 @@ export function DialogContent({
           'm-dialog tp-panel fixed z-50 flex flex-col bg-card text-card-foreground shadow-[0_28px_100px_#0009]',
           // Phone: full-width sheet pinned to the bottom, capped so the list
           // behind stays partly visible.
-          'safe-bottom inset-x-0 bottom-0 max-h-[88dvh] border-t border-border',
+          'safe-bottom inset-x-0 bottom-0 max-h-[88dvh] rounded-t-[var(--radius-xl)] border-t border-border',
           // Desktop: a centred panel.
           'sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-h-[85dvh] sm:w-full sm:max-w-lg',
-          'sm:-translate-x-1/2 sm:-translate-y-1/2 sm:border',
+          'sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--radius-xl)] sm:border',
           className,
         )}
         {...props}

@@ -56,7 +56,7 @@ export function SlashPalette({
     <div
       role="listbox"
       aria-label="Commands"
-      className="m-open mb-2 max-h-64 overflow-y-auto border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]"
+      className="m-open mb-2 max-h-64 overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]"
     >
       {matches.map((c, i) => (
         <button
@@ -70,7 +70,7 @@ export function SlashPalette({
             onPick(c)
           }}
           className={cn(
-            'flex w-full items-baseline gap-2 px-2.5 py-1.5 text-left transition-colors',
+            'flex w-full items-baseline gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors',
             i === selected ? 'bg-nav-active text-foreground' : 'hover:bg-raised',
           )}
         >

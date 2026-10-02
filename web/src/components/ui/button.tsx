@@ -5,12 +5,11 @@ import { CircleNotch } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 
 /**
- * Actions speak in the site's monospace voice: square, lowercase, with a
- * corner marker at two opposite corners that brightens on hover (.tp-btn in
- * motion.css). Ghost and link actions stay quiet and carry no markers.
+ * Actions are pills in the site's monospace voice, lowercase. Ghost and link
+ * actions stay quiet.
  */
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap font-mono text-xs font-normal lowercase tracking-[0.02em] transition-[background-color,border-color,color] duration-150 disabled:pointer-events-none disabled:opacity-50 select-none [&_svg]:shrink-0',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-mono text-xs font-normal lowercase tracking-[0.02em] transition-[background-color,border-color,color] duration-150 disabled:pointer-events-none disabled:opacity-50 select-none [&_svg]:shrink-0',
   {
     variants: {
       variant: {
@@ -23,18 +22,13 @@ const buttonVariants = cva(
         link: 'text-foreground underline underline-offset-4 decoration-line hover:decoration-foreground',
       },
       size: {
-        sm: 'h-8 px-3 text-[11px] [&_svg]:size-3.5',
-        default: 'h-9 px-4 [&_svg]:size-4',
+        sm: 'h-8 px-3.5 text-[11px] [&_svg]:size-3.5',
+        default: 'h-9 px-4.5 [&_svg]:size-4',
         lg: 'h-11 px-5 text-[13px] [&_svg]:size-4',
         icon: 'size-9 [&_svg]:size-4',
         'icon-sm': 'size-8 [&_svg]:size-4',
       },
     },
-    compoundVariants: [
-      // Icon actions keep their glyph and drop the markers: at 32px the
-      // corners would crowd the icon.
-      { size: ['icon', 'icon-sm'], className: 'bg-none' },
-    ],
     defaultVariants: { variant: 'default', size: 'default' },
   },
 )

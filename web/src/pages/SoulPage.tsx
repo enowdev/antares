@@ -69,7 +69,7 @@ export default function SoulPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {unset ? (
-              <div className="m-rise border border-border bg-raised px-3 py-2 text-xs text-muted-foreground">
+              <div className="m-rise rounded-[var(--radius-lg)] border border-border bg-raised px-3 py-2 text-xs text-muted-foreground">
                 {t('soul.unsetHint')}
               </div>
             ) : null}

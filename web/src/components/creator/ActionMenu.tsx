@@ -35,7 +35,7 @@ export function ActionMenu({
         <Menu.Content
           align="end"
           sideOffset={4}
-          className="m-open z-50 min-w-44 border border-border bg-popover p-1 text-sm text-popover-foreground shadow-[0_10px_28px_-14px_#00000080]"
+          className="m-open z-50 min-w-44 rounded-[var(--radius-lg)] border border-border bg-popover p-1 text-sm text-popover-foreground shadow-[0_10px_28px_-14px_#00000080]"
         >
           {actions.map((a, i) =>
             a === "separator" ? (
@@ -46,7 +46,7 @@ export function ActionMenu({
                 disabled={a.disabled}
                 onSelect={a.onSelect}
                 className={cn(
-                  "flex min-h-11 cursor-default select-none items-center px-2.5 outline-none lg:min-h-8",
+                  "flex min-h-11 cursor-default select-none items-center rounded-[var(--radius-sm)] px-2.5 outline-none lg:min-h-8",
                   "data-[highlighted]:bg-raised data-[highlighted]:text-foreground",
                   "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
                   a.destructive && "text-destructive data-[highlighted]:text-destructive",

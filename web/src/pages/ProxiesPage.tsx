@@ -168,7 +168,7 @@ export default function ProxiesPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 px-2 text-xs"
+                            className="h-7 px-3 text-xs"
                             loading={busyId === e.id}
                             onClick={() => void test(e)}
                           >
@@ -271,7 +271,7 @@ function AddProxiesDialog({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 gap-1.5 px-2 text-xs"
+                className="h-7 gap-1.5 px-3 text-xs"
                 onClick={() => fileRef.current?.click()}
               >
                 <FileArrowUp className="size-3.5" />
@@ -290,13 +290,13 @@ function AddProxiesDialog({
                 'user:pass@host:port\n' +
                 'host:port'
               }
-              className="w-full resize-y border border-input bg-transparent px-3 py-2 font-mono text-xs leading-relaxed focus-visible:border-foreground focus-visible:outline-none"
+              className="w-full resize-y rounded-[var(--radius-md)] border border-input bg-transparent px-3.5 py-2.5 font-mono text-xs leading-relaxed focus-visible:border-foreground focus-visible:outline-none"
             />
             <p className="text-[11px] leading-relaxed text-muted-foreground">{t('proxies.pasteHint')}</p>
           </div>
 
           {result ? (
-            <div className="m-rise space-y-1.5 border border-border bg-card px-4 py-3 text-xs">
+            <div className="m-rise space-y-1.5 rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 text-xs">
               <p className="inline-flex items-center gap-1.5 text-[var(--success)]">
                 <CheckCircle className="size-4" weight="fill" />
                 {t('proxies.addedN', { n: result.added })}
@@ -315,7 +315,7 @@ function AddProxiesDialog({
           ) : null}
 
           {error ? (
-            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+            <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
               {error}
             </p>
           ) : null}

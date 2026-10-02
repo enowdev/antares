@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 /* ---------- Card ---------- */
 
 /**
- * A square panel with a marker in each corner. Cards reveal themselves the
+ * A soft rounded panel. Cards reveal themselves the
  * first time they scroll into view (lib/motion.ts); pass reveal={false} for a
  * card that is redrawn often, such as one inside a streaming transcript.
  */
@@ -21,7 +21,7 @@ export function Card({
   return (
     <div
       data-reveal={reveal ? '' : undefined}
-      className={cn('tp-panel border border-border bg-card text-card-foreground', className)}
+      className={cn('tp-panel rounded-[var(--radius-lg)] border border-border bg-card text-card-foreground', className)}
       {...props}
     />
   )
@@ -54,7 +54,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        'flex h-9 w-full border border-input bg-transparent px-3 py-1 font-mono transition-[border-color,background-color] duration-200',
+        'flex h-9 w-full rounded-full border border-input bg-transparent px-4 py-1 font-mono transition-[border-color,background-color] duration-200',
         'placeholder:text-[color-mix(in_oklch,var(--muted-foreground)_70%,transparent)] focus-visible:border-ring focus-visible:bg-card focus-visible:outline-none',
         'disabled:cursor-not-allowed disabled:opacity-50',
         // 16px on mobile prevents iOS Safari from zooming on focus.
@@ -74,7 +74,7 @@ export const Textarea = React.forwardRef<
   <textarea
     ref={ref}
     className={cn(
-      'flex w-full border border-input bg-transparent px-3 py-2 text-base transition-[border-color,background-color] duration-200 sm:text-sm',
+      'flex w-full rounded-[var(--radius-md)] border border-input bg-transparent px-4 py-2.5 text-base transition-[border-color,background-color] duration-200 sm:text-sm',
       'placeholder:text-[color-mix(in_oklch,var(--muted-foreground)_70%,transparent)] focus-visible:border-ring focus-visible:bg-card focus-visible:outline-none',
       'disabled:cursor-not-allowed disabled:opacity-50',
       className,
@@ -211,7 +211,7 @@ export function Tooltip({
         <TooltipPrimitive.Content
           side={side}
           sideOffset={6}
-          className="z-50 border border-border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-[0_10px_28px_-14px_#00000080]"
+          className="z-50 rounded-[var(--radius-sm)] border border-border bg-popover px-3 py-1.5 text-xs text-popover-foreground shadow-[0_10px_28px_-14px_#00000080]"
         >
           {label}
         </TooltipPrimitive.Content>
@@ -238,7 +238,7 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        'tp-panel flex flex-col items-center justify-center gap-3 border border-border px-6 py-14 text-center',
+        'tp-panel flex flex-col items-center justify-center gap-3 rounded-[var(--radius-lg)] border border-border px-6 py-14 text-center',
         className,
       )}
     >

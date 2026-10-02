@@ -70,7 +70,7 @@ export function ModulesSettings() {
               const id = e.target.value as PresetId
               if (PRESET_IDS.includes(id)) void save(new Set(PRESET_MODULES[id]))
             }}
-            className="block h-9 w-full cursor-pointer border border-input bg-transparent px-3 text-sm transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none disabled:opacity-60 sm:max-w-xs"
+            className="block h-9 w-full cursor-pointer rounded-full border border-input bg-transparent px-4 text-sm transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none disabled:opacity-60 sm:max-w-xs"
           >
             {PRESET_IDS.map((id) => (
               <option key={id} value={id} className="bg-popover text-popover-foreground">
@@ -85,7 +85,7 @@ export function ModulesSettings() {
           </select>
         </div>
 
-        <ul className="divide-y divide-border border border-border">
+        <ul className="divide-y divide-border overflow-hidden rounded-[var(--radius-lg)] border border-border">
           {MODULE_IDS.map((m) => {
             const hubs = hubsOfModule(HUB_MANIFEST, m)
             const id = `module-${m}`
@@ -114,7 +114,7 @@ export function ModulesSettings() {
         </ul>
 
         {error ? (
-          <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive">
+          <p className="m-rise rounded-[var(--radius-md)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-3 py-2 text-xs text-destructive">
             {error}
           </p>
         ) : null}

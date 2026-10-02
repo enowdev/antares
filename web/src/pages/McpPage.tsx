@@ -156,14 +156,14 @@ export default function McpPage() {
           {refreshError ? (
             <p
               role="alert"
-              className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+              className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
             >
               {refreshError}
             </p>
           ) : null}
 
           {!data?.enabled ? (
-            <p className="border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card px-4 py-3 text-sm text-muted-foreground">
+            <p className="rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card px-4 py-3 text-sm text-muted-foreground">
               {t('mcp.disabled')}
             </p>
           ) : null}
@@ -186,7 +186,7 @@ export default function McpPage() {
                 <div
                   key={s.name}
                   data-reveal
-                  className="flex flex-col border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line"
+                  className="flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line"
                 >
                   <div className="flex items-start gap-2">
                     {s.connected ? (
@@ -233,7 +233,7 @@ export default function McpPage() {
                       {open === s.name ? (
                         <div className="m-open mt-2.5 space-y-1.5">
                           {s.tools.map((tool) => (
-                            <div key={tool.name} className="border border-border px-2.5 py-2">
+                            <div key={tool.name} className="rounded-[var(--radius-md)] border border-border px-2.5 py-2">
                               <p className="break-all font-mono text-[11px] text-foreground">{tool.name}</p>
                               {tool.description ? (
                                 <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{tool.description}</p>
@@ -263,7 +263,7 @@ function McpDocs() {
         <CardDescription>{t('mcp.howtoDesc')}</CardDescription>
       </CardHeader>
       <CardContent>
-        <pre className="overflow-x-auto border border-border bg-background p-3.5 font-mono text-[11px] leading-relaxed">
+        <pre className="overflow-x-auto rounded-[var(--radius-lg)] border border-border bg-background p-3.5 font-mono text-[11px] leading-relaxed">
 {`mcp:
   enabled: true
   servers:

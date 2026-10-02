@@ -161,10 +161,10 @@ export default function ChannelsPage() {
               <div
                 key={c.id}
                 data-reveal
-                className="tp-panel flex flex-col border border-border bg-card p-4 transition-colors duration-200 hover:border-line"
+                className="tp-panel flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-colors duration-200 hover:border-line"
               >
                 <div className="flex items-start gap-3">
-                  <span className="grid size-9 shrink-0 place-items-center border border-border">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full border border-border">
                     <Icon className={cn('size-[18px]', tone)} weight="fill" />
                   </span>
                   <div className="min-w-0 flex-1">
@@ -266,7 +266,7 @@ function DevicesPanel({
         <div
           key={p.id}
           data-reveal
-          className="tp-panel flex items-center gap-3 border border-border bg-card p-4 transition-colors duration-200 hover:border-line"
+          className="tp-panel flex items-center gap-3 rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-colors duration-200 hover:border-line"
         >
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -381,7 +381,7 @@ function ConfigDialog({
         <DialogBody>
           {saved ? (
             <div className="space-y-3">
-              <div className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--success)_45%,var(--border))] bg-card px-4 py-3 text-sm">
+              <div className="m-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--success)_45%,var(--border))] bg-card px-4 py-3 text-sm">
                 <CheckCircle className="mt-0.5 size-4 shrink-0 text-[var(--success)]" weight="fill" />
                 <span className="min-w-0">{t('channels.tokenSet')} — {channel?.label}</span>
               </div>
@@ -441,7 +441,7 @@ function ConfigDialog({
               ) : null}
 
               {error ? (
-                <div className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+                <div className="m-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
                   <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
                   <span className="min-w-0 break-words">{error}</span>
                 </div>
@@ -630,7 +630,7 @@ function AppearancePanel({ id, current }: { id: string; current: string }) {
             disabled={busy}
             onClick={() => void choose(o.value)}
             className={cn(
-              'border p-3.5 text-left transition-[border-color,background-color] duration-200',
+              'rounded-[var(--radius-md)] border p-3.5 text-left transition-[border-color,background-color] duration-200',
               style === o.value
                 ? 'border-foreground bg-raised'
                 : 'border-border hover:border-line hover:bg-raised',
@@ -701,7 +701,7 @@ const emptyBinding = (platform: 'discord' | 'telegram' = 'discord'): Binding => 
 })
 
 const selectClass =
-  'flex h-9 w-full border border-input bg-transparent px-3 text-sm transition-colors focus-visible:border-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50'
+  'flex h-9 w-full rounded-full border border-input bg-transparent px-4 text-sm transition-colors focus-visible:border-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50'
 
 /**
  * Routing binds a specific chat channel to an agent role / model / toolset so
@@ -783,10 +783,10 @@ function RoutingPanel({ platform }: { platform?: 'discord' | 'telegram' } = {}) 
               <div
                 key={b.id}
                 data-reveal
-                className="tp-panel flex flex-col border border-border bg-card p-4 transition-colors duration-200 hover:border-line"
+                className="tp-panel flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-colors duration-200 hover:border-line"
               >
                 <div className="flex items-start gap-3">
-                  <span className="grid size-9 shrink-0 place-items-center border border-border">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full border border-border">
                     <Icon className="size-[18px] text-muted-foreground" weight="fill" />
                   </span>
                   <div className="min-w-0 flex-1">
@@ -1188,7 +1188,7 @@ function BindingDialog({
           </div>
 
           {error ? (
-            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
+            <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive">
               {error}
             </p>
           ) : null}

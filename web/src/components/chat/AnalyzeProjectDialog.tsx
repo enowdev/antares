@@ -41,7 +41,7 @@ export function AnalyzeProjectDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-3">
-          <label className="flex items-start gap-2 border border-border p-3">
+          <label className="flex items-start gap-2 rounded-[var(--radius-md)] border border-border p-3">
             <input
               type="checkbox"
               checked={indexRag}
@@ -62,7 +62,7 @@ export function AnalyzeProjectDialog({
           <div className="grid gap-2 sm:grid-cols-2">
             <button
               onClick={() => onChoose(true, indexRag)}
-              className="flex flex-col items-start gap-1.5 border border-foreground/60 bg-raised p-3 text-left transition-[border-color,background-color] duration-200 hover:border-foreground"
+              className="flex flex-col items-start gap-1.5 rounded-[var(--radius-md)] border border-foreground/60 bg-raised p-3 text-left transition-[border-color,background-color] duration-200 hover:border-foreground"
             >
               <MagnifyingGlass className="size-5 text-foreground" />
               <span className="text-sm font-medium">{t('project.analyzeYes')}</span>
@@ -72,7 +72,7 @@ export function AnalyzeProjectDialog({
             </button>
             <button
               onClick={() => onChoose(false, indexRag)}
-              className="flex flex-col items-start gap-1.5 border border-border p-3 text-left transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
+              className="flex flex-col items-start gap-1.5 rounded-[var(--radius-md)] border border-border p-3 text-left transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
             >
               <ChatCircle className="size-5 text-muted-foreground" />
               <span className="text-sm font-medium">{t('project.analyzeNo')}</span>

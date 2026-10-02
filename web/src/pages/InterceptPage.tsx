@@ -218,7 +218,7 @@ export default function InterceptPage() {
             <EmptyState
               title={t('intercept.noTraffic')}
               description={t('intercept.noTrafficDesc')}
-              className="border-0 [background-image:none]"
+              className="border-0"
             />
           ) : (
             <div className="max-h-[62vh] overflow-auto">
@@ -363,7 +363,7 @@ function InterceptorsPanel({ running }: { running: boolean }) {
           <p className="eyebrow mb-3">
             {t('intercept.activeSessions')}
           </p>
-          <div className="border border-border">
+          <div className="overflow-hidden rounded-[var(--radius-md)] border border-border">
             {data!.sessions.map((s) => (
               <div
                 key={s.id}
@@ -389,7 +389,7 @@ function InterceptorsPanel({ running }: { running: boolean }) {
               <div
                 key={i.id}
                 data-reveal
-                className={`tp-panel flex flex-col border border-border bg-card p-4 transition-colors duration-200 hover:border-line ${i.available ? '' : 'opacity-70'}`}
+                className={`tp-panel flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-colors duration-200 hover:border-line ${i.available ? '' : 'opacity-70'}`}
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{i.label}</span>
@@ -442,7 +442,7 @@ function EnvDialog({ text, onClose }: { text: string; onClose: () => void }) {
         </DialogHeader>
         <DialogBody>
           <p className="mb-2 text-xs text-muted-foreground">{t('intercept.terminalEnvDesc')}</p>
-          <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 font-mono text-[11px] leading-relaxed">
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-lg)] border border-border bg-background p-3 font-mono text-[11px] leading-relaxed">
             {text}
           </pre>
         </DialogBody>
@@ -499,7 +499,7 @@ function BreakpointsPanel({ running }: { running: boolean }) {
             <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">{p.url}</span>
           </div>
           {p.body ? (
-            <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 font-mono text-[11px]">
+            <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-lg)] border border-border bg-background p-3 font-mono text-[11px]">
               {p.body}
             </pre>
           ) : null}
@@ -518,7 +518,7 @@ function BreakpointsPanel({ running }: { running: boolean }) {
 }
 
 function SkeletonInline() {
-  return <div className="h-40 animate-pulse bg-raised" />
+  return <div className="h-40 animate-pulse rounded-[var(--radius-lg)] bg-raised" />
 }
 
 // Pretty-print a body if it is JSON; otherwise return it as-is.
@@ -604,12 +604,12 @@ function Section({ label, headers, body }: { label: string; headers: string; bod
         </button>
       </div>
       {headers ? (
-        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-lg)] border border-border bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
           {headers}
         </pre>
       ) : null}
       {pretty ? (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 font-mono text-[11px] leading-relaxed">
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-lg)] border border-border bg-background p-3 font-mono text-[11px] leading-relaxed">
           {pretty}
         </pre>
       ) : (

@@ -535,7 +535,7 @@ const en = {
   'providers.headersInvalid': 'Enter one HEADER=VALUE per line with valid header names and no duplicates.',
   'providers.name': 'Name',
   'providers.namePlaceholder': 'e.g. My inference server',
-  'providers.newDesc': 'Any OpenAI-compatible endpoint — name it, paste a key if it needs one. Local addresses are fine.',
+  'providers.newDesc': 'Adds a new provider beside the others. Pick the API it speaks, name it, paste a key if it needs one. Local addresses are fine.',
   'providers.newTitle': 'Custom provider',
   'setup.providerName': 'Provider name',
   'setup.providerNameHint': 'Shown in the provider list — more than one custom provider can exist.',

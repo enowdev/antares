@@ -45,13 +45,13 @@ export function ApprovalCard({
   const pretty = formatArguments(approval.arguments)
 
   return (
-    <div className="fade-up tp-panel border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card p-4">
+    <div className="fade-up tp-panel rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-card p-4">
       <div className="flex items-start gap-3">
         <ShieldWarning className="mt-0.5 size-4 shrink-0 text-[var(--warning)]" weight="fill" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">{approval.message || t('approval.title')}</p>
           {pretty ? (
-            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words border border-border bg-background/40 p-2.5 font-mono text-[11px] leading-relaxed">
+            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-md)] border border-border bg-background/40 p-2.5 font-mono text-[11px] leading-relaxed">
               {pretty}
             </pre>
           ) : null}

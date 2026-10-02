@@ -122,14 +122,14 @@ export function ConfigNotices({ editor }: { editor: ConfigEditor }) {
       {editor.error ? (
         <div
           role="alert"
-          className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+          className="m-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
         >
           <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
           <span className="min-w-0 break-words">{editor.error}</span>
         </div>
       ) : null}
       {editor.restartFields.length > 0 ? (
-        <p role="status" className="m-rise flex items-start gap-2.5 break-words border border-border bg-card px-4 py-3 text-sm">
+        <p role="status" className="m-rise flex items-start gap-2.5 break-words rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 text-sm">
           <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-[var(--warning)]" aria-hidden />
           {t('config.restartPending', { fields: editor.restartFields.join(', ') })}
         </p>
@@ -218,7 +218,7 @@ function ConfigGroupFields({ editor, groups }: { editor: ConfigEditor; groups: s
       {hiddenCount > 0 ? (
         <button
           onClick={() => setShowAdvanced(true)}
-          className="flex w-full items-center justify-center gap-1.5 border border-dashed border-border py-2.5 font-mono text-[11px] lowercase text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
+          className="flex w-full items-center justify-center gap-1.5 rounded-full border border-dashed border-border py-2.5 font-mono text-[11px] lowercase text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
         >
           <CaretDown className="size-3.5" />
           {t('config.showAdvanced', { n: hiddenCount })}
@@ -226,7 +226,7 @@ function ConfigGroupFields({ editor, groups }: { editor: ConfigEditor; groups: s
       ) : showAdvanced && groupFields.some((f) => f.tier === 'advanced') ? (
         <button
           onClick={() => setShowAdvanced(false)}
-          className="flex w-full items-center justify-center gap-1.5 border border-dashed border-border py-2.5 font-mono text-[11px] lowercase text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
+          className="flex w-full items-center justify-center gap-1.5 rounded-full border border-dashed border-border py-2.5 font-mono text-[11px] lowercase text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
         >
           <CaretDown className="size-3.5 rotate-180" />
           {t('config.hideAdvanced')}
@@ -318,7 +318,7 @@ function FieldRow({
           <select
             value={String(value ?? '')}
             onChange={(e) => onChange(e.target.value)}
-            className="h-9 w-full cursor-pointer border border-input bg-transparent px-3 font-mono text-base transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none sm:text-xs"
+            className="h-9 w-full cursor-pointer rounded-full border border-input bg-transparent px-4 font-mono text-base transition-[border-color] duration-200 hover:border-line focus-visible:border-ring focus-visible:outline-none sm:text-xs"
           >
             {field.enum.map((opt) => (
               <option key={opt} value={opt} className="bg-popover text-popover-foreground">

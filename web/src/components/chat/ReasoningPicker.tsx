@@ -83,7 +83,7 @@ export function ReasoningPicker({
         aria-expanded={open}
         aria-haspopup="listbox"
         className={cn(
-          'flex items-center gap-1.5 border border-border bg-transparent text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground aria-expanded:border-line aria-expanded:bg-nav-active aria-expanded:text-foreground',
+          'flex items-center gap-1.5 rounded-full border border-border bg-transparent text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground aria-expanded:border-line aria-expanded:bg-nav-active aria-expanded:text-foreground',
           compact ? 'h-8 min-w-8 justify-center rounded-full px-2 text-xs sm:px-3' : 'h-[3.25rem] px-3 text-sm',
         )}
       >
@@ -93,7 +93,7 @@ export function ReasoningPicker({
       </button>
 
       {open ? (
-        <div className="m-open absolute bottom-full left-0 z-30 mb-2 w-56 overflow-y-auto border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
+        <div className="m-open absolute bottom-full left-0 z-30 mb-2 w-56 overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]">
           {options.map((o) => (
             <button
               key={o.value || 'auto'}
@@ -102,7 +102,7 @@ export function ReasoningPicker({
                 setOpen(false)
               }}
               className={cn(
-                'flex w-full items-start gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
+                'flex w-full items-start gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
                 value === o.value && 'bg-nav-active',
               )}
             >

@@ -140,12 +140,12 @@ export default function AutopilotPage() {
               <div
                 key={c.id}
                 data-reveal
-                className="tp-panel group relative flex flex-col border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line"
+                className="tp-panel group relative flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line"
               >
                 {c.status === 'running' ? (
                   <span
                     aria-hidden
-                    className="absolute inset-x-0 -top-px h-px origin-left bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
+                    className="absolute inset-x-6 -top-px h-[2px] origin-left rounded-full bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
                   />
                 ) : null}
                 <button onClick={() => setDetail(c)} className="min-w-0 flex-1 text-left">
@@ -203,14 +203,14 @@ export default function AutopilotPage() {
 // The path a card walks. Failed sits off it, so it is drawn as a mark, not a stage.
 const STAGES: Card_['status'][] = ['pending', 'running', 'verified', 'merged']
 
-/** Stage tiles: a square that fills once a stage holds cards, and a rule over the one working now. */
+/** Stage tiles: a dot that fills once a stage holds cards, and a bar over the one working now. */
 function Pipeline({ counts }: { counts: Record<string, number> }) {
   const { t } = useI18n()
   const live = counts.running > 0
   return (
     <ol
       data-reveal
-      className="grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-5"
+      className="grid grid-cols-2 gap-2 sm:grid-cols-5"
     >
       {[...STAGES, 'failed' as const].map((s) => {
         const n = counts[s] ?? 0
@@ -219,19 +219,19 @@ function Pipeline({ counts }: { counts: Record<string, number> }) {
           <li
             key={s}
             aria-current={live && s === 'running' ? 'step' : undefined}
-            className={cn('relative bg-card px-4 py-3.5', failed && 'col-span-2 sm:col-span-1')}
+            className={cn('relative rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3.5', failed && 'col-span-2 sm:col-span-1')}
           >
             {live && s === 'running' ? (
               <span
                 aria-hidden
-                className="absolute inset-x-0 -top-px h-px origin-left bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
+                className="absolute inset-x-6 -top-px h-[2px] origin-left rounded-full bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
               />
             ) : null}
             <p className="eyebrow flex items-center gap-2">
               <span
                 aria-hidden
                 className={cn(
-                  'size-[7px] shrink-0',
+                  'size-[7px] shrink-0 rounded-full',
                   n === 0
                     ? 'shadow-[inset_0_0_0_1px_var(--line)]'
                     : failed
@@ -257,7 +257,7 @@ function Pipeline({ counts }: { counts: Record<string, number> }) {
   )
 }
 
-/** Where one card is on the path, as four small squares. */
+/** Where one card is on the path, as four small dots. */
 function StageTrack({ status }: { status: Card_['status'] }) {
   const reached = status === 'failed' ? 1 : STAGES.indexOf(status)
   return (
@@ -266,7 +266,7 @@ function StageTrack({ status }: { status: Card_['status'] }) {
         <span
           key={s}
           className={cn(
-            'size-[6px]',
+            'size-[6px] rounded-full',
             i < reached || (i === reached && status !== 'failed')
               ? 'bg-foreground'
               : status === 'failed' && i === reached
@@ -319,7 +319,7 @@ function DetailDialog({ card, onClose }: { card: Card_; onClose: () => void }) {
         </p>
         <pre
           className={cn(
-            'max-h-56 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 text-xs leading-relaxed',
+            'max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-lg)] border border-border bg-background p-3 text-xs leading-relaxed',
             mono && 'font-mono',
           )}
         >
@@ -348,7 +348,7 @@ function DetailDialog({ card, onClose }: { card: Card_; onClose: () => void }) {
           {card.branch ? (
             <div className="flex items-center gap-2 text-xs">
               <span className="text-muted-foreground">{t('autopilot.detailBranch')}</span>
-              <code className="border border-border px-1.5 py-0.5 font-mono text-[11px]">
+              <code className="rounded-full border border-border px-2 py-0.5 font-mono text-[11px]">
                 {card.branch}
               </code>
             </div>

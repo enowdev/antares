@@ -246,7 +246,7 @@ export default function SetupPage() {
       {error ? (
         <div
           role="alert"
-          className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+          className="m-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
         >
           <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
           <span className="min-w-0 break-words">{error}</span>
@@ -271,7 +271,7 @@ export default function SetupPage() {
                 data-reveal
                 aria-pressed={providerId === p.id}
                 className={cn(
-                  'border p-3.5 text-left transition-[border-color,background-color] duration-200',
+                  'rounded-[var(--radius-md)] border p-3.5 text-left transition-[border-color,background-color] duration-200',
                   providerId === p.id ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                 )}
               >
@@ -369,7 +369,7 @@ export default function SetupPage() {
           {test && !test.ok ? (
             <div
               role="alert"
-              className="m-rise flex items-start gap-2 border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+              className="m-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
             >
               <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
               <span className="min-w-0 break-words">{test.error}</span>
@@ -393,7 +393,7 @@ export default function SetupPage() {
           />
 
           {test?.note ? (
-            <p className="m-rise border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+            <p className="m-rise rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
               {test.note}
             </p>
           ) : null}
@@ -479,7 +479,7 @@ export default function SetupPage() {
                     onClick={() => setDbDriver(id)}
                     aria-pressed={dbDriver === id}
                     className={cn(
-                      'border p-3 text-left text-sm transition-[border-color,background-color] duration-200',
+                      'rounded-[var(--radius-md)] border p-3 text-left text-sm transition-[border-color,background-color] duration-200',
                       dbDriver === id ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                     )}
                   >
@@ -553,7 +553,7 @@ export default function SetupPage() {
                         }}
                         aria-pressed={embedProvider === id}
                         className={cn(
-                          'border p-2.5 text-center text-xs transition-[border-color,background-color] duration-200',
+                          'rounded-full border px-3 py-2.5 text-center text-xs transition-[border-color,background-color] duration-200',
                           embedProvider === id ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                         )}
                       >
@@ -677,7 +677,7 @@ function PresetPicker({ value, onChange }: { value: PresetId; onChange: (id: Pre
                 aria-checked={selected}
                 onClick={() => onChange(id)}
                 className={cn(
-                  'flex flex-col gap-1 border p-3.5 text-left transition-[border-color,background-color] duration-200',
+                  'flex flex-col gap-1 rounded-[var(--radius-md)] border p-3.5 text-left transition-[border-color,background-color] duration-200',
                   selected ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                 )}
               >
@@ -731,7 +731,7 @@ function SetupShell({ children, stepIndex }: { children: React.ReactNode; stepIn
               <span
                 key={i}
                 className={cn(
-                  'h-px flex-1 transition-colors duration-500',
+                  'h-px flex-1 rounded-full transition-colors duration-500',
                   i <= stepIndex ? 'bg-foreground' : 'bg-line',
                 )}
               />
@@ -804,7 +804,7 @@ function ModelOption({
     <button
       onClick={() => onSelect(id)}
       className={cn(
-        'flex w-full items-center gap-2 border px-3 py-2 text-left transition-[border-color,background-color] duration-200',
+        'flex w-full items-center gap-2 rounded-[var(--radius-md)] border px-3 py-2 text-left transition-[border-color,background-color] duration-200',
         active ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
       )}
     >

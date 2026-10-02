@@ -513,7 +513,7 @@ const id: Dict = {
   'providers.keyOptional': 'Opsional — kosongkan jika endpoint tidak butuh kunci.',
   'providers.name': 'Nama',
   'providers.namePlaceholder': 'mis. Server inferensi saya',
-  'providers.newDesc': 'Endpoint apa pun yang kompatibel OpenAI — beri nama, tempel kunci bila perlu. Alamat lokal juga bisa.',
+  'providers.newDesc': 'Menambah provider baru di samping yang lain. Pilih format API-nya, beri nama, tempel kunci bila perlu. Alamat lokal juga bisa.',
   'providers.newTitle': 'Provider kustom',
   'setup.providerName': 'Nama provider',
   'setup.providerNameHint': 'Tampil di daftar provider — boleh ada lebih dari satu provider kustom.',

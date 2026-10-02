@@ -78,7 +78,7 @@ export function PipelineStrip({
     <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
       <ol
         aria-label="Pipeline"
-        className="-mx-4 flex min-w-0 flex-1 gap-px overflow-x-auto border-y border-border bg-border [scrollbar-width:none] sm:mx-0 sm:border [&::-webkit-scrollbar]:hidden"
+        className="-mx-4 flex min-w-0 flex-1 gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
       >
         {STEPS.map(({ stage, label }, i) => {
           const { text, done } = states[i];
@@ -88,12 +88,12 @@ export function PipelineStrip({
             <li
               key={stage}
               aria-current={active ? "step" : undefined}
-              className="relative flex min-w-[10.5rem] flex-1 items-center gap-2.5 bg-card py-2 pl-3.5 pr-1.5"
+              className="relative flex min-w-[10.5rem] flex-1 items-center gap-2.5 rounded-[var(--radius-md)] border border-border bg-card py-2 pl-3.5 pr-1.5"
             >
               {active ? (
                 <span
                   aria-hidden
-                  className="absolute inset-x-0 top-0 h-px origin-left bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
+                  className="absolute inset-x-5 top-0 h-[2px] origin-left rounded-full bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
                 />
               ) : null}
               <div className="min-w-0 flex-1">
@@ -104,7 +104,7 @@ export function PipelineStrip({
                     <span
                       aria-hidden
                       className={cn(
-                        "size-[7px] shrink-0 transition-colors duration-300",
+                        "size-[7px] shrink-0 rounded-full transition-colors duration-300",
                         done ? "bg-foreground" : "shadow-[inset_0_0_0_1px_var(--line)]",
                       )}
                     />

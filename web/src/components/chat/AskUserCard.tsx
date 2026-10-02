@@ -115,7 +115,7 @@ export function AskUserCard({
 
   if (submitted) {
     return (
-      <div className="fade-up tp-panel border border-border bg-card px-4 py-3">
+      <div className="fade-up tp-panel rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3">
         <div className="flex items-start gap-2.5">
           <Check className="mt-0.5 size-4 shrink-0 text-[var(--success)]" weight="bold" />
           <div className="min-w-0 flex-1 space-y-1">
@@ -134,7 +134,7 @@ export function AskUserCard({
   const hasOptions = (q.options ?? []).length > 0
 
   return (
-    <div className="fade-up tp-panel border border-border bg-card p-4">
+    <div className="fade-up tp-panel rounded-[var(--radius-lg)] border border-border bg-card p-4">
       <div className="flex items-start gap-3">
         <Question className="mt-0.5 size-4 shrink-0 text-foreground" />
         <div className="min-w-0 flex-1">

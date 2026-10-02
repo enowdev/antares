@@ -213,7 +213,7 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
                     <div
                       key={p.id}
                       className={cn(
-                        'flex flex-col gap-3.5 border bg-transparent p-4 transition-[border-color,background-color] duration-200',
+                        'flex flex-col gap-3.5 rounded-[var(--radius-lg)] border bg-transparent p-4 transition-[border-color,background-color] duration-200',
                         p.active ? 'border-foreground' : 'border-border hover:border-line hover:bg-raised',
                       )}
                     >
@@ -256,7 +256,7 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
                   {g === 'custom' ? (
                     <button
                       onClick={() => setCreating(true)}
-                      className="flex min-h-24 flex-col items-center justify-center gap-1.5 border border-dashed border-border p-4 text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
+                      className="flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-dashed border-border p-4 text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
                     >
                       <Plus className="size-5" />
                       <span className="font-mono text-xs lowercase">{t('providers.addCustom')}</span>
@@ -388,7 +388,7 @@ function AddProviderDialog({
           </div>
           <ProviderHeadersField id="np-headers" value={headersText} onChange={setHeadersText} />
           {error ? (
-            <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
+            <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
           ) : null}
         </DialogBody>
         <DialogFooter>
@@ -686,14 +686,14 @@ function ProviderModal({
                 </a>
               ) : null}
               {error ? (
-                <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
+                <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
               ) : null}
             </>
           ) : null}
 
           {section === 'models' ? (
             <>
-              <div className="space-y-1.5 border border-border p-3.5">
+              <div className="space-y-1.5 rounded-[var(--radius-lg)] border border-border p-3.5">
                 <Label>{t('providers.addModel')}</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
@@ -727,7 +727,7 @@ function ProviderModal({
               ) : (
                 <div className="max-h-64 space-y-1.5 overflow-y-auto">
                   {myModels.map((m) => (
-                    <div key={m.id} className="flex items-center gap-2 border border-border px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised">
+                    <div key={m.id} className="flex items-center gap-2 rounded-[var(--radius-md)] border border-border px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised">
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-mono text-xs">{m.id}</p>
                         {m.context_window > 0 ? (
@@ -772,7 +772,7 @@ function ProviderModal({
               </div>
               {p.custom ? <ProviderHeadersField id="m-headers" value={headersText} onChange={setHeadersText} /> : null}
               {error ? (
-                <p className="m-rise border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
+                <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
               ) : null}
             </>
           ) : null}

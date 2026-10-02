@@ -29,7 +29,7 @@ const COLUMN_TITLES: Record<string, string> = {
   doing: 'Doing',
   done: 'Done',
 }
-// Lanes read as stages: an empty square for work not started, a filled one
+// Lanes read as stages: an empty dot for work not started, a filled one
 // once work is under way or done.
 const COLUMN_MARK: Record<string, string> = {
   todo: 'shadow-[inset_0_0_0_1px_var(--line)]',
@@ -102,7 +102,7 @@ export default function BoardPage() {
       <select
         value={active}
         onChange={(e) => setSessionID(e.target.value)}
-        className="h-8 min-w-0 flex-1 border border-border bg-transparent px-2 text-sm hover:border-line focus-visible:border-foreground focus-visible:outline-none sm:flex-none"
+        className="h-8 min-w-0 flex-1 rounded-full border border-border bg-transparent px-3.5 text-sm hover:border-line focus-visible:border-foreground focus-visible:outline-none sm:flex-none"
       >
         {sessions.map((s) => (
           <option key={s.id} value={s.id}>
@@ -142,19 +142,19 @@ export default function BoardPage() {
             <div
               key={col.name}
               data-reveal
-              className="tp-panel relative flex min-h-0 flex-col border border-border bg-card"
+              className="tp-panel relative flex min-h-0 flex-col rounded-[var(--radius-lg)] border border-border bg-card"
             >
               {col.name === 'doing' && col.cards.length > 0 ? (
                 <span
                   aria-hidden
-                  className="absolute inset-x-0 -top-px h-px origin-left bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
+                  className="absolute inset-x-6 -top-px h-[2px] origin-left rounded-full bg-foreground motion-safe:animate-[m-rule_700ms_var(--m-ease)_both]"
                 />
               ) : null}
               <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
                 <span
                   aria-hidden
                   className={cn(
-                    'size-[7px] shrink-0',
+                    'size-[7px] shrink-0 rounded-full',
                     COLUMN_MARK[col.name] ?? 'shadow-[inset_0_0_0_1px_var(--line)]',
                   )}
                 />
@@ -167,7 +167,7 @@ export default function BoardPage() {
               </div>
               <div className="space-y-2 p-3">
                 {col.cards.length === 0 ? (
-                  <div className="border border-dashed border-border py-6 text-center text-xs text-dim">
+                  <div className="rounded-[var(--radius-md)] border border-dashed border-border py-6 text-center text-xs text-dim">
                     {t('board.columnEmpty')}
                   </div>
                 ) : (
@@ -175,13 +175,13 @@ export default function BoardPage() {
                     <div
                       key={c.id}
                       data-reveal
-                      className="group relative border border-border bg-transparent px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
+                      className="group relative rounded-[var(--radius-md)] border border-border bg-transparent px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
                     >
                       <button
                         type="button"
                         onClick={() => removeCard(c.id)}
                         aria-label={t('common.delete')}
-                        className="absolute right-1 top-1 p-1 text-muted-foreground opacity-0 transition hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                        className="absolute right-1.5 top-1.5 rounded-full p-1 text-muted-foreground opacity-0 transition hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
                       >
                         <X className="size-3.5" />
                       </button>
