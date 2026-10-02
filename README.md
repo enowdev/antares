@@ -150,6 +150,15 @@ or an explicit `server.auth_disabled: true` — Antares refuses to start
 otherwise. The loopback default leaves the dashboard open, which is right on
 your own machine and safe behind a private network.
 
+### Desktop app
+
+`desktop/` holds a small macOS app (Wails v3) that opens the dashboard in its
+own window: **Local** runs the Antares on this machine (it starts
+`antares serve` when needed and never stops it on quit), **Remote** pairs with
+an Antares elsewhere using its dashboard password and keeps a revocable device
+token in the Keychain. Build it with `make desktop`; see
+[docs/desktop.md](docs/desktop.md).
+
 ---
 
 ## Configuration
@@ -333,6 +342,7 @@ internal/
   wsutil/             minimal RFC 6455 client
   config/             layered configuration and its schema
 web/                  React dashboard (Vite, Tailwind, shadcn-style, Phosphor)
+desktop/              desktop app (Wails v3, its own Go module)
 ```
 
 The dashboard owns its layout centrally: `web/src/lib/routes.ts` declares every
@@ -392,6 +402,7 @@ credentials, and RAG backend in one pass.
 | [MCP](docs/mcp.md) | External Model Context Protocol servers |
 | [HTTP API](docs/api.md) | Every endpoint |
 | [Deployment](docs/deployment.md) | Running it as a service |
+| [Desktop app](docs/desktop.md) | The macOS app: Local and Remote connections, building it |
 | [Backups](docs/backups.md) | Archiving and restoring everything |
 | [Architecture](docs/architecture.md) | How the pieces fit |
 | [Development](docs/development.md) | Building and testing |
