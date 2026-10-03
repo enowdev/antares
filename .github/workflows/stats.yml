@@ -1,0 +1,53 @@
+name: Stats
+
+# Writes stats.json (latest version and install count) to the `stats` branch,
+# one commit, force-pushed. The website reads it from
+#   https://raw.githubusercontent.com/enowdev/antares/stats/stats.json
+# so visitors never touch api.github.com and its 60-requests-an-hour limit.
+#
+# installs = every download of a release file across all releases, without
+# checksums.txt (the installers fetch it beside the binary). The installers
+# and the desktop links all download from GitHub Releases, so this is the
+# install count, carried on from GitHub's own numbers.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stats
+  cancel-in-progress: true
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Count
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > releases.json
+          jq -s --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+            add as $all
+            | {
+                latest: ([$all[] | select(.draft | not) | select(.prerelease | not)] | sort_by(.published_at) | last | .tag_name),
+                installs: ([$all[].assets[] | select(.name != "checksums.txt") | .download_count] | add // 0),
+                updated_at: $now
+              }' releases.json > stats.json
+          cat stats.json
+      - name: Publish to the stats branch
+        run: |
+          mkdir out && mv stats.json out/
+          cd out
+          git init -q -b stats
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stats.json
+          git commit -qm "stats: $(jq -r '"\(.latest), \(.installs) installs"' stats.json)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY.git" stats

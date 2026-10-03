@@ -49,9 +49,23 @@ $tmp  = Join-Path ([System.IO.Path]::GetTempPath()) ("antares-" + [System.Guid]:
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $ProgressPreference = 'SilentlyContinue'  # the progress bar makes downloads crawl on 5.1
 $ver = $Version
+# /releases/latest redirects to /releases/tag/<tag>: no API, so no rate limit.
+# The API is only a fallback.
+function LatestTag {
+  try {
+    $req = [System.Net.HttpWebRequest]::Create("https://github.com/$Repo/releases/latest")
+    $req.AllowAutoRedirect = $false
+    $req.Method = 'HEAD'
+    $req.UserAgent = 'antares-installer'
+    $resp = $req.GetResponse()
+    $loc = $resp.Headers['Location']
+    $resp.Close()
+    if ($loc -match '/tag/(v[^/]+)$') { return $Matches[1] }
+  } catch {}
+  try { return (Invoke-RestMethod -UseBasicParsing "https://api.github.com/repos/$Repo/releases/latest").tag_name } catch { return $null }
+}
 if ($ver -eq 'latest') {
-  try { $ver = (Invoke-RestMethod -UseBasicParsing "https://api.github.com/repos/$Repo/releases/latest").tag_name }
-  catch { Die "could not read the latest release of $Repo from api.github.com." }
+  $ver = LatestTag
   if (-not $ver) { Die "could not find the latest release of $Repo." }
 }
 $base  = "https://github.com/$Repo/releases/download/$ver"
