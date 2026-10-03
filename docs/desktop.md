@@ -3,8 +3,10 @@
 `desktop/` is a small app that shows the Antares dashboard in its own window.
 It is a shell: the dashboard is still the one served by an Antares server, and
 the app adds a connection screen, a tray menu and the plumbing to sign the
-window in. macOS is the first target; the code builds for Windows and Linux
-but those are not packaged yet.
+window in. It is packaged for macOS (.dmg), Windows (an installer) and Linux
+(.deb and .tar.gz), on amd64 and arm64; downloads are on
+[antares.enowx.ai](https://antares.enowx.ai/#download) and in each GitHub
+release.
 
 The interface between the app, the server and the dashboard is
 [plans/2026-10-02-desktop-contract.md](plans/2026-10-02-desktop-contract.md)
@@ -87,10 +89,26 @@ it and needs no cgo. No `wails3` CLI or Taskfile is needed:
 `desktop/scripts/build-macos.sh` runs `go build -tags production`, lays out the
 bundle (`Info.plist`, `icons.icns`, the bundled `antares`) and signs it.
 
-The app is **ad-hoc signed and not notarized** (there is no Developer ID yet).
-It runs on the machine that built it; a copy downloaded elsewhere is stopped
-by Gatekeeper until it is opened once with right-click → Open, or the
-quarantine attribute is removed (`xattr -dr com.apple.quarantine Antares.app`).
+### Packages
+
+`.github/workflows/release.yml` builds every package on a tag push, with the
+release's own `antares` binary bundled:
+
+| OS | Script | Package | Layout |
+|---|---|---|---|
+| macOS | `scripts/build-macos.sh` (`ARCH=arm64\|amd64`), `scripts/package-macos.sh` | `Antares-macos-<arm64\|x64>.dmg` | `Antares.app`, server in `Contents/Resources/antares` |
+| Windows | `go build -H windowsgui` with `go-winres` for the icon, `build/windows/installer.nsi` (NSIS) | `Antares-windows-<x64\|arm64>-setup.exe` | `%LOCALAPPDATA%\Programs\Antares\AntaresDesktop.exe` and `antares.exe` beside it |
+| Linux | `go build` (cgo, GTK 3, WebKitGTK 4.1), `scripts/package-linux.sh` | `Antares-linux-<x64\|arm64>.deb` and `.tar.gz` | `/opt/antares/antares-desktop` and `antares`, a launcher entry and an icon |
+
+On Windows the shell is `AntaresDesktop.exe` because file names there are
+case-insensitive, and the server beside it must be `antares.exe`.
+
+The app is **ad-hoc signed and not notarized** on macOS, and not
+Authenticode-signed on Windows (there is no certificate yet). A downloaded
+copy is stopped by Gatekeeper until it is opened once with right-click › Open
+(or Open Anyway in System Settings › Privacy & Security), or the quarantine
+attribute is removed (`xattr -dr com.apple.quarantine /Applications/Antares.app`).
+On Windows, SmartScreen may ask once: More info › Run anyway.
 
 Icons come from `web/public/antares.png`;
 `python3 desktop/scripts/make-icons.py` regenerates the tray template, the app

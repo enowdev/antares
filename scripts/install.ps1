@@ -4,20 +4,17 @@
 
 .DESCRIPTION
   Downloads the prebuilt antares.exe for your platform from the project's GitHub
-  Releases and installs it. No build tools required.
+  Releases, checks it against the release's checksums.txt and installs it. No
+  build tools required.
 
 .EXAMPLE
-  irm https://raw.githubusercontent.com/enowdev/antares/main/scripts/install.ps1 | iex
+  irm https://antares.enowx.ai/install.ps1 | iex
 
 .NOTES
   Env knobs (set before running):
     $env:ANTARES_PREFIX    install dir; default $env:LOCALAPPDATA\Antares
     $env:ANTARES_VERSION   specific release tag; default latest
     $env:ANTARES_REPO      owner/name; default enowdev/antares
-
-  While the repository is private, releases are not publicly downloadable.
-  Install the GitHub CLI (https://cli.github.com), run 'gh auth login', and this
-  script uses it automatically. Once the repo is public, no auth is needed.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +26,8 @@ $BinDir  = Join-Path $Prefix 'bin'
 
 function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Warn($m) { Write-Host "warning: $m" -ForegroundColor Yellow }
-function Die($m)  { Write-Host "error: $m" -ForegroundColor Red; exit 1 }
+# throw, not exit: under `irm | iex` exit would close the user's window.
+function Die($m)  { throw "error: $m" }
 function Have($c) { [bool](Get-Command $c -ErrorAction SilentlyContinue) }
 
 # ---- detect arch ------------------------------------------------------------
@@ -48,28 +46,38 @@ $dest = Join-Path $BinDir 'antares.exe'
 $tmp  = Join-Path ([System.IO.Path]::GetTempPath()) ("antares-" + [System.Guid]::NewGuid().ToString('N') + '.exe')
 
 # ---- fetch ------------------------------------------------------------------
-if (Have 'gh') {
-  Info "downloading via GitHub CLI ($Repo, $Version)"
-  $ver = $Version
-  if ($ver -eq 'latest') {
-    $ver = (gh release view --repo $Repo --json tagName -q .tagName)
-    if (-not $ver) { Die "could not read the latest release. Is 'gh' authenticated? Try: gh auth login" }
-  }
-  $asset = AssetFor $ver
-  gh release download $ver --repo $Repo --pattern $asset --output $tmp --clobber
-  if (-not (Test-Path $tmp)) { Die "no asset '$asset' in release $ver." }
-} else {
-  if ($Version -eq 'latest') {
-    Die "without the GitHub CLI you must pass a version, e.g. `$env:ANTARES_VERSION='v0.1.0'. (If the repo is still private, install gh from https://cli.github.com and run 'gh auth login'.)"
-  }
-  $asset = AssetFor $Version
-  $url = "https://github.com/$Repo/releases/download/$Version/$asset"
-  Info "downloading $url"
-  try { Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing }
-  catch { Die "download failed. If the repo is still private, install the GitHub CLI (gh) and run 'gh auth login', then re-run." }
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$ProgressPreference = 'SilentlyContinue'  # the progress bar makes downloads crawl on 5.1
+$ver = $Version
+if ($ver -eq 'latest') {
+  try { $ver = (Invoke-RestMethod -UseBasicParsing "https://api.github.com/repos/$Repo/releases/latest").tag_name }
+  catch { Die "could not read the latest release of $Repo from api.github.com." }
+  if (-not $ver) { Die "could not find the latest release of $Repo." }
 }
+$base  = "https://github.com/$Repo/releases/download/$ver"
+$asset = AssetFor $ver
+Info "downloading $asset ($ver)"
+try { Invoke-WebRequest -Uri "$base/$asset" -OutFile $tmp -UseBasicParsing }
+catch { Die "download failed: $base/$asset" }
 
 if (-not (Test-Path $tmp) -or (Get-Item $tmp).Length -eq 0) { Die "downloaded file is empty." }
+
+# ---- verify -----------------------------------------------------------------
+try {
+  $sums = (Invoke-WebRequest -Uri "$base/checksums.txt" -UseBasicParsing).Content
+  if ($sums -is [byte[]]) { $sums = [Text.Encoding]::UTF8.GetString($sums) }
+  $want = $null
+  foreach ($line in ($sums -split "`n")) {
+    $parts = $line.Trim() -split '\s+'
+    if ($parts.Count -ge 2 -and $parts[1].TrimStart('*') -eq $asset) { $want = $parts[0].ToLower() }
+  }
+  $got = (Get-FileHash -Algorithm SHA256 $tmp).Hash.ToLower()
+  if (-not $want) { Warn "no checksum listed for $asset; continuing." }
+  elseif ($want -ne $got) { Remove-Item -Force $tmp; Die "checksum mismatch for $asset (expected $want, got $got)." }
+  else { Info "checksum ok" }
+} catch {
+  Warn "could not fetch checksums.txt; skipping verification."
+}
 
 # ---- install ----------------------------------------------------------------
 Move-Item -Force $tmp $dest
@@ -80,7 +88,7 @@ try { & $dest --version } catch {}
 $userPath = [Environment]::GetEnvironmentVariable('Path','User')
 if ($userPath -notlike "*$BinDir*") {
   [Environment]::SetEnvironmentVariable('Path', "$userPath;$BinDir", 'User')
-  Warn "added $BinDir to your user PATH — open a NEW terminal for it to take effect."
+  Warn "added $BinDir to your user PATH - open a NEW terminal for it to take effect."
 } else {
   Info "run 'antares' from anywhere (open a new terminal if not found yet)"
 }

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Antares
+GenericName=AI agent
+Comment=Your own AI agent, in one window
+Exec=antares-desktop
+Icon=antares
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=Antares

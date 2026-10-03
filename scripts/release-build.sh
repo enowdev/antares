@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build Antares release artifacts for every supported platform, locally.
 #
-# Until the repo is public (and a CI workflow does this on tag push), releases
-# are cut by hand: run this, then upload dist/release/* to a GitHub Release.
+# .github/workflows/release.yml runs this on a tag push and publishes the
+# result with the desktop packages. Run it locally to test a build.
 #
 # It builds the dashboard once, embeds it, then cross-compiles the binary for
 # each target. Output goes to dist/release/ as:

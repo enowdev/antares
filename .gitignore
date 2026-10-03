@@ -42,3 +42,6 @@ dist/
 !internal/server/dist/
 !internal/server/dist/.gitkeep
 web/tsconfig.tsbuildinfo
+
+# Windows resources CI generates for the desktop shell.
+desktop/rsrc_windows_*.syso

@@ -5,6 +5,9 @@
 #   ANTARES_BIN   antares binary to bundle (default ../bin/antares)
 #   VERSION       version string for the shell and Info.plist (default 0.1.0)
 #   GO            go command (default: go on PATH)
+#   ARCH          arm64 or amd64 (default: this machine); cgo cross-builds
+#                 the other one with clang's -arch
+#   APP           where to write the bundle (default bin/Antares.app)
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,14 +16,16 @@ cd "$here"
 GO="${GO:-go}"
 VERSION="${VERSION:-0.1.0}"
 ANTARES_BIN="${ANTARES_BIN:-$here/../bin/antares}"
-APP="$here/bin/Antares.app"
+APP="${APP:-$here/bin/Antares.app}"
+ARCH="${ARCH:-$("$GO" env GOARCH)}"
+case "$ARCH" in arm64) clang_arch=arm64 ;; amd64) clang_arch=x86_64 ;; *) echo "build-macos.sh: ARCH must be arm64 or amd64" >&2; exit 1 ;; esac
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "build-macos.sh: macOS only" >&2
   exit 1
 fi
 if [[ ! -x "$ANTARES_BIN" ]]; then
-  echo "build-macos.sh: $ANTARES_BIN not found — run 'make build' at the repo root first" >&2
+  echo "build-macos.sh: $ANTARES_BIN not found - run 'make build' at the repo root first" >&2
   exit 1
 fi
 
@@ -31,16 +36,17 @@ plist_version="$(printf '%s' "${VERSION#v}" | sed -E 's/^([0-9]+(\.[0-9]+){0,2})
 
 export CGO_ENABLED=1
 export MACOSX_DEPLOYMENT_TARGET=12.0
-export CGO_CFLAGS="-mmacosx-version-min=12.0"
-export CGO_LDFLAGS="-mmacosx-version-min=12.0"
+export GOOS=darwin GOARCH="$ARCH"
+export CGO_CFLAGS="-mmacosx-version-min=12.0 -arch $clang_arch"
+export CGO_LDFLAGS="-mmacosx-version-min=12.0 -arch $clang_arch"
 
 mkdir -p bin
 "$GO" build -tags production -trimpath -buildvcs=false \
-  -ldflags "-w -s -X main.Version=$VERSION" -o bin/Antares .
+  -ldflags "-w -s -X main.Version=$VERSION" -o "bin/Antares-$ARCH" .
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp bin/Antares "$APP/Contents/MacOS/Antares"
+mkdir -p "$(dirname "$APP")" "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "bin/Antares-$ARCH" "$APP/Contents/MacOS/Antares"
 cp build/darwin/icons.icns "$APP/Contents/Resources/icons.icns"
 cp "$ANTARES_BIN" "$APP/Contents/Resources/antares"
 chmod 755 "$APP/Contents/Resources/antares"
@@ -52,4 +58,4 @@ plutil -lint "$APP/Contents/Info.plist" >/dev/null
 codesign --force --sign - --timestamp=none "$APP/Contents/Resources/antares"
 codesign --force --sign - --timestamp=none "$APP"
 codesign --verify --strict "$APP"
-echo "built $APP ($VERSION)"
+echo "built $APP ($VERSION, $ARCH)"

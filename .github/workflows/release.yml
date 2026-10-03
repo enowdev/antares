@@ -1,0 +1,222 @@
+name: Release
+
+# A tag push (v*) builds everything and publishes a GitHub Release:
+#   antares_<tag>_<os>_<arch>[.exe]   the CLI and server, six targets
+#   Antares-macos-<arm64|x64>.dmg     the desktop app
+#   Antares-windows-<x64|arm64>-setup.exe
+#   Antares-linux-<x64|arm64>.deb and .tar.gz
+#   checksums.txt                     sha256 of every file above
+#
+# The desktop files carry no version in their names, so
+# https://github.com/enowdev/antares/releases/latest/download/<name> always
+# points at the newest one; the website links there. The release notes are
+# docs/releases/<tag>.md when it exists.
+#
+# Run it by hand (workflow_dispatch) to build and test without publishing;
+# the files are kept as workflow artifacts.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to stamp into the build (nothing is published)
+        default: v0.0.0-dev
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Build
+        run: ./scripts/release-build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli
+          path: dist/release/antares_*
+          if-no-files-found: error
+
+  macos:
+    needs: cli
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli
+          path: cli
+      - name: Build and package
+        run: |
+          chmod +x cli/*
+          mkdir -p out
+          for arch in arm64 amd64; do
+            label=$arch; [ "$arch" = amd64 ] && label=x64
+            ARCH=$arch APP="$PWD/stage/$arch/Antares.app" \
+              ANTARES_BIN="$PWD/cli/antares_${VERSION}_darwin_${arch}" \
+              ./desktop/scripts/build-macos.sh
+            ./desktop/scripts/package-macos.sh "stage/$arch/Antares.app" "out/Antares-macos-$label.dmg"
+          done
+      - name: Check
+        run: |
+          for f in out/*.dmg; do hdiutil verify "$f"; done
+          lipo -archs stage/arm64/Antares.app/Contents/MacOS/Antares | grep -qx arm64
+          lipo -archs stage/amd64/Antares.app/Contents/MacOS/Antares | grep -qx x86_64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: out/*
+          if-no-files-found: error
+
+  windows:
+    needs: cli
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli
+          path: cli
+      - name: Install NSIS
+        run: |
+          if [ ! -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then choco install nsis -y --no-progress; fi
+      - name: Build and package
+        run: |
+          num="$(printf '%s' "${VERSION#v}" | sed -E 's/^([0-9]+(\.[0-9]+){0,2}).*/\1/')"
+          [[ "$num" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || num=0.0.0
+          cd desktop
+          go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64,arm64 \
+            --icon build/windows/icon.ico --manifest gui --product-name Antares \
+            --file-description Antares --product-version "$num" --file-version "$num" --out rsrc
+          mkdir -p ../out
+          for arch in amd64 arm64; do
+            label=$arch; [ "$arch" = amd64 ] && label=x64
+            src="../stage/$arch"
+            mkdir -p "$src"
+            GOOS=windows GOARCH=$arch go build -tags production -trimpath -buildvcs=false \
+              -ldflags "-w -s -H windowsgui -X main.Version=$VERSION" -o "$src/AntaresDesktop.exe" .
+            cp "../cli/antares_${VERSION}_windows_${arch}.exe" "$src/antares.exe"
+            "/c/Program Files (x86)/NSIS/makensis.exe" -V2 -DVERSION="$num" -DARCH="$label" \
+              -DSRC="$(cygpath -w "$PWD/$src")" -DOUT="$(cygpath -w "$PWD/../out/Antares-windows-$label-setup.exe")" \
+              build/windows/installer.nsi
+          done
+      - name: Check the installer
+        run: |
+          ./out/Antares-windows-x64-setup.exe //S
+          dir="$(cygpath -u "$LOCALAPPDATA")/Programs/Antares"
+          for f in AntaresDesktop.exe antares.exe Uninstall.exe; do test -f "$dir/$f" || { echo "missing $f"; exit 1; }; done
+          "$dir/antares.exe" --version
+          "$dir/Uninstall.exe" //S _?="$(cygpath -w "$dir")"
+          test ! -f "$dir/AntaresDesktop.exe"
+      - name: Check the PowerShell installer
+        shell: pwsh
+        run: |
+          $env:ANTARES_PREFIX = Join-Path $env:RUNNER_TEMP 'antares-ps'
+          ./scripts/install.ps1
+          & (Join-Path $env:ANTARES_PREFIX 'bin\antares.exe') --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: out/*
+          if-no-files-found: error
+
+  linux:
+    needs: cli
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli
+          path: cli
+      - name: Install GTK and WebKitGTK
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Build and package
+        run: |
+          chmod +x cli/*
+          mkdir -p stage out
+          (cd desktop && CGO_ENABLED=1 go build -tags production -trimpath -buildvcs=false \
+            -ldflags "-w -s -X main.Version=$VERSION" -o ../stage/antares-desktop .)
+          ./desktop/scripts/package-linux.sh stage/antares-desktop \
+            "cli/antares_${VERSION}_linux_${{ matrix.arch }}" "$VERSION" ${{ matrix.arch }} out
+      - name: Check the package
+        run: |
+          sudo apt-get install -y -q ./out/Antares-linux-*.deb
+          test -x /opt/antares/antares-desktop
+          /opt/antares/antares --version
+          tar -tzf out/Antares-linux-*.tar.gz | grep -qx antares/antares-desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-${{ matrix.arch }}
+          path: out/*
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: [cli, macos, windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          rm -f checksums.txt
+          sha256sum -- * > checksums.txt
+          cat checksums.txt
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="docs/releases/$VERSION.md"
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" dist/* --clobber
+          elif [ -f "$notes" ]; then
+            gh release create "$VERSION" dist/* --title "$VERSION" --notes-file "$notes" --verify-tag
+          else
+            gh release create "$VERSION" dist/* --title "$VERSION" --generate-notes --verify-tag
+          fi

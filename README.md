@@ -66,25 +66,26 @@ The standard library carries most of the weight — `net/http` routing, `databas
 
 ## Quick start
 
-The installer downloads the prebuilt binary for your platform from GitHub
-Releases — no build tools required. Full guide, per-OS notes, and
-troubleshooting: [docs/installation.md](docs/installation.md).
+The installer finds the latest release, downloads the prebuilt binary for your
+platform from GitHub Releases and checks its checksum. No build tools required.
+Full guide, per-OS notes, and troubleshooting:
+[docs/installation.md](docs/installation.md).
 
 **Linux / macOS**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/enowdev/antares/main/scripts/install.sh | bash
+curl -fsSL https://antares.enowx.ai/install.sh | bash
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-irm https://raw.githubusercontent.com/enowdev/antares/main/scripts/install.ps1 | iex
+irm https://antares.enowx.ai/install.ps1 | iex
 ```
 
-> While the repo is private, install the [GitHub CLI](https://cli.github.com)
-> and run `gh auth login` first — the installer uses it to fetch release assets.
-> Once the repo is public this is not needed.
+**Desktop app** for macOS, Windows and Linux, with the server bundled:
+download it from [antares.enowx.ai](https://antares.enowx.ai/#download) or the
+[latest release](https://github.com/enowdev/antares/releases/latest).
 
 **From source** (to develop, or run an unreleased commit — needs Go 1.26+, Bun/npm, git):
 
