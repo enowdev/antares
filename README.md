@@ -6,6 +6,14 @@
 
 <p align="center">A self-hosted AI agent. Go backend, React dashboard, one binary.</p>
 
+<p align="center">
+  <a href="https://antares.enowx.ai"><b>antares.enowx.ai</b></a> ·
+  <a href="https://antares.enowx.ai/#download">Desktop app</a> ·
+  <a href="docs/installation.md">Install</a> ·
+  <a href="#documentation">Docs</a> ·
+  <a href="https://github.com/enowdev/antares/releases/latest">Latest release</a>
+</p>
+
 Antares reads and writes files, runs shell commands, drives a real browser,
 searches the web, remembers what matters across sessions, retrieves from a
 semantic index, schedules its own work, keeps working towards a goal across
@@ -35,16 +43,13 @@ Runs on **Linux**, **macOS**, and **Windows**.
 ## A look at it
 
 <p align="center">
-  <img src="docs/screenshots/chat.webp" alt="Antares chat" width="880">
+  <img src="docs/screenshots/chat.webp" alt="The Antares dashboard: a new conversation, with the workspace sidebar and the composer" width="880">
 </p>
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/memory-rag.webp" alt="Memory & RAG"><br><sub><b>Memory & native RAG</b> — durable facts the agent learns, plus an in-process retrieval index (hybrid search + rerank) wired into every turn.</sub></td>
-    <td width="50%"><img src="docs/screenshots/vps.webp" alt="VPS monitoring"><br><sub><b>VPS over SSH</b> — live CPU/RAM/disk, process lists, and agent-driven management, credentials encrypted at rest.</sub></td>
-  </tr>
-  <tr>
-    <td colspan="2"><img src="docs/screenshots/soul.webp" alt="Soul / identity"><br><sub><b>Soul</b> — give the agent a name and personality (SOUL.md), set once in a friendly first-run interview and applied everywhere: web, terminal, and every gateway.</sub></td>
+    <td width="50%"><img src="docs/screenshots/memory-rag.webp" alt="Memory & RAG"><br><sub><b>Memory & native RAG</b>: durable facts the agent learns, plus an in-process retrieval index (hybrid search and rerank) wired into every turn.</sub></td>
+    <td width="50%"><img src="docs/screenshots/soul.webp" alt="Soul / identity"><br><sub><b>Soul</b>: give the agent a name and personality (SOUL.md), set once in a first-run interview and applied everywhere: web, terminal, desktop app and every gateway.</sub></td>
   </tr>
 </table>
 
@@ -383,7 +388,7 @@ credentials, and RAG backend in one pass.
 
 | Guide | What it covers |
 |---|---|
-| [Installation](docs/installation.md) | Install on Linux, macOS, Windows; upgrading; releases |
+| [Installation](docs/installation.md) | The one-line installers, the desktop app downloads, upgrading, releases |
 | [Getting started](docs/getting-started.md) | First run, connecting a provider |
 | [Configuration](docs/configuration.md) | Every setting, and where it can be set |
 | [Tools](docs/tools.md) | The tool surface and the toolsets |
@@ -403,10 +408,11 @@ credentials, and RAG backend in one pass.
 | [MCP](docs/mcp.md) | External Model Context Protocol servers |
 | [HTTP API](docs/api.md) | Every endpoint |
 | [Deployment](docs/deployment.md) | Running it as a service |
-| [Desktop app](docs/desktop.md) | The macOS app: Local and Remote connections, building it |
+| [Desktop app](docs/desktop.md) | The app for macOS, Windows and Linux: Local and Remote connections, packaging |
 | [Backups](docs/backups.md) | Archiving and restoring everything |
 | [Architecture](docs/architecture.md) | How the pieces fit |
 | [Development](docs/development.md) | Building and testing |
+| [Release notes](docs/releases/) | What changed in each release |
 
 ---
 
