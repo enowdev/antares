@@ -83,6 +83,8 @@ try {
 Move-Item -Force $tmp $dest
 Info "installed $dest"
 try { & $dest --version } catch {}
+# An older release does not know --version; its exit code is not the install's.
+$global:LASTEXITCODE = 0
 
 # ---- PATH -------------------------------------------------------------------
 $userPath = [Environment]::GetEnvironmentVariable('Path','User')
