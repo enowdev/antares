@@ -139,7 +139,8 @@ jobs:
         run: |
           $env:ANTARES_PREFIX = Join-Path $env:RUNNER_TEMP 'antares-ps'
           ./scripts/install.ps1
-          & (Join-Path $env:ANTARES_PREFIX 'bin\antares.exe') --version
+          # The latest release may predate --version; check the file landed.
+          if (-not (Test-Path (Join-Path $env:ANTARES_PREFIX 'bin\antares.exe'))) { throw 'antares.exe not installed' }
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
@@ -166,6 +167,8 @@ jobs:
         with:
           name: cli
           path: cli
+      # Wails defaults to GTK 4 and WebKitGTK 6.0 (Ubuntu 24.04 and later); the
+      # gtk3 tag builds against GTK 3 and WebKitGTK 4.1, which far more distros have.
       - name: Install GTK and WebKitGTK
         run: |
           sudo apt-get update -q
@@ -174,7 +177,7 @@ jobs:
         run: |
           chmod +x cli/*
           mkdir -p stage out
-          (cd desktop && CGO_ENABLED=1 go build -tags production -trimpath -buildvcs=false \
+          (cd desktop && CGO_ENABLED=1 go build -tags production,gtk3 -trimpath -buildvcs=false \
             -ldflags "-w -s -X main.Version=$VERSION" -o ../stage/antares-desktop .)
           ./desktop/scripts/package-linux.sh stage/antares-desktop \
             "cli/antares_${VERSION}_linux_${{ matrix.arch }}" "$VERSION" ${{ matrix.arch }} out

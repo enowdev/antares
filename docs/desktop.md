@@ -98,7 +98,7 @@ release's own `antares` binary bundled:
 |---|---|---|---|
 | macOS | `scripts/build-macos.sh` (`ARCH=arm64\|amd64`), `scripts/package-macos.sh` | `Antares-macos-<arm64\|x64>.dmg` | `Antares.app`, server in `Contents/Resources/antares` |
 | Windows | `go build -H windowsgui` with `go-winres` for the icon, `build/windows/installer.nsi` (NSIS) | `Antares-windows-<x64\|arm64>-setup.exe` | `%LOCALAPPDATA%\Programs\Antares\AntaresDesktop.exe` and `antares.exe` beside it |
-| Linux | `go build` (cgo, GTK 3, WebKitGTK 4.1), `scripts/package-linux.sh` | `Antares-linux-<x64\|arm64>.deb` and `.tar.gz` | `/opt/antares/antares-desktop` and `antares`, a launcher entry and an icon |
+| Linux | `go build -tags production,gtk3` (cgo, GTK 3, WebKitGTK 4.1), `scripts/package-linux.sh` | `Antares-linux-<x64\|arm64>.deb` and `.tar.gz` | `/opt/antares/antares-desktop` and `antares`, a launcher entry and an icon |
 
 On Windows the shell is `AntaresDesktop.exe` because file names there are
 case-insensitive, and the server beside it must be `antares.exe`.

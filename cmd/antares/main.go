@@ -71,7 +71,7 @@ func run() error {
 	if len(args) == 0 && !term.IsTerminal(int(os.Stdin.Fd())) {
 		args = []string{"--foreground"}
 	}
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+	if len(args) > 0 && (!strings.HasPrefix(args[0], "-") || isTopLevelFlag(args[0])) {
 		command, args = args[0], args[1:]
 	}
 
@@ -1284,4 +1284,14 @@ func expandAll(dirs []string) []string {
 		out = append(out, config.Expand(d))
 	}
 	return out
+}
+
+// isTopLevelFlag reports the flags that are commands of their own rather than
+// options of the default serve command: `antares --version` and `--help`.
+func isTopLevelFlag(arg string) bool {
+	switch arg {
+	case "--version", "-v", "--help", "-h":
+		return true
+	}
+	return false
 }
