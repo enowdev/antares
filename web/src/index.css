@@ -22,8 +22,8 @@
 @layer base {
   :root {
     /* Facebook light — getdesign/facebook.md. Default palette. */
-    --font-sans: 'Montserrat', Helvetica, Arial, 'Noto Sans', sans-serif;
-    --font-display: 'Montserrat', Helvetica, Arial, sans-serif;
+    --font-sans: 'Montserrat Variable', Helvetica, Arial, 'Noto Sans', sans-serif;
+    --font-display: 'Montserrat Variable', Helvetica, Arial, sans-serif;
     --radius-button: 100px;
     --background: #ffffff;
     --foreground: #1c1e21;
@@ -89,8 +89,8 @@
   }
 
   [data-palette='claude'] {
-    --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --font-display: 'Cormorant Garamond', Garamond, 'Times New Roman', serif;
+    --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-display: 'Cormorant Garamond Variable', Garamond, 'Times New Roman', serif;
     --radius-button: 8px;
     --background: #ffffff;
     --foreground: #141413;
@@ -144,7 +144,7 @@
   }
 
   [data-palette='pinterest'] {
-    --font-sans: Inter, -apple-system, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-sans: 'Inter Variable', -apple-system, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     --font-display: var(--font-sans);
     --radius-button: 16px;
     --background: #ffffff;
@@ -199,7 +199,7 @@
   }
 
   [data-palette='supabase'] {
-    --font-sans: Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --font-sans: 'Inter Variable', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     --font-display: var(--font-sans);
     --radius-button: 6px;
     --background: #ffffff;
