@@ -29,7 +29,7 @@ warning: OpenHuman's memory database (memory/memory.db) is not imported; MEMORY.
 
 [agents_md] agents_md:file "AGENTS.md" status=ready selected=true
   detail: from AGENTS.md · 42 chars
-  text: from=AGENTS.md sha=fd6819395b8e
+  text: from=AGENTS.md sha=7fd3521d178e
 
 [user_md] user_md:file "USER.md" status=ready selected=true
   detail: from PROFILE.md · 71 chars

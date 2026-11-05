@@ -15,6 +15,13 @@ import (
 var (
 	mu     sync.RWMutex
 	loaded *Config
+	// loadedHome and loadedPath record the state directory and config file the
+	// cached config was read from. Load only serves the cache while both still
+	// match, so a process (or a test) that moves ANTARES_HOME gets its own
+	// configuration instead of the previous directory's — the stale port from
+	// one test's config used to leak into the next.
+	loadedHome string
+	loadedPath string
 	// saveMu serialises writes to the config file. Concurrent saves (e.g. a
 	// rapid run of model switches, or a model switch overlapping a raw config
 	// save) would otherwise race on the temp file and the rename, corrupting
@@ -25,8 +32,9 @@ var (
 // Load reads defaults, merges the profile YAML file, then applies env overrides.
 // It is safe to call repeatedly; the result is cached until Reload or Save.
 func Load() (*Config, error) {
+	home, path := Home(), ConfigFile()
 	mu.RLock()
-	if loaded != nil {
+	if loaded != nil && loadedHome == home && loadedPath == path {
 		c := loaded.Clone()
 		mu.RUnlock()
 		return c, nil
@@ -61,6 +69,7 @@ func Reload() (*Config, error) {
 
 	mu.Lock()
 	loaded = cfg.Clone()
+	loadedHome, loadedPath = Home(), path
 	mu.Unlock()
 	return cfg, nil
 }
@@ -90,6 +99,7 @@ func SaveNormalizedAt(path string, cfg *Config) error {
 	}
 	mu.Lock()
 	loaded = cfg.Clone()
+	loadedHome, loadedPath = Home(), path
 	mu.Unlock()
 	return nil
 }
