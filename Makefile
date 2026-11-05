@@ -7,6 +7,7 @@ tool = $(shell command -v $(1) 2>/dev/null || echo $(2))
 
 GO     ?= $(call tool,go,$(HOME)/.local/sdk/go/bin/go)
 BUN    ?= $(call tool,bun,$(HOME)/.bun/bin/bun)
+SWIFT  ?= $(call tool,swift,/usr/bin/swift)
 # air lives in GOPATH/bin after `make install`; if GOPATH can't be read, use the
 # conventional ~/go.
 GOPATH ?= $(shell $(GO) env GOPATH 2>/dev/null || echo $(HOME)/go)
@@ -20,6 +21,9 @@ LDFLAGS := -s -w \
   -X github.com/enowdev/antares/internal/version.Version=$(VERSION) \
   -X github.com/enowdev/antares/internal/version.Commit=$(COMMIT) \
   -X github.com/enowdev/antares/internal/version.Date=$(DATE)
+MACOS_APP := macos/build/Build/Products/Release/Antares.app
+MACOS_APP_CONTENTS := $(MACOS_APP)/Contents
+MACOS_APP_MACOS := $(MACOS_APP_CONTENTS)/MacOS
 
 .PHONY: help
 help: ## Show this help
@@ -81,6 +85,18 @@ build-fixture: ## Build the smoke-only fixture helper (cmd/smokefixture)
 build-api: ## Build the backend only (no dashboard)
 	@$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/antares ./cmd/antares
 
+.PHONY: macos
+macos: build ## Build Antares.app with the darwin antares binary inside
+	@test "$$(uname -s)" = Darwin || (echo "macos target requires Darwin" && exit 1)
+	@$(SWIFT) build -c release --package-path macos/Antares
+	@rm -rf "$(MACOS_APP)"
+	@mkdir -p "$(MACOS_APP_MACOS)"
+	@cp macos/Antares/.build/release/Antares "$(MACOS_APP_MACOS)/AntaresApp"
+	@cp bin/antares "$(MACOS_APP_MACOS)/antares"
+	@cp macos/Antares/Info.plist "$(MACOS_APP_CONTENTS)/Info.plist"
+	@chmod +x "$(MACOS_APP_MACOS)/AntaresApp" "$(MACOS_APP_MACOS)/antares"
+	@echo "built $(MACOS_APP)"
+
 .PHONY: install-cli
 install-cli: build ## Build (with dashboard) and install `antares` to $(PREFIX)/bin
 	@mkdir -p $(PREFIX)/bin
@@ -139,6 +155,7 @@ release: ## Cross-compile release binaries for all platforms into dist/release
 
 .PHONY: clean
 clean: ## Remove build artefacts
+	@rm -rf bin .air web/dist dist macos/build
 	@rm -rf bin .air web/dist dist desktop/bin
 	@echo "cleaned"
 

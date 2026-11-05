@@ -67,6 +67,10 @@ antares setup        # configure it, in the browser or the terminal
 
 Runs on **Linux**, **macOS**, and **Windows**.
 
+Mac operators can also build an optional native dashboard companion with `make macos`.
+The Mac app is optional; the CLI `antares` still serves the web UI for other
+platforms.
+
 ---
 
 ## A look at it
