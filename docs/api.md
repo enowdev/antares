@@ -1,6 +1,6 @@
 # HTTP API
 
-`antares serve` exposes a JSON API on `:8787` and serves the dashboard from the
+`antares` exposes a JSON API on `:8787` and serves the dashboard from the
 same port. Everything the dashboard does is available here.
 
 ## Authentication

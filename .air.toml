@@ -6,7 +6,7 @@ tmp_dir = ".air"
 [build]
   cmd = "go build -o ./.air/antares ./cmd/antares"
   bin = "./.air/antares"
-  full_bin = "./.air/antares serve --foreground"
+  full_bin = "./.air/antares --foreground"
   include_ext = ["go", "yaml", "yml", "md"]
   exclude_dir = [".air", "web", "dist", ".git", "node_modules", "internal/server/dist"]
   exclude_regex = ["_test\\.go"]

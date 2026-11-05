@@ -159,7 +159,7 @@ func acquireDaemonStartLock(timeout time.Duration) (func(), error) {
 			continue
 		}
 		if time.Now().After(deadline) {
-			return nil, errors.New("another antares serve command is still starting the daemon")
+			return nil, errors.New("another antares command is still starting the daemon")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

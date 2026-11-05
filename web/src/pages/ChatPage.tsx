@@ -16,6 +16,8 @@ import {
   DEFAULT_MAX_LIVE_REASONING_CHARS,
   hydrate,
   normalizeErrorPayload,
+  splitTranscriptTurns,
+  transcriptTurnKey,
   type ChatMessage,
   type SessionDetail,
 } from '@/lib/chatTranscript'
@@ -28,7 +30,7 @@ import { Textarea } from '@/components/ui/primitives'
 import { SkeletonMessage } from '@/components/ui/skeleton'
 import { AgentField } from '@/components/brand/AgentField'
 import { BrandMark } from '@/components/brand/BrandMark'
-import { ErrorBanner, MessageBubble } from '@/components/chat/ChatTranscript'
+import { ErrorBanner, MessageBubble, StickyUserAnchor } from '@/components/chat/ChatTranscript'
 import { TaskBar, parseTasks } from '@/components/chat/TaskBar'
 import { ApprovalCard, type ApprovalView } from '@/components/chat/ApprovalCard'
 import { RolePicker } from '@/components/chat/RolePicker'
@@ -37,7 +39,6 @@ import { ReasoningPicker } from '@/components/chat/ReasoningPicker'
 import { ProjectPicker } from '@/components/chat/ProjectPicker'
 import { ProjectSidebar } from '@/components/chat/ProjectSidebar'
 import { AnalyzeProjectDialog } from '@/components/chat/AnalyzeProjectDialog'
-import { EditMessageDialog } from '@/components/chat/EditMessageDialog'
 import { SubAgentPanel, type ActiveAgent } from '@/components/chat/SubAgentPanel'
 import {
   SlashPalette,
@@ -286,7 +287,7 @@ export default function ChatPage() {
   // When set, an overlay shows this sub-agent's live transcript instead of the
   // main one; clearing it returns to the main agent.
   const [viewingAgent, setViewingAgent] = useState<ActiveAgent | null>(null)
-  // The user message being edited (id + current text), driving EditMessageDialog.
+  // The user message being edited (id + current text), driving inline bubble edit.
   const [editing, setEditing] = useState<{ id: string; content: string } | null>(null)
 
   const commands = useCommands()
@@ -629,7 +630,7 @@ export default function ChatPage() {
         const restored = hydrate(d)
         // Open a restored transcript at its newest message. Set before the list
         // mounts (it is still `loading`), so Virtuoso reads the final value once.
-        initialIndexRef.current = { index: Math.max(0, restored.length - 1), align: 'end' }
+        initialIndexRef.current = { index: Math.max(0, splitTranscriptTurns(restored).length - 1), align: 'end' }
         setMessages(restored)
         setTitle(d.session.title || t('chat.conversation'))
         setProjectDir(d.session.meta?.project_dir ?? '')
@@ -987,6 +988,13 @@ export default function ChatPage() {
     [editing, sendText],
   )
 
+  const startEdit = useCallback((id: string, content: string) => {
+    if (id.startsWith('local_') || id.startsWith('you_')) return
+    setEditing({ id, content })
+  }, [])
+
+  const cancelEdit = useCallback(() => setEditing(null), [])
+
   /** Resend the preceding user prompt (+ images/docs) for the errored turn.
    *  Prefers the message's own retryPrompt (captured at error creation) so a
    *  merged/reordered row still retries the correct prompt; falls back to a
@@ -1323,19 +1331,29 @@ export default function ChatPage() {
   // A project session splits the view: the chat column on the left and a
   // collapsible sidebar on the right. An ordinary chat renders full width.
   const isProject = Boolean(projectDir)
+  const transcriptTurns = splitTranscriptTurns(messages)
+
+  const renderBubble = (m: ChatMessage, compact = false) => (
+    <MessageBubble
+      message={m}
+      showReasoning={showReasoning}
+      askActive={!!askId}
+      onAnswer={answerAsk}
+      editing={editing?.id === m.id}
+      sessionId={sessionId}
+      onSubmitEdit={applyEdit}
+      onCancelEdit={cancelEdit}
+      onEdit={streaming ? undefined : startEdit}
+      onRetry={retryTurn}
+      retryDisabled={streaming}
+      compact={compact && editing?.id !== m.id}
+    />
+  )
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] overflow-hidden lg:h-[calc(100dvh-4rem)]">
       <div className="relative flex min-w-0 flex-1 flex-col overflow-x-hidden">
       {analyzeDialog}
-      <EditMessageDialog
-        open={Boolean(editing)}
-        onOpenChange={(o) => !o && setEditing(null)}
-        sessionId={sessionId}
-        messageId={editing?.id ?? ''}
-        initialText={editing?.content ?? ''}
-        onSubmit={applyEdit}
-      />
       {/* Sub-agent live view: overlays the chat while keeping the main
           transcript state intact underneath, so "back to Main" is instant. */}
       {viewingAgent ? (
@@ -1344,16 +1362,11 @@ export default function ChatPage() {
         </div>
       ) : null}
 
-      <div className="flex items-center gap-3 border-b border-border px-4 py-3 sm:px-6">
+      <div className="flex h-12 items-center gap-3 border-b border-border/70 px-4 sm:px-6">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{title || t('chat.newConversation')}</p>
-          {sessionId ? (
-            <p className="truncate font-mono text-[11px] text-dim">
-              {t('chat.session')} {sessionId.slice(0, 12)}
-            </p>
-          ) : null}
         </div>
-        <Button variant="outline" size="sm" onClick={newChat} className="gap-1.5">
+        <Button variant="ghost" size="sm" onClick={newChat} className="gap-1.5">
           <Plus className="size-4" />
           <span className="hidden sm:inline">{t('common.new')}</span>
         </Button>
@@ -1398,35 +1411,32 @@ export default function ChatPage() {
         // initialTopMostItemIndex is deliberately NOT derived from messages.length
         // here: it only defines the *initial* position, but recomputing it on every
         // render re-anchors the list mid-stream. See initialIndexRef.
+        <div className="relative flex min-h-0 flex-1 flex-col">
         <Virtuoso
           ref={virtuosoRef}
           className="min-h-0 flex-1"
-          data={messages}
+          data={transcriptTurns}
           followOutput={false}
           initialTopMostItemIndex={initialIndexRef.current}
           components={virtuosoComponents}
           context={footerContext}
           scrollerRef={bindScroller}
-          totalListHeightChanged={pinOnGrowth}
-          computeItemKey={(_, m) => m.key ?? m.id}
-          itemContent={(_, m) => (
-            <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip px-4 sm:px-6">
-              <div className="min-w-0 py-2.5">
-                <MessageBubble
-                  message={m}
-                  showReasoning={showReasoning}
-                  askActive={!!askId}
-                  onAnswer={answerAsk}
-                  onEdit={
-                    streaming ? undefined : (id, content) => setEditing({ id, content })
-                  }
-                  onRetry={retryTurn}
-                  retryDisabled={streaming}
-                />
-              </div>
+          totalListHeightChanged={editing ? undefined : pinOnGrowth}
+          computeItemKey={(i, turn) => transcriptTurnKey(turn, i)}
+          itemContent={(_, turn) => (
+            <div className="mx-auto w-full min-w-0 max-w-3xl px-4 sm:px-6">
+              {turn.user ? (
+                <StickyUserAnchor>{(compact) => renderBubble(turn.user!, compact)}</StickyUserAnchor>
+              ) : null}
+              {turn.replies.map((reply) => (
+                <div key={reply.key ?? reply.id} className="min-w-0 overflow-x-clip py-4">
+                  {renderBubble(reply)}
+                </div>
+              ))}
             </div>
           )}
         />
+        </div>
       )}
 
       {/* Floating composer: sits close to the last message rather than pinned
@@ -1556,16 +1566,17 @@ const Composer = ({
 
   return (
     // No overflow-hidden: the role picker's dropdown pops upward out of this
-    // card, and clipping would cut it off.
-    <div className="tp-panel rounded-[var(--radius-xl)] border border-border bg-card/80 backdrop-blur-md transition-[border-color] duration-200 focus-within:border-foreground/60">
+    // card, and clipping would cut it off. The top section rounds its own top
+    // corners instead so the merged look survives without clipping.
+    <div className="rounded-3xl border border-border bg-card/80 shadow-sm transition-colors focus-within:border-ring/80">
       {/* Task list / sub-agents (when present) sit above the input, in the same
           card. The section renders its own bottom divider only when it actually
           has content, so an empty TaskBar leaves no phantom line. */}
       {topSlot ? (
-        <div className="overflow-hidden">{topSlot}</div>
+        <div className="overflow-hidden rounded-t-3xl">{topSlot}</div>
       ) : null}
 
-      <div className="p-2.5">
+      <div className="px-3 pb-2.5 pt-2">
         {images.length > 0 ? (
           <div className="mb-2 flex flex-wrap gap-2 px-1 pt-1">
             {images.map((src, i) => (
@@ -1631,7 +1642,7 @@ const Composer = ({
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           placeholder={placeholder}
-          className="max-h-50 min-h-10 w-full resize-none border-0 bg-transparent px-1.5 py-1.5 text-[15px] shadow-none outline-none focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          className="max-h-50 min-h-11 w-full resize-none border-0 bg-transparent px-1.5 py-2 text-[15px] leading-6 shadow-none outline-none focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
         />
 
         {/* Row 2: controls — pickers on the left, actions on the right. The

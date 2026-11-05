@@ -3,14 +3,14 @@
 //   1. Allocate a fresh temp ANTARES_HOME + workspace so nothing under the
 //      developer's real ~/.antares is read or written.
 //   2. Bind three loopback ports:
-//        - antares serve (dashboard + API)
+//        - antares (dashboard + API)
 //        - openai-compatible provider stub (deterministic /v1/models catalogue
 //          plus an empty non-billing /v1/chat/completions in case something
 //          the walk touches actually issues a request)
 //   3. Run bin/smokefixture (cmd/smokefixture) to hash the synthetic
 //      password, write config.yaml, and seed the SMOKE_FIXTURE_SESSION_ID
 //      row through the real store.Open (schema stays honest).
-//   4. Launch bin/antares serve --foreground with a scrubbed env — only
+//   4. Launch bin/antares --foreground with a scrubbed env — only
 //      PATH / HOME / TMPDIR / SHELL / LANG / the ANTARES_* pointers survive;
 //      inherited provider keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, …) never
 //      reach the child, so a stale key on the developer's box cannot silently
@@ -237,15 +237,15 @@ async function main() {
     '--session-id', 'smoke-session',
   ])
 
-  const server = spawn(ANTARES_BIN, ['serve', '--foreground'], {
+  const server = spawn(ANTARES_BIN, ['--foreground'], {
     env: baseEnv,
     cwd: REPO,
     stdio: ['ignore', 'inherit', 'inherit'],
   })
-  onExit(terminate(server, 'antares serve'))
+  onExit(terminate(server, 'antares'))
   server.on('exit', (code, signal) => {
     if (!cleaning) {
-      console.error(`smoke-run: antares serve exited early code=${code} signal=${signal}`)
+      console.error(`smoke-run: antares exited early code=${code} signal=${signal}`)
     }
   })
 

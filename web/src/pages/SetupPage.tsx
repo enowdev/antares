@@ -22,7 +22,6 @@ import { reloadModules } from '@/lib/useModules'
 import { detectedInstalls, type MigrateSource } from '@/lib/migrate'
 import { cn } from '@/lib/utils'
 import { useReveal } from '@/lib/motion'
-import { useTheme } from '@/lib/theme'
 import { Brand } from '@/components/brand/BrandMark'
 import { AgentField } from '@/components/brand/AgentField'
 import { ProviderHeadersField } from '@/components/providers/ProviderHeadersField'
@@ -808,9 +807,7 @@ function SetupShell({
 }) {
   const { t } = useI18n()
   const root = useRef<HTMLDivElement>(null)
-  // Outside the app shell, so the setup screen applies the saved theme and
-  // runs its own reveal observer.
-  useTheme()
+  // Outside the app shell, so the setup screen runs its own reveal observer.
   useReveal(root)
   const total = steps.length - 1
   const current = Math.min(stepIndex + 1, total)

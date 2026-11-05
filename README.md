@@ -155,10 +155,10 @@ Production build:
 
 ```bash
 make build            # → bin/antares, dashboard embedded
-./bin/antares serve   # starts in the background
+./bin/antares         # starts in the background
 ```
 
-Use `antares serve --foreground` when running under systemd, Docker, or while
+Use `antares --foreground` when running under systemd, Docker, or while
 debugging and you want the server attached to the current terminal. Daemon logs
 are written to `~/.antares/logs/daemon.log`.
 
@@ -344,8 +344,8 @@ gate access behind an allow list or a pairing approval flow.
 Their tools are namespaced `mcp__<server>__<tool>` and made available to the
 model automatically; a server that fails to start is reported, never fatal.
 
-**Two interfaces.** A full-screen terminal UI (`antares`) and a web dashboard
-(`antares serve`) over the same agent, sessions, and memory. The TUI has a
+**Two interfaces.** A web dashboard (`antares`) and a full-screen terminal UI
+(`antares tui`) over the same agent, sessions, and memory. The TUI has a
 multiline composer, slash-command completion, live tool output, history recall,
 scrollback, and Ctrl+C interrupt. Run `/help` inside it for the full list.
 

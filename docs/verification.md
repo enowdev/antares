@@ -40,7 +40,7 @@ OPENAI_API_KEY=sk-… go test ./internal/llm -run TestLiveSpeakRoundTrip -v
 ## Chat gateways
 
 Gateways need a running bot and, for the webhook ones, a reachable URL. Verify
-each by configuring it, starting `antares serve`, and sending the bot a message —
+each by configuring it, starting `antares`, and sending the bot a message —
 it should reply.
 
 | Gateway | What to provide | How it connects |

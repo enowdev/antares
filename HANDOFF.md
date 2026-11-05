@@ -23,7 +23,7 @@ below is done and green unless called out under **Next Steps**.
 - **Embedded bundle:** `make build-web` builds `web/dist` and copies it to
   `internal/server/dist` (which is gitignored except `.gitkeep` — keep that file;
   `make build-web` deletes it, so `touch internal/server/dist/.gitkeep` after).
-- **Run the binary:** on macOS use `antares serve --foreground`. Cross-compiled
+- **Run the binary:** on macOS use `antares --foreground`. Cross-compiled
   `CGO_ENABLED=0` darwin binaries get an invalid ad-hoc signature and are
   SIGKILLed (exit 137) on other machines — fix with `codesign --force --sign -`.
 - Tests: `GOTOOLCHAIN=go1.26.3 go test ./...` → 32 packages, all green.

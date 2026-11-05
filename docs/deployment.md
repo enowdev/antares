@@ -67,7 +67,7 @@ ENV ANTARES_HOME=/data \
     TOOLS_BROWSER_EXECUTABLE=/usr/bin/chromium
 VOLUME /data
 EXPOSE 8787
-CMD ["antares", "serve"]
+CMD ["antares", "--foreground"]
 ```
 
 Chromium is only needed for the browser tool. Leave it out and everything else

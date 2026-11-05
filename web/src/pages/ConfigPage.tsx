@@ -84,7 +84,7 @@ export default function ConfigPage() {
   )
   const appearanceMatch =
     searching &&
-    [t('settings.appearance'), t('settings.language'), t('settings.theme'), 'appearance', 'language', 'theme']
+    [t('settings.appearance'), t('settings.language'), t('settings.theme'), t('settings.palette'), 'appearance', 'language', 'theme', 'palette']
       .some((s) => s.toLowerCase().includes(query))
   const modulesMatch = searching && modulesMatchQuery(t, query)
   const devicesMatch = searching && devicesMatchQuery(t, query)

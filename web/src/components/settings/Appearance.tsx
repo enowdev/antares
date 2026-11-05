@@ -1,6 +1,7 @@
-import { Moon, Sun, Translate } from '@phosphor-icons/react'
-import { LANGUAGES, useI18n } from '@/lib/i18n'
-import { useTheme } from '@/lib/theme'
+import { CheckCircle, Moon, Sun, Translate } from '@phosphor-icons/react'
+import { LANGUAGES, useI18n, type MessageKey } from '@/lib/i18n'
+import { PALETTES, PALETTE_SWATCHES, type Palette } from '@/lib/theme'
+import { useTheme } from '@/lib/theme-provider'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Label } from '@/components/ui/primitives'
 
@@ -60,7 +61,48 @@ export function ThemeToggle() {
   )
 }
 
-/** Settings › Appearance: per-browser language and theme. */
+const PALETTE_LABEL: Record<Palette, MessageKey> = {
+  claude: 'theme.claude',
+  facebook: 'theme.facebook',
+  pinterest: 'theme.pinterest',
+  supabase: 'theme.supabase',
+}
+
+/** Palette choice, shown in the current light or dark mode. */
+export function PalettePicker() {
+  const { theme, palette, setPalette } = useTheme()
+  const { t } = useI18n()
+  return (
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2">
+      {PALETTES.map((id) => {
+        const swatch = PALETTE_SWATCHES[id][theme]
+        const selected = palette === id
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setPalette(id)}
+            aria-pressed={selected}
+            className={cn(
+              'flex items-center gap-3 rounded-[var(--radius-md)] border p-2.5 text-left transition-colors',
+              selected ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:bg-raised',
+            )}
+          >
+            <span
+              className="size-8 shrink-0 overflow-hidden rounded-[var(--radius-xs)] border border-border"
+              style={{ background: `linear-gradient(135deg, ${swatch.bg} 50%, ${swatch.accent} 50%)` }}
+              aria-hidden
+            />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{t(PALETTE_LABEL[id])}</span>
+            {selected ? <CheckCircle className="size-4 shrink-0 text-primary" weight="fill" /> : null}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Settings › Appearance: per-browser language, theme and palette. */
 export function AppearanceCard() {
   const { t } = useI18n()
   return (
@@ -80,6 +122,12 @@ export function AppearanceCard() {
           <span className="text-[13px] font-medium sm:w-[42%]">{t('settings.theme')}</span>
           <div className="sm:flex-1">
             <ThemeToggle />
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
+          <span className="text-[13px] font-medium sm:w-[42%] sm:pt-2">{t('settings.palette')}</span>
+          <div className="sm:flex-1">
+            <PalettePicker />
           </div>
         </div>
       </CardContent>

@@ -376,3 +376,80 @@ export function mergeHydratedWithLocalErrors(
   if (carryover.length === 0) return hydrated
   return [...hydrated, ...carryover]
 }
+
+/** Index of the latest user turn, or -1 when the transcript has none. */
+export function lastUserMessageIndex(messages: { role: string }[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return i
+  }
+  return -1
+}
+
+export interface TranscriptTurn<T extends { role: string }> {
+  user: T | null
+  replies: T[]
+}
+
+/**
+ * One sticky block per user prompt: that bubble plus the replies that follow
+ * it, so `position: sticky` can ride each turn the way a blog sidebar sticks
+ * to its article. Leading non-user rows (before the first prompt) are a turn
+ * with `user: null`.
+ */
+export function splitTranscriptTurns<T extends { role: string }>(messages: T[]): TranscriptTurn<T>[] {
+  const turns: TranscriptTurn<T>[] = []
+  for (const m of messages) {
+    if (m.role === 'user') {
+      turns.push({ user: m, replies: [] })
+      continue
+    }
+    const current = turns[turns.length - 1]
+    if (current) {
+      current.replies.push(m)
+    } else {
+      turns.push({ user: null, replies: [m] })
+    }
+  }
+  return turns
+}
+
+export function transcriptTurnKey(
+  turn: TranscriptTurn<{ id: string; key?: string; role: string }>,
+  index: number,
+): string {
+  const first = turn.user ?? turn.replies[0]
+  return first ? (first.key ?? first.id) : `turn:${index}`
+}
+
+/** Docked sticky prompts keep the first line solid and fade the second. */
+export function promptLineCount(scrollHeight: number, lineHeight: number): number {
+  if (!(lineHeight > 0) || !(scrollHeight > 0)) return 1
+  return Math.max(1, Math.round(scrollHeight / lineHeight))
+}
+
+/** ResizeObserver reports 0 when the prompt unmounts into the editor; keep the last wrap count. */
+export function nextPromptLineCount(prev: number, scrollHeight: number, lineHeight: number): number {
+  if (!(scrollHeight > 0) || !(lineHeight > 0)) return prev
+  return promptLineCount(scrollHeight, lineHeight)
+}
+
+export function shouldFadeStickyPrompt(stuck: boolean, lines: number): boolean {
+  return stuck && lines > 1
+}
+
+export function stickyPromptClipClass(fade: boolean): string {
+  return [
+    'overflow-hidden',
+    'transition-[max-height] duration-200 ease-in-out',
+    fade ? 'max-h-[3.55rem]' : 'max-h-[80rem]',
+  ].join(' ')
+}
+
+/** Click-outside leaves inline edit; clicks inside the editor stay in edit. */
+export function shouldCancelEditOnPointer(
+  target: Node | null,
+  editorRoot: { contains: (node: Node | null) => boolean } | null,
+): boolean {
+  if (!editorRoot || target == null) return true
+  return !editorRoot.contains(target)
+}

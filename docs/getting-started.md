@@ -58,21 +58,20 @@ both. This only sets the default; either is available at any time.
 ./bin/antares
 ```
 
-That is the terminal interface. Type a message and press Enter. `Alt+Enter`
-makes a new line, `Ctrl+C` interrupts a turn and quits on a second press.
+That starts the API and dashboard in the background. Open
+<http://localhost:8787>. The chat there is the same agent over the same
+sessions and the same memory as the terminal UI.
 
-Type `/` for the command palette — `/help` lists everything, `/status` shows what
-is configured, `/model` changes the model without leaving the conversation.
-
-For the dashboard instead:
+For the terminal interface:
 
 ```bash
-./bin/antares serve
+./bin/antares tui
 ```
 
-Then open <http://localhost:8787>. The chat there is the same agent over the
-same sessions and the same memory; you can start a conversation in one and
-continue it in the other.
+Type a message and press Enter. `Alt+Enter` makes a new line, `Ctrl+C`
+interrupts a turn and quits on a second press. Type `/` for the command
+palette — `/help` lists everything, `/status` shows what is configured,
+`/model` changes the model without leaving the conversation.
 
 ## Reaching it from another machine
 

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en" class="dark" data-palette="facebook">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -9,7 +9,31 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/antares-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
 
-    <meta name="theme-color" content="#0f0a0b" />
+    <meta name="theme-color" content="#1c1c1c" />
+    <script>
+      (function () {
+        try {
+          var theme = JSON.parse(localStorage.getItem('antares.theme') || '"dark"')
+          if (theme !== 'light' && theme !== 'dark') theme = 'dark'
+          var palette = JSON.parse(localStorage.getItem('antares.palette') || '"facebook"')
+          var palettes = ['claude', 'facebook', 'pinterest', 'supabase']
+          var legacy = { zinc: 'facebook', violet: 'facebook', ocean: 'supabase', forest: 'pinterest' }
+          if (palettes.indexOf(palette) === -1) palette = legacy[palette] || 'facebook'
+          var root = document.documentElement
+          root.classList.toggle('dark', theme === 'dark')
+          root.setAttribute('data-palette', palette)
+          root.style.colorScheme = theme
+          var colors = {
+            claude: { light: '#ffffff', dark: '#1c1c1c' },
+            facebook: { light: '#ffffff', dark: '#1c1c1c' },
+            pinterest: { light: '#ffffff', dark: '#1c1c1c' },
+            supabase: { light: '#ffffff', dark: '#1c1c1c' },
+          }
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute('content', colors[palette][theme])
+        } catch (e) {}
+      })()
+    </script>
     <meta name="description" content="Antares — a self-hosted AI agent." />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

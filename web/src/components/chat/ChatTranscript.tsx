@@ -1,23 +1,27 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowClockwise,
+  ArrowUp,
   Brain,
   CaretDown,
   Check,
   Copy,
   FileText,
+  FileX,
   PencilSimple,
   Terminal,
   Warning,
 } from '@phosphor-icons/react'
+import { get } from '@/lib/api'
 import { copyText } from '@/lib/clipboard'
 import { useI18n, useTimeAgo } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { shouldCancelEditOnPointer, shouldFadeStickyPrompt, nextPromptLineCount, stickyPromptClipClass, type ChatMessage } from '@/lib/chatTranscript'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/primitives'
 import { Markdown } from '@/components/chat/Markdown'
 import { ToolCallCard } from '@/components/chat/ToolCallCard'
 import { AskUserCard } from '@/components/chat/AskUserCard'
-import type { ChatMessage } from '@/lib/chatTranscript'
 
 /**
  * Collapsible model-thinking block.
@@ -83,8 +87,8 @@ const ReasoningBlock = memo(function ReasoningBlock({ text }: { text: string }) 
 // the same message changes during streaming.
 const TextSegment = memo(function TextSegment({ text }: { text: string }) {
   return (
-    <div className="text-sm leading-relaxed">
-      <Markdown content={text} />
+    <div className="text-[15px] leading-7">
+      <Markdown content={text} className="space-y-3" />
     </div>
   )
 })
@@ -165,6 +169,253 @@ export function AssistantErrorBlock({
   )
 }
 
+interface FileChange {
+  path: string
+  externally_changed: boolean
+  will_delete: boolean
+}
+
+function autosize(el: HTMLTextAreaElement | null) {
+  if (!el) return
+  el.style.height = '0px'
+  el.style.height = `${el.scrollHeight}px`
+}
+
+/** Inline user-prompt editor. Enter inserts a newline; only the send button
+ *  (or ⌘/Ctrl+Enter) submits, so a mid-edit Return does not re-send. */
+function InlineUserEditor({
+  sessionId,
+  messageId,
+  initialText,
+  onSubmit,
+  onCancel,
+}: {
+  sessionId?: string
+  messageId: string
+  initialText: string
+  onSubmit: (text: string, revert: boolean) => void
+  onCancel: () => void
+}) {
+  const { t } = useI18n()
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [text, setText] = useState(initialText)
+  const [revert, setRevert] = useState(true)
+  const [changes, setChanges] = useState<FileChange[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setText(initialText)
+    setRevert(true)
+    setChanges([])
+    requestAnimationFrame(() => {
+      autosize(ref.current)
+      ref.current?.focus()
+      const el = ref.current
+      if (el) el.setSelectionRange(el.value.length, el.value.length)
+    })
+    if (!sessionId || !messageId) return
+    setLoading(true)
+    get<{ changes: FileChange[] }>(
+      `/sessions/${sessionId}/edit-preview?message_id=${encodeURIComponent(messageId)}`,
+    )
+      .then((d) => setChanges(d.changes ?? []))
+      .catch(() => setChanges([]))
+      .finally(() => setLoading(false))
+  }, [sessionId, messageId, initialText])
+
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return
+      if (shouldCancelEditOnPointer(e.target instanceof Node ? e.target : null, rootRef.current)) onCancel()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [onCancel])
+
+  const revertable = changes.filter((c) => !c.externally_changed)
+  const external = changes.filter((c) => c.externally_changed)
+  const send = () => {
+    const next = text.trim()
+    if (!next) return
+    onSubmit(next, revert && revertable.length > 0)
+  }
+
+  return (
+    <div ref={rootRef} className="rounded-2xl bg-secondary px-4 pb-3 pt-3">
+      <Textarea
+        ref={ref}
+        value={text}
+        rows={1}
+        onChange={(e) => {
+          setText(e.target.value)
+          autosize(e.currentTarget)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            onCancel()
+            return
+          }
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault()
+            send()
+          }
+        }}
+        className="max-h-80 min-h-11 w-full resize-none border-0 bg-transparent px-0 py-0 text-[15px] leading-7 shadow-none outline-none focus-visible:border-0 focus-visible:ring-0"
+      />
+
+      {loading ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">{t('edit.checking')}</p>
+      ) : changes.length ? (
+        <div className="mt-2 space-y-1.5">
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={revert}
+              onChange={(e) => setRevert(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span className="text-[11px] text-muted-foreground">
+              {t('edit.revertLabel', { n: revertable.length })}
+            </span>
+          </label>
+          {revertable.map((c) => (
+            <div key={c.path} className="flex items-center gap-1.5 pl-6 font-mono text-[11px]">
+              <FileX className="size-3 shrink-0 text-[var(--warning)]" />
+              <span className="truncate">{c.path}</span>
+            </div>
+          ))}
+          {external.map((c) => (
+            <div
+              key={c.path}
+              className="flex items-center gap-1.5 pl-6 font-mono text-[11px] text-muted-foreground"
+              title={t('edit.externalTip')}
+            >
+              <Warning className="size-3 shrink-0" />
+              <span className="truncate">{c.path}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-2 flex justify-end">
+        <Button
+          size="icon"
+          disabled={!text.trim()}
+          onClick={send}
+          aria-label={t('edit.resend')}
+          className="shrink-0 rounded-full"
+        >
+          <ArrowUp weight="bold" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function nearestScroller(el: HTMLElement | null): Element | null {
+  let n: HTMLElement | null = el
+  while (n) {
+    const oy = getComputedStyle(n).overflowY
+    if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') return n
+    n = n.parentElement
+  }
+  return null
+}
+
+/**
+ * Blog-style sticky prompt: the bubble stays in document flow, then docks at
+ * the scroller top. Once docked, long text fades after the first line.
+ */
+export function StickyUserAnchor({ children }: { children: (compact: boolean) => ReactNode }) {
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const [stuck, setStuck] = useState(false)
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+    const root = nearestScroller(sentinel.parentElement)
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return
+        setStuck(!entry.isIntersecting)
+      },
+      { root, threshold: 0 },
+    )
+    io.observe(sentinel)
+    return () => io.disconnect()
+  }, [])
+
+  return (
+    <>
+      <div ref={sentinelRef} className="h-px w-full" aria-hidden />
+      <div className="sticky top-0 z-10 bg-background py-4">
+        {children(stuck)}
+      </div>
+    </>
+  )
+}
+
+const USER_BUBBLE_FILL = 'color-mix(in srgb, var(--primary) 10%, var(--secondary))'
+
+function UserPromptBubble({
+  compact,
+  lines,
+  onEdit,
+  editLabel,
+  children,
+}: {
+  compact: boolean
+  lines: number
+  onEdit?: () => void
+  editLabel: string
+  children: ReactNode
+}) {
+  const fade = shouldFadeStickyPrompt(compact, lines)
+  return (
+    <div
+      className={cn(
+        'group/user relative rounded-2xl px-4 py-3 pr-11',
+        'shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_30%,transparent)]',
+        stickyPromptClipClass(fade),
+        onEdit && 'cursor-pointer',
+      )}
+      style={{ background: USER_BUBBLE_FILL }}
+      onClick={() => {
+        if (!onEdit) return
+        if (window.getSelection()?.toString()) return
+        onEdit()
+      }}
+    >
+      {children}
+      <div
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute inset-x-0 bottom-0 h-9 rounded-b-2xl transition-opacity duration-200 ease-in-out',
+          fade ? 'opacity-100' : 'opacity-0',
+        )}
+        style={{
+          backgroundImage: `linear-gradient(to top, ${USER_BUBBLE_FILL} 28%, transparent)`,
+        }}
+      />
+      {onEdit && !fade ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onEdit()
+          }}
+          title={editLabel}
+          aria-label={editLabel}
+          className="absolute bottom-2 right-2 z-10 hidden size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground group-hover/user:flex"
+        >
+          <PencilSimple className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 // Memoised: a streaming turn mutates only the last message, but setMessages
 // hands a new array each token. Without memo every bubble in a long transcript
 // re-renders per token — the main source of lag. With stable props (message
@@ -176,8 +427,13 @@ export const MessageBubble = memo(function MessageBubble({
   askActive,
   onAnswer,
   onEdit,
+  editing = false,
+  onSubmitEdit,
+  onCancelEdit,
+  sessionId,
   onRetry,
   retryDisabled,
+  compact = false,
 }: {
   message: ChatMessage
   /** When false, hide reasoning blocks (display.show_reasoning). */
@@ -189,16 +445,38 @@ export const MessageBubble = memo(function MessageBubble({
   // Edit this (user) message: re-send from here, optionally reverting file
   // changes made since. Absent while streaming or for a local optimistic msg.
   onEdit?: (id: string, content: string) => void
+  editing?: boolean
+  onSubmitEdit?: (text: string, revert: boolean) => void
+  onCancelEdit?: () => void
+  sessionId?: string
   /** Retry the failed turn this error belongs to — resends the preceding user
    *  prompt and its attachments. Only wired on messages that carry an error. */
   onRetry?: (assistantMessageId: string) => void
   /** Disables the Retry button while another run is in flight so a click
    *  cannot fire a second turn on top of a live one. */
   retryDisabled?: boolean
+  /** Docked sticky prompt: first line solid, second line faded off. */
+  compact?: boolean
 }) {
   const { t } = useI18n()
   const timeAgo = useTimeAgo()
   const [copied, setCopied] = useState(false)
+  const promptRef = useRef<HTMLParagraphElement>(null)
+  const [promptLines, setPromptLines] = useState(1)
+
+  useLayoutEffect(() => {
+    if (message.role !== 'user' || editing) return
+    const el = promptRef.current
+    if (!el) return
+    const measure = () => {
+      const lh = parseFloat(getComputedStyle(el).lineHeight)
+      setPromptLines((prev) => nextPromptLineCount(prev, el.scrollHeight, lh))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [message.role, message.content, editing])
 
   const copy = async () => {
     if (await copyText(message.content)) {
@@ -208,8 +486,8 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   if (message.role === 'user') {
-    // The TUI's prompt marker: a 2px rule and the text, no bubble. The
-    // model's replies own the column, the prompt sits above them as context.
+    // Prompt sits in a rounded bubble tinted with a thin primary accent so it
+    // still reads on palettes whose secondary is close to the chat canvas.
     return (
       <div className="fade-up space-y-2">
         {message.images?.length ? (
@@ -219,7 +497,7 @@ export const MessageBubble = memo(function MessageBubble({
                 key={i}
                 src={src}
                 alt=""
-                className="max-h-48 rounded-[var(--radius-md)] border border-border object-contain"
+                className="max-h-48 rounded-2xl border border-border object-contain"
               />
             ))}
           </div>
@@ -229,7 +507,7 @@ export const MessageBubble = memo(function MessageBubble({
             {message.docs.map((d, i) => (
               <div
                 key={i}
-                className="flex max-w-56 items-center gap-1.5 rounded-full border border-border px-3 py-1 font-mono text-xs"
+                className="flex max-w-56 items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs"
               >
                 <FileText className="size-4 shrink-0 text-muted-foreground" />
                 <span className="truncate" title={d.name}>
@@ -240,26 +518,31 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         ) : null}
         {message.content ? (
-          <div className="group/user relative border-l-2 border-foreground/40 py-1 pl-3.5 pr-16">
-            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-              {message.content}
-            </p>
-            {/* Edit affordance: re-send the conversation from this message,
-                optionally reverting file changes made after it. Only when an
-                onEdit handler is wired and the message has a real (persisted) id
-                — a local optimistic id cannot be edited server-side yet. */}
-            {onEdit && !message.id.startsWith('local_') && !message.id.startsWith('you_') ? (
-              <button
-                onClick={() => onEdit(message.id, message.content)}
-                title={t('edit.button')}
-                aria-label={t('edit.button')}
-                className="absolute right-0 top-0.5 hidden items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] lowercase text-muted-foreground transition-colors hover:border-line hover:text-foreground focus-visible:flex group-hover/user:flex"
+          editing && onSubmitEdit && onCancelEdit ? (
+            <div className="w-full">
+            <InlineUserEditor
+              sessionId={sessionId}
+              messageId={message.id}
+              initialText={message.content}
+              onSubmit={onSubmitEdit}
+              onCancel={onCancelEdit}
+            />
+            </div>
+          ) : (
+            <UserPromptBubble
+              compact={compact}
+              lines={promptLines}
+              onEdit={onEdit ? () => onEdit(message.id, message.content) : undefined}
+              editLabel={t('edit.button')}
+            >
+              <p
+                ref={promptRef}
+                className="whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground"
               >
-                <PencilSimple className="size-3" />
-                {t('edit.button')}
-              </button>
-            ) : null}
-          </div>
+                {message.content}
+              </p>
+            </UserPromptBubble>
+          )
         ) : null}
       </div>
     )
@@ -282,7 +565,7 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   return (
-    <div className="group min-w-0 space-y-1.5 fade-up">
+    <div className="group min-w-0 space-y-3 fade-up">
       {message.segments && message.segments.length > 0
         ? message.segments.map((seg, i) => {
             if (seg.kind === 'reasoning') {
@@ -321,8 +604,8 @@ export const MessageBubble = memo(function MessageBubble({
               ),
             )}
             {message.content ? (
-              <div className="text-sm leading-relaxed">
-                <Markdown content={message.content} />
+              <div className="text-[15px] leading-7">
+                <Markdown content={message.content} className="space-y-3" />
               </div>
             ) : null}
           </>}

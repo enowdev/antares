@@ -77,6 +77,7 @@ func run() error {
 
 	switch command {
 	case "serve":
+		// `serve` stays as a script alias; the documented command is bare `antares`.
 		return cmdServe(args)
 	case "stop":
 		return cmdStop(args)

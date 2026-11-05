@@ -1,5 +1,5 @@
-// smokefixture seeds an isolated ANTARES_HOME so `bin/antares serve
-// --foreground` can boot for smoke testing without touching the developer's
+// smokefixture seeds an isolated ANTARES_HOME so `bin/antares --foreground`
+// can boot for smoke testing without touching the developer's
 // real ~/.antares, without dialling any provider, and with the exact session
 // row the dashboard route-walk expects at /c/<id>.
 //

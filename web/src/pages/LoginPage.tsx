@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Eye, EyeSlash, Warning } from '@phosphor-icons/react'
 import { get, post, ApiError } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
-import { useTheme } from '@/lib/theme'
 import { Button } from '@/components/ui/button'
 import { Input, Label } from '@/components/ui/primitives'
 import { Brand } from '@/components/brand/BrandMark'
@@ -21,8 +20,6 @@ interface AuthStatus {
 export default function LoginPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
-  // Outside the app shell, so apply the saved theme here too.
-  useTheme()
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
   // A desktop app's sign-in link that expired or was already used lands here.

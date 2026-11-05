@@ -192,11 +192,11 @@ export function SubAgentPanel({ agent, onBack }: { agent: ActiveAgent; onBack: (
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
         <div className="mx-auto w-full max-w-3xl space-y-5">
           {agent.task ? (
-            <div className="m-rise tp-panel rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3">
-              <p className="eyebrow">
+            <div className="m-rise rounded-2xl bg-secondary px-4 py-3">
+              <p className="text-[11px] font-medium text-muted-foreground">
                 {t('subagents.task')}
               </p>
-              <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-foreground">
+              <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground">
                 {agent.task}
               </p>
             </div>

@@ -3,9 +3,17 @@ import {
   appendSeg,
   carryRenderKeys,
   hydrate,
+  lastUserMessageIndex,
   mergeHydratedWithLocalErrors,
   normalizeErrorPayload,
   pushToolSeg,
+  shouldCancelEditOnPointer,
+  splitTranscriptTurns,
+  shouldFadeStickyPrompt,
+  promptLineCount,
+  nextPromptLineCount,
+  stickyPromptClipClass,
+  transcriptTurnKey,
   updateToolSeg,
 } from './chatTranscript.ts'
 
@@ -288,6 +296,81 @@ describe('mergeHydratedWithLocalErrors', () => {
   })
 })
 
+describe('last user pin', () => {
+  test('lastUserMessageIndex finds the most recent user turn', () => {
+    expect(lastUserMessageIndex([])).toBe(-1)
+    expect(lastUserMessageIndex([{ role: 'assistant' }])).toBe(-1)
+    expect(
+      lastUserMessageIndex([
+        { role: 'user' },
+        { role: 'assistant' },
+        { role: 'user' },
+        { role: 'assistant' },
+      ]),
+    ).toBe(2)
+  })
+
+  test('splitTranscriptTurns groups every user bubble with the replies that follow it', () => {
+    expect(splitTranscriptTurns([])).toEqual([])
+    expect(splitTranscriptTurns([{ id: 'a', role: 'assistant' }])).toEqual([
+      { user: null, replies: [{ id: 'a', role: 'assistant' }] },
+    ])
+    const u = { id: 'u', role: 'user' }
+    expect(splitTranscriptTurns([u])).toEqual([{ user: u, replies: [] }])
+    const u0 = { id: 'u0', role: 'user' }
+    const a0 = { id: 'a0', role: 'assistant' }
+    const u1 = { id: 'u1', role: 'user' }
+    const a1 = { id: 'a1', role: 'assistant' }
+    const a2 = { id: 'a2', role: 'assistant' }
+    const sys = { id: 's', role: 'system' }
+    expect(splitTranscriptTurns([a0, u0, sys, u1, a1, a2])).toEqual([
+      { user: null, replies: [a0] },
+      { user: u0, replies: [sys] },
+      { user: u1, replies: [a1, a2] },
+    ])
+  })
+
+  test('nextPromptLineCount keeps the last wrap count when the node unmounts for edit', () => {
+    expect(nextPromptLineCount(3, 0, 28)).toBe(3)
+    expect(nextPromptLineCount(3, 56, 28)).toBe(2)
+    expect(nextPromptLineCount(1, 84, 28)).toBe(3)
+  })
+
+  test('promptLineCount treats a single line as 1 even when shorter than the line-height', () => {
+    expect(promptLineCount(28, 28)).toBe(1)
+    expect(promptLineCount(20, 28)).toBe(1)
+    expect(promptLineCount(56, 28)).toBe(2)
+    expect(promptLineCount(0, 28)).toBe(1)
+    expect(promptLineCount(40, 0)).toBe(1)
+  })
+
+  test('shouldFadeStickyPrompt only when docked and the prompt wraps past one line', () => {
+    expect(shouldFadeStickyPrompt(false, 4)).toBe(false)
+    expect(shouldFadeStickyPrompt(true, 1)).toBe(false)
+    expect(shouldFadeStickyPrompt(true, 2)).toBe(true)
+    expect(shouldFadeStickyPrompt(true, 3)).toBe(true)
+  })
+
+  test('stickyPromptClipClass animates max-height and never uses an outer mask', () => {
+    const open = stickyPromptClipClass(false)
+    const clip = stickyPromptClipClass(true)
+    expect(open).toContain('max-h-[80rem]')
+    expect(open).toContain('duration-200')
+    expect(clip).toContain('max-h-[3.55rem]')
+    expect(clip).toContain('overflow-hidden')
+    expect(clip).not.toContain('mask-image')
+  })
+
+  test('shouldCancelEditOnPointer leaves edit only when the click is outside the editor', () => {
+    const inside = { id: 'in' }
+    const editor = { contains: (n) => n === inside }
+    expect(shouldCancelEditOnPointer(inside, editor)).toBe(false)
+    expect(shouldCancelEditOnPointer({ id: 'out' }, editor)).toBe(true)
+    expect(shouldCancelEditOnPointer(null, editor)).toBe(true)
+    expect(shouldCancelEditOnPointer(inside, null)).toBe(true)
+  })
+})
+
 const row = (over) => ({ created_at: '', tokens_in: 0, tokens_out: 0, content: '', ...over })
 
 describe('hydrate groups a turn into one assistant view', () => {
@@ -356,6 +439,20 @@ describe('hydrate groups a turn into one assistant view', () => {
       ],
     })
     expect(out.map((m) => m.id)).toEqual(['u1', 'a1', 'a2'])
+  })
+})
+
+describe('transcriptTurnKey', () => {
+  test('prefers the carried render key so a refresh keeps the turn mounted', () => {
+    const user = { id: 'msg_u', key: 'local_1', role: 'user' }
+    expect(transcriptTurnKey({ user, replies: [] }, 0)).toBe('local_1')
+    expect(transcriptTurnKey({ user: { id: 'msg_u', role: 'user' }, replies: [] }, 0)).toBe('msg_u')
+  })
+
+  test('a turn without a user row keys on its first reply, then its index', () => {
+    const reply = { id: 'msg_a', key: 'live_9_a', role: 'assistant' }
+    expect(transcriptTurnKey({ user: null, replies: [reply] }, 3)).toBe('live_9_a')
+    expect(transcriptTurnKey({ user: null, replies: [] }, 3)).toBe('turn:3')
   })
 })
 

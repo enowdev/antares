@@ -70,7 +70,7 @@ antares backup
 # on the new one
 export ANTARES_HOME=/var/lib/antares
 antares backup restore /path/to/antares-….tar.gz
-antares serve
+antares
 ```
 
 Sessions, memory, skills, schedules, and settings all come across. Check the

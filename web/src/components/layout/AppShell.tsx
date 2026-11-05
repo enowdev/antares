@@ -4,7 +4,7 @@ import { CaretRight, DotsThreeOutline, House, List, Moon, SidebarSimple, Sun, X 
 import { cn } from '@/lib/utils'
 import { useLocalStorage, useMediaQuery } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
-import { useTheme } from '@/lib/theme'
+import { useTheme } from '@/lib/theme-provider'
 import { HUBS, hubById, routeFor, type HubDef } from '@/lib/routes'
 import { hubFor } from '@/lib/routeManifest'
 import { offModuleOf, visibleHubs, withModule } from '@/lib/moduleNav'
