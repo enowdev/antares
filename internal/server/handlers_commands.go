@@ -10,11 +10,12 @@ import (
 
 // commandDeps hands the shared command layer everything the server has wired.
 func (s *Server) commandDeps() commands.Deps {
+	mgr := s.currentSkills()
 	return commands.Deps{
 		Config:  s.config,
 		Agent:   s.agent,
 		Store:   s.db,
-		Skills:  s.skills,
+		Skills:  mgr,
 		MCP:     s.mcp,
 		Reload:  s.applyReload,
 		Version: version.Version,

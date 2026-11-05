@@ -113,6 +113,16 @@ func SaveRaw(text string) error {
 	if err := yaml.Unmarshal([]byte(text), cfg); err != nil {
 		return fmt.Errorf("invalid YAML: %w", err)
 	}
+	if cfg.Display.Modules != nil {
+		if err := ValidateModules(*cfg.Display.Modules); err != nil {
+			return err
+		}
+	}
+	if cfg.Display.Preset != "" {
+		if err := ValidatePreset(cfg.Display.Preset); err != nil {
+			return err
+		}
+	}
 	if err := writeBytes(ConfigFile(), []byte(text)); err != nil {
 		return err
 	}

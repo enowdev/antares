@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "scheduler_owner": null,
+  "scheduler_owners": {
+    "local": {
+      "pid": 999,
+      "token": "t",
+      "started_at": "2026-10-01T00:00:00Z"
+    }
+  },
+  "tasks": [
+    {
+      "id": "a1b2c3d4",
+      "agent_id": "agent-local-11111111-aaaa",
+      "conversation_id": "default",
+      "name": "Inbox triage",
+      "description": "",
+      "cron": "*/30 9-17 * * 1-5",
+      "timezone": "Asia/Jakarta",
+      "recurring": true,
+      "prompt": "Triage my inbox.",
+      "status": "active",
+      "fire_count": 3
+    },
+    {
+      "id": "e5f6a7b8",
+      "agent_id": "agent-local-11111111-aaaa",
+      "conversation_id": "new",
+      "name": "Weekly report",
+      "cron": "0 16 * * 5",
+      "timezone": "UTC",
+      "recurring": true,
+      "prompt": "Draft the weekly report.",
+      "status": "paused"
+    },
+    {
+      "id": "c9d0e1f2",
+      "agent_id": "agent-local-11111111-aaaa",
+      "name": "Call mum",
+      "cron": "0 10 4 10 *",
+      "recurring": false,
+      "prompt": "Remind me to call mum.",
+      "status": "active",
+      "scheduled_for": "2026-10-04T03:00:00Z"
+    },
+    {
+      "id": "deadbeef",
+      "agent_id": "agent-local-11111111-aaaa",
+      "name": "Old job",
+      "cron": "0 0 * * *",
+      "recurring": true,
+      "prompt": "x",
+      "status": "cancelled"
+    }
+  ]
+}

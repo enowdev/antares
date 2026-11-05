@@ -1,0 +1,75 @@
+schema_version = 2
+api_url = "https://api.openhuman.example"
+default_model = "gpt-4o-mini"
+default_temperature = 0.7
+primary_cloud = "p_openai_a8c3f"
+chat_provider = "openai:gpt-4o"
+onboarding_completed = true
+
+[[cloud_providers]]
+id = "p_openhuman"
+slug = "openhuman"
+label = "OpenHuman"
+endpoint = "https://api.openhuman.example/v1"
+auth_style = "openhumanjwt"
+
+[[cloud_providers]]
+id = "p_openai_a8c3f"
+slug = "openai"
+label = "OpenAI"
+endpoint = "https://api.openai.com/v1"
+auth_style = "bearer"
+
+[[cloud_providers]]
+id = "p_lab_77"
+slug = "lab"
+label = "Lab vLLM"
+endpoint = "https://llm.lab.example/v1"
+auth_style = "bearer"
+
+[secrets]
+encrypt = true
+
+[cron]
+enabled = true
+
+[memory]
+backend = "sqlite"
+
+[mcp_client]
+enabled = true
+
+[[mcp_client.servers]]
+name = "notion"
+endpoint = "https://mcp.notion.example/mcp"
+enabled = true
+auth = { kind = "bearer_token", token = "FAKEohNOTION0005" }
+
+[[mcp_client.servers]]
+name = "files"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "~/Documents"]
+enabled = false
+
+[channels_config]
+cli = true
+message_timeout_secs = 300
+
+[channels_config.telegram]
+bot_token = "enc2:010101010101010101010101570a1058348c8a799b0e00076a4f7e4f7d37e54a359fae01dec44b4d366652482a2a12d11eb43ff8fd"
+chat_id = "-100200300"
+allowed_users = ["rina_dev"]
+
+[channels_config.discord]
+bot_token = "FAKEohDISCORD0004"
+guild_id = "123123"
+allowed_users = []
+
+[channels_config.email]
+imap_host = "imap.mail.example"
+username = "rina@mail.example"
+password = "FAKEohEMAIL0006"
+
+[channels_config.whatsapp]
+session_path = "~/.openhuman/wa"
+pair_phone = "+15550003333"

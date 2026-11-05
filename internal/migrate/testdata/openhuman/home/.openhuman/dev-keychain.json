@@ -1,0 +1,5 @@
+{
+  "u_123:secretstore.master_key": "65666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8081828384",
+  "u_123:auth:provider:openai:default": "{\"token\": \"sk-FAKEohOPENAI0001\", \"access_token\": null}",
+  "local:secretstore.master_key": "0000000000000000000000000000000000000000000000000000000000000000"
+}

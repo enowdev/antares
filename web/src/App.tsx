@@ -1,9 +1,10 @@
 import { Suspense, lazy } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { SetupGate } from '@/components/layout/SetupGate'
 import { LoginGate } from '@/components/layout/LoginGate'
 import { ROUTES } from '@/lib/routes'
+import { allRedirects } from '@/lib/routeManifest'
 import { I18nProvider } from '@/lib/i18n'
 
 // Onboarding renders standalone: there is no sidebar to wander off into before
@@ -25,6 +26,18 @@ const sampleRoutes = import.meta.env.DEV
       return { name, Comp }
     })
   : []
+
+/**
+ * Sends a retired path (or a bare hub root) to its canonical page. Query and
+ * hash ride along so old bookmarks like /vps?x=1#y keep their state, and the
+ * history entry is replaced so Back does not bounce through the old URL.
+ */
+function LegacyRedirect({ to }: { to: string }) {
+  const { search, hash } = useLocation()
+  return <Navigate to={{ pathname: to, search, hash }} replace />
+}
+
+const REDIRECTS = allRedirects()
 
 export function App() {
   return (
@@ -72,6 +85,9 @@ export function App() {
                     <Route key={p} path={p} element={<Component />} />
                   )),
                 )}
+                {REDIRECTS.map(({ from, to }) => (
+                  <Route key={from} path={from} element={<LegacyRedirect to={to} />} />
+                ))}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Route>

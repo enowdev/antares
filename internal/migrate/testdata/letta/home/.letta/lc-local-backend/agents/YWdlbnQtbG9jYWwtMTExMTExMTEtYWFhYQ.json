@@ -1,0 +1,16 @@
+{
+  "id": "agent-local-11111111-aaaa",
+  "name": "Letta Code",
+  "description": null,
+  "system": "<system prompt>",
+  "tags": [
+    "origin:letta-code"
+  ],
+  "model": "lc-anthropic/claude-sonnet-4-5",
+  "model_settings": {
+    "provider_type": "anthropic",
+    "context_window_limit": 200000
+  },
+  "hidden": false,
+  "compaction_settings": null
+}

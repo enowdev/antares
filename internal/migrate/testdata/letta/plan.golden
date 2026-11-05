@@ -1,0 +1,95 @@
+source=letta name="Letta Code" profile="" running=false
+summary: 5 providers · model · soul · user profile · 2 memories · 3 skills · 3 MCP servers · 3 schedules · 1 role · Discord · Slack · Telegram
+
+[provider] provider:chatgpt-plus-pro "OpenAI Codex" status=unsupported selected=false
+  reason: subscription/OAuth login — sign in again in Antares
+
+[provider] provider:anthropic "Anthropic" status=ready selected=true secret
+  detail: key from lc-local-backend/providers/auth.json
+  provider: id=anthropic kind=anthropic base_url=https://api.anthropic.com/v1 key=••••0003 models=[claude-sonnet-4-5] headers={}
+
+[provider] provider:ollama "Ollama" status=ready selected=true secret
+  detail: key from lc-local-backend/providers/auth.json
+  provider: id=ollama kind=openai-compatible base_url=http://127.0.0.1:11434/v1 key= models=[] headers={}
+
+[provider] provider:llm-corp-example "llm.corp.example" status=ready selected=true secret
+  detail: key from lc-local-backend/providers/auth.json
+  provider: id=llm-corp-example kind=openai-compatible base_url=https://llm.corp.example/v1 key=••••0004 models=[] headers={}
+
+[provider] provider:openrouter "OpenRouter" status=ready selected=true secret
+  detail: key from settings.json env OPENROUTER_API_KEY
+  provider: id=openrouter kind=openai-compatible base_url=https://openrouter.ai/api/v1 key=••••0001 models=[] headers={}
+
+[model] model:default "anthropic / claude-sonnet-4-5" status=conflict selected=false
+  reason: Antares already has a default model
+  model: provider=anthropic model=claude-sonnet-4-5 fallback=[]
+
+[soul] soul:file "SOUL.md" status=ready selected=true
+  detail: from persona block (persona.md) · 63 chars
+  text: from=persona block (persona.md) sha=891f7a8c1111
+
+[user_md] user_md:file "USER.md" status=conflict selected=false
+  detail: from human block (human.md) · 56 chars
+  reason: Antares already has a custom USER.md (replace or append)
+  text: from=human block (human.md) sha=aa3487e2d0b2
+
+[memory] memory:3eeb2c0506e8 "The billing service lives in ./billing" status=ready selected=true
+  memory: scope=global key=the-billing-service-lives-in-billing tags=[import:letta project-notes]
+
+[memory] memory:bcc78e8d3060 "Deploys go through ArgoCD" status=ready selected=true
+  memory: scope=global key=deploys-go-through-argocd tags=[import:letta project-notes]
+
+[skill] skill:commit-helper "commit-helper" status=conflict selected=false
+  detail: Write commit messages.
+  reason: Antares already has a skill named "commit-helper"
+  skill: name=commit-helper dir=commit-helper
+
+[skill] skill:fetcher "fetcher" status=ready selected=true
+  detail: Fetch a URL and summarise it.
+  skill: name=fetcher dir=fetcher
+
+[skill] skill:agent-only "agent-only" status=ready selected=true
+  detail: An agent-scoped skill.
+  skill: name=agent-only dir=agent-only
+
+[mcp] mcp:filesystem "filesystem" status=ready selected=true
+  detail: npx -y @modelcontextprotocol/server-filesystem /tmp
+  mcp: name=filesystem transport=stdio command=npx args=[-y @modelcontextprotocol/server-filesystem /tmp] url= env={} headers={}
+
+[mcp] mcp:linear "linear" status=ready selected=true secret
+  detail: https://mcp.linear.example/mcp
+  mcp: name=linear transport=http command= args=[] url=https://mcp.linear.example/mcp env={} headers={Authorization=••••0002}
+
+[mcp] mcp:docs "docs" status=ready selected=true
+  detail: https://docs.example/sse
+  mcp: name=docs transport=http command= args=[] url=https://docs.example/sse env={} headers={}
+
+[cron] cron:a1b2c3d4 "Inbox triage" status=ready selected=true
+  detail: */30 9-17 * * 1-5
+  cron: name=Inbox triage schedule="*/30 9-17 * * 1-5" tz=Asia/Jakarta enabled=false prompt_sha=cd5fb18134d4
+
+[cron] cron:e5f6a7b8 "Weekly report" status=ready selected=true
+  detail: 0 16 * * 5 · paused in source
+  cron: name=Weekly report schedule="0 16 * * 5" tz=UTC enabled=false prompt_sha=9b8c071d65c5
+
+[cron] cron:c9d0e1f2 "Call mum" status=unsupported selected=false
+  reason: one-shot schedule (runs once at 2026-10-04T03:00:00Z)
+
+[channel] channel:discord "Discord" status=needs_input selected=false secret input=bot_token
+  reason: the bot_token could not be read
+  channel: discord {allowed_users=[42], bot_token=}
+
+[channel] channel:slack "Slack Acme" status=ready selected=true secret
+  detail: disabled in Letta
+  channel: slack {allowed_channels=[C0123], app_token=••••0007, bot_token=••••0006}
+
+[channel] channel:telegram "Telegram @lumen_bot" status=ready selected=true secret
+  channel: telegram {allowed_chats=[-1009998887], allowed_users=[5550001], bot_token=••••0008}
+
+[channel] channel:whatsapp "WhatsApp" status=unsupported selected=false
+  reason: Letta's WhatsApp channel is a linked-device (Baileys) session; Antares supports the WhatsApp Cloud API only
+
+[role] role:researcher "Researcher" status=conflict selected=false
+  detail: Digs through papers and summarises them.
+  reason: Antares already has a role "researcher"
+  role: name=researcher title="Researcher" model=openrouter/google/gemini-2.5-pro prompt_sha=c08bb64232c9

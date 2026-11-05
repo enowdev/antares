@@ -1,0 +1,13 @@
+{
+  "accounts": [
+    {
+      "channel": "whatsapp",
+      "accountId": "wa-1",
+      "enabled": true,
+      "allowedUsers": [],
+      "agentId": "agent-local-11111111-aaaa",
+      "selfChatMode": true,
+      "groupMode": "disabled"
+    }
+  ]
+}

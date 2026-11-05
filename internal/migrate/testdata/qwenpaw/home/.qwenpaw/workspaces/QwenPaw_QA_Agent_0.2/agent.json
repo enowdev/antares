@@ -1,0 +1,6 @@
+{
+  "id": "QwenPaw_QA_Agent_0.2",
+  "name": "QA Agent",
+  "description": "Builtin Q&A helper",
+  "template_id": "qa"
+}

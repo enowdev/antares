@@ -75,15 +75,35 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/auth/login", s.handleAuthLogin)
 	m.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
 	m.HandleFunc("POST /api/auth/password", s.handleAuthSetPassword)
+	m.HandleFunc("POST /api/auth/handoff", s.handleHandoffCreate)
+	// Not under /api: a browser navigation that trades a handoff code for a
+	// session cookie. More specific than "/", so the SPA fallback never sees it.
+	m.HandleFunc("GET /auth/handoff", s.handleHandoffExchange)
+
+	// Paired devices (desktop app, CLI) and the desktop contract version.
+	m.HandleFunc("GET /api/version", s.handleVersion)
+	m.HandleFunc("POST /api/devices/pair", s.handlePairDevice)
+	m.HandleFunc("GET /api/devices", s.handleListDevices)
+	m.HandleFunc("DELETE /api/devices/{id}", s.handleRevokeDevice)
 
 	// Setup / onboarding
 	m.HandleFunc("GET /api/setup/status", s.handleSetupStatus)
 	m.HandleFunc("POST /api/setup/test", s.handleSetupTest)
 	m.HandleFunc("POST /api/setup/complete", s.handleSetupComplete)
 
+	// Migrate — import a setup from another assistant agent.
+	m.HandleFunc("GET /api/migrate/sources", s.handleMigrateSources)
+	m.HandleFunc("GET /api/migrate/backups", s.handleMigrateBackups)
+	m.HandleFunc("POST /api/migrate/plan", s.handleMigratePlan)
+	m.HandleFunc("POST /api/migrate/apply", s.handleMigrateApply)
+	m.HandleFunc("POST /api/migrate/undo", s.handleMigrateUndo)
+
 	// Soul — the agent's identity (SOUL.md)
 	m.HandleFunc("GET /api/soul", s.handleGetSoul)
 	m.HandleFunc("POST /api/soul", s.handleSaveSoul)
+	// Persona — SOUL.md, global AGENTS.md and USER.md; /api/soul is the old alias.
+	m.HandleFunc("GET /api/persona/{file}", s.handleGetPersona)
+	m.HandleFunc("POST /api/persona/{file}", s.handleSavePersona)
 
 	// Update — check for a newer release and run the in-place upgrade.
 	m.HandleFunc("GET /api/update/check", s.handleUpdateCheck)
@@ -95,6 +115,10 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/config/raw", s.handleGetRawConfig)
 	m.HandleFunc("POST /api/config/raw", s.handleSaveRawConfig)
 	m.HandleFunc("GET /api/config/schema", s.handleConfigSchema)
+
+	// Dashboard modules (sidebar visibility, display.modules)
+	m.HandleFunc("GET /api/ui/modules", s.handleGetModules)
+	m.HandleFunc("POST /api/ui/modules", s.handleSetModules)
 
 	// Models & providers
 	m.HandleFunc("GET /api/model/options", s.handleModelOptions)

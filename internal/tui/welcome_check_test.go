@@ -7,18 +7,18 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 )
 
+// TestWelcomeRender draws the home screen mid-opening at a small size: exactly
+// the window's rows, none wider than it.
 func TestWelcomeRender(t *testing.T) {
-	m := &Model{themeName: "antares", welcomeFrame: 7}
-	m.vp = viewport.New(96, 26)
-	out := m.welcomeView(96, 26)
-	// strip ANSI to inspect structure
-	plain := stripANSITest(out)
-	t.Logf("\n%s", plain)
-	lines := strings.Split(out, "\n")
+	m := sized(96, 26)
+	m.blocks, m.title, m.sessionID = nil, "", ""
+	m.welcomeFrame = 4
+	plain := stripANSITest(m.View())
+	lines := strings.Split(plain, "\n")
 	if len(lines) != 26 {
 		t.Fatalf("want 26 rows, got %d", len(lines))
 	}
-	for i, ln := range strings.Split(plain, "\n") {
+	for i, ln := range lines {
 		if w := len([]rune(ln)); w > 96 {
 			t.Fatalf("row %d width %d exceeds 96", i, w)
 		}

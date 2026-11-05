@@ -138,7 +138,7 @@ func (skillTool) Execute(_ context.Context, in Input) Result {
 		if err := lib.Write(name, args.Description, body, args.Tags); err != nil {
 			return Errorf("save failed: %v", err)
 		}
-		return Text(fmt.Sprintf("Saved skill %q. It will appear in your catalogue on the next turn.", name))
+		return Text(fmt.Sprintf("Saved skill %q.", name))
 
 	default:
 		return Errorf("unknown action %q (want list, search, read, chains, or save)", args.Action)

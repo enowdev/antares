@@ -82,7 +82,13 @@ export function usePoll<T>(path: string | null, intervalMs = 5000): AsyncState<T
   return state
 }
 
-/** Persisted state backed by localStorage. */
+const LOCAL_STORAGE_EVENT = 'antares:local-storage'
+
+/**
+ * Persisted state backed by localStorage. Every hook instance using the same
+ * key stays in step: a write in one (the command palette's theme toggle)
+ * updates the others (the sidebar's theme button) without a reload.
+ */
 export function useLocalStorage<T>(key: string, initial: T): [T, (v: T) => void] {
   const [value, setValue] = useState<T>(() => {
     try {
@@ -92,6 +98,14 @@ export function useLocalStorage<T>(key: string, initial: T): [T, (v: T) => void]
       return initial
     }
   })
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ key: string; value: T }>).detail
+      if (detail?.key === key) setValue(detail.value)
+    }
+    window.addEventListener(LOCAL_STORAGE_EVENT, onChange)
+    return () => window.removeEventListener(LOCAL_STORAGE_EVENT, onChange)
+  }, [key])
   const update = useCallback(
     (v: T) => {
       setValue(v)
@@ -100,6 +114,7 @@ export function useLocalStorage<T>(key: string, initial: T): [T, (v: T) => void]
       } catch {
         /* quota or private mode */
       }
+      window.dispatchEvent(new CustomEvent(LOCAL_STORAGE_EVENT, { detail: { key, value: v } }))
     },
     [key],
   )

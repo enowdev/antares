@@ -20,7 +20,7 @@ func loadManager(t *testing.T) *Manager {
 	writeSkill(t, dir, "attack-sqli", "description: \"SQL injection\"\ncategory: web-application\ntags: [sqli, database]\ntech_stack: [web]\ncwe_ids: [CWE-89]\nchains_with: [attack-idor]\n")
 	writeSkill(t, dir, "attack-idor", "description: \"IDOR\"\ncategory: web-application\ntags: [idor, authz]\ntech_stack: [web, api]\ncwe_ids: [CWE-639]\n")
 	writeSkill(t, dir, "attack-jwt", "description: \"JWT attacks and token forgery\"\ncategory: web-application\ntags: [jwt, auth]\ntech_stack: [web]\ncwe_ids: [CWE-287, CWE-345]\n")
-	m := NewManager([]string{dir})
+	m := NewManager(Options{Dirs: []string{dir}})
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}

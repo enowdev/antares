@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "version": 1782360481796,
+  "skills": {
+    "pdf": {
+      "enabled": true,
+      "channels": [
+        "all"
+      ],
+      "source": "builtin",
+      "installed_from": "",
+      "metadata": {
+        "name": "pdf"
+      }
+    },
+    "invoice_filler": {
+      "enabled": true,
+      "channels": [
+        "all"
+      ],
+      "source": "customized",
+      "installed_from": "",
+      "metadata": {
+        "name": "invoice_filler"
+      }
+    }
+  }
+}

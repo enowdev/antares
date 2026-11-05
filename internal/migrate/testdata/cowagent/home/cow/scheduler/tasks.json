@@ -1,0 +1,62 @@
+{
+  "tasks": {
+    "t1": {
+      "id": "t1",
+      "name": "Daily plan",
+      "enabled": true,
+      "schedule": {
+        "type": "cron",
+        "expression": "0 7 * * *"
+      },
+      "action": {
+        "type": "agent_task",
+        "task_description": "Draft my plan for the day.",
+        "receiver": "u1",
+        "channel_type": "telegram"
+      }
+    },
+    "t2": {
+      "id": "t2",
+      "name": "Stretch",
+      "enabled": true,
+      "schedule": {
+        "type": "interval",
+        "seconds": 3600
+      },
+      "action": {
+        "type": "send_message",
+        "content": "Time to stretch!",
+        "receiver": "u1"
+      }
+    },
+    "t3": {
+      "id": "t3",
+      "name": "Flight",
+      "enabled": true,
+      "schedule": {
+        "type": "once",
+        "run_at": "2026-12-25T09:00:00"
+      },
+      "action": {
+        "type": "send_message",
+        "content": "Flight today"
+      }
+    },
+    "t4": {
+      "id": "t4",
+      "name": "Read schedule",
+      "enabled": false,
+      "schedule": {
+        "type": "cron",
+        "expression": "0 8 * * *"
+      },
+      "action": {
+        "type": "tool_call",
+        "tool_name": "read",
+        "tool_params": {
+          "file_path": "~/cow/schedule.txt"
+        }
+      }
+    }
+  }
+}

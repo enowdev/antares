@@ -1,0 +1,44 @@
+_config_version: 49
+model:
+  default: "anthropic/claude-opus-4.6"
+  provider: openrouter
+fallback_providers:
+  - {provider: anthropic, model: "claude-sonnet-4-5"}
+  - {provider: my-proxy, model: "gpt-x"}
+providers:
+  my-proxy:
+    name: My Proxy
+    base_url: "https://llm.example.com/v1"
+    key_env: MY_PROXY_API_KEY
+    api_mode: chat_completions
+    extra_headers: {X-Team: "${TEAM_ID}"}
+    models: {gpt-x: {context_length: 128000}, gpt-y: {}}
+custom_providers:
+  - {name: local, base_url: "http://127.0.0.1:1234/v1", model: qwen3, api_key: "${HERMES_FIXTURE_UNSET_VAR}"}
+mcp_servers:
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env: {GITHUB_PERSONAL_ACCESS_TOKEN: "${GH_PAT}"}
+  remote:
+    url: "https://mcp.example.com/mcp"
+    headers: {Authorization: "Bearer ${MCP_TOKEN}"}
+  legacy-sse:
+    url: "https://sse.example.com/sse"
+    transport: sse
+  off:
+    command: echo
+    enabled: false
+  linear:
+    url: "https://mcp.linear.app/mcp"
+    auth: oauth
+timezone: "Asia/Jakarta"
+display: {personality: pirate-coder}
+agent:
+  personalities:
+    pirate-coder:
+      system_prompt: "You are a pirate who writes careful Go."
+      tone: playful
+    terse: "Answer in one sentence."
+platforms:
+  telegram: {enabled: true, home_channel: {chat_id: "123", name: Home}}

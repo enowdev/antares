@@ -121,9 +121,17 @@ func (s *Server) handleSaveRawConfig(w http.ResponseWriter, r *http.Request) {
 // applyReload rebuilds services that depend on configuration.
 func (s *Server) applyReload() error {
 	if s.reloadFn == nil {
-		cfg := config.Get()
+		cfg, err := config.Reload()
+		if err != nil {
+			return err
+		}
 		s.SetConfig(cfg)
-		s.agent.SetConfig(cfg)
+		if s.agent != nil {
+			s.agent.SetConfig(cfg)
+		}
+		if manager := s.currentSkills(); manager != nil {
+			manager.SetDisabled(cfg.Skills.Disabled)
+		}
 		if s.gateway != nil {
 			s.gateway.SetConfig(cfg)
 		}
@@ -132,10 +140,10 @@ func (s *Server) applyReload() error {
 	if err := s.reloadFn(); err != nil {
 		return err
 	}
-	s.SetConfig(config.Get())
-	// The agent owns the rebuilt skill library after a reload.
-	if m := s.agent.Skills(); m != nil {
-		s.skills = m
+	cfg := config.Get()
+	s.SetConfig(cfg)
+	if manager := s.currentSkills(); manager != nil {
+		manager.SetDisabled(cfg.Skills.Disabled)
 	}
 	return nil
 }

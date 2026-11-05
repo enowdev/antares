@@ -9,7 +9,7 @@ import {
   TrashSimple,
 } from '@phosphor-icons/react'
 import { del, get, post } from '@/lib/api'
-import { useApi } from '@/lib/hooks'
+import { usePoll } from '@/lib/hooks'
 import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { PageLayout } from '@/components/layout/PageLayout'
@@ -45,6 +45,7 @@ interface Skill {
   path: string
   enabled: boolean
   source: string
+  read_only: boolean
   tags?: string[]
   triggers?: string[]
   updated_at: string
@@ -56,10 +57,9 @@ export default function SkillsPage() {
   const [filter, setFilter] = useState('')
   const [query, setQuery] = useState('')
   const endpoint = query ? `/skills?q=${encodeURIComponent(query)}` : '/skills'
-  const { data, loading, reload } = useApi<{ skills: Skill[]; library?: number }>(endpoint, [
-    endpoint,
-  ])
+  const { data, loading, reload, setData } = usePoll<{ skills: Skill[]; library?: number }>(endpoint, 5000)
   const [busy, setBusy] = useState('')
+  const [toggleError, setToggleError] = useState('')
   const [browsing, setBrowsing] = useState(false)
   const [editing, setEditing] = useState<Skill | null>(null)
   const [creating, setCreating] = useState(false)
@@ -86,8 +86,13 @@ export default function SkillsPage() {
 
   const toggle = async (name: string, enabled: boolean) => {
     setBusy(name)
+    setToggleError('')
     try {
       await post('/skills/toggle', { name, enabled })
+      if (data) setData({ ...data, skills: data.skills.map((s) => s.name === name ? { ...s, enabled } : s) })
+      reload()
+    } catch (e) {
+      setToggleError(`${name}: ${(e as Error).message}`)
       reload()
     } finally {
       setBusy('')
@@ -123,6 +128,14 @@ export default function SkillsPage() {
             className="pl-9"
           />
         </div>
+      ) : null}
+      {toggleError ? (
+        <p
+          role="alert"
+          className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+        >
+          {toggleError}
+        </p>
       ) : null}
     </div>
   )
@@ -171,44 +184,50 @@ export default function SkillsPage() {
           {skills.map((s) => (
             <div
               key={s.name}
-              className={cn(
-                'group flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-3.5 transition-colors hover:border-primary/40',
-                !s.enabled && 'opacity-60',
-              )}
+              data-reveal
+              className="group flex flex-col rounded-[var(--radius-lg)] border border-border bg-card p-4 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised"
             >
-              <button onClick={() => setEditing(s)} className="min-w-0 flex-1 text-left">
+              <button
+                onClick={() => setEditing(s)}
+                className={cn('min-w-0 flex-1 text-left transition-opacity duration-200', !s.enabled && 'opacity-55')}
+              >
                 <div className="flex items-start justify-between gap-2">
-                  <span className="min-w-0 truncate text-sm font-medium">{s.name}</span>
-                  <PencilSimple className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                  <span className="min-w-0 truncate text-[15px] font-medium tracking-[-0.2px]">{s.name}</span>
+                  {!s.read_only ? (
+                    <PencilSimple className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                  ) : null}
                 </div>
-                <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">{s.description}</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <Badge variant="outline">{s.source}</Badge>
+                <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{s.description}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="font-mono font-normal">{s.source}</Badge>
+                  {s.read_only ? <Badge variant="secondary">{t('skills.readOnly')}</Badge> : null}
                   {s.usage_count > 0 ? (
                     <Badge variant="secondary">{t('skills.used', { n: s.usage_count })}</Badge>
                   ) : null}
                 </div>
               </button>
-              <div className="mt-3 flex items-center justify-between border-t border-border pt-2.5">
-                <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="-mx-4 mt-4 flex items-center justify-between border-t border-border px-4 pt-3">
+                <label className="flex items-center gap-2.5 font-mono text-[11px] lowercase text-muted-foreground">
                   <Switch
                     checked={s.enabled}
-                    disabled={busy === s.name}
+                    disabled={busy !== ''}
                     onCheckedChange={(v) => toggle(s.name, v)}
                     aria-label={`${t('common.enable')} ${s.name}`}
                   />
                   {s.enabled ? t('skills.on') : t('skills.off')}
                 </label>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={busy === s.name}
-                  onClick={() => del(`/skills/${encodeURIComponent(s.name)}`).then(reload)}
-                  aria-label={t('common.delete')}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <TrashSimple className="size-4" />
-                </Button>
+                {!s.read_only ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={busy === s.name}
+                    onClick={() => del(`/skills/${encodeURIComponent(s.name)}`).then(reload)}
+                    aria-label={t('common.delete')}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <TrashSimple className="size-4" />
+                  </Button>
+                ) : null}
               </div>
             </div>
           ))}
@@ -231,27 +250,42 @@ function SkillEditor({
 }) {
   const { t } = useI18n()
   const isNew = !skill
+  const readOnly = !!skill?.read_only
   const [draft, setDraft] = useState({
     name: skill?.name ?? '',
     description: skill?.description ?? '',
     body: '',
   })
+  const [fullSkill, setFullSkill] = useState<Skill | null>(skill)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
 
-  // Load the body when editing (the list omits it).
+  // The list omits the body. Imported skills also use the fetched metadata so
+  // the viewer reflects the source as it existed when it was opened.
   useEffect(() => {
     if (!skill) return
     let cancelled = false
-    get<{ body: string }>(`/skills/${encodeURIComponent(skill.name)}`)
+    get<{ skill: Skill; body: string }>(`/skills/${encodeURIComponent(skill.name)}`)
       .then((r) => {
-        if (!cancelled) setDraft((d) => ({ ...d, body: r.body }))
+        if (cancelled) return
+        if (readOnly) {
+          setFullSkill(r.skill)
+          setDraft({
+            name: r.skill.name,
+            description: r.skill.description,
+            body: r.body,
+          })
+        } else {
+          setDraft((d) => ({ ...d, body: r.body }))
+        }
       })
-      .catch(() => {})
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message)
+      })
     return () => {
       cancelled = true
     }
-  }, [skill])
+  }, [readOnly, skill])
 
   const save = async () => {
     if (!draft.name.trim() || !draft.body.trim()) return
@@ -274,44 +308,82 @@ function SkillEditor({
         </DialogHeader>
 
         <DialogBody className="space-y-3.5">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="skill-name">{t('skills.name')}</Label>
-              <Input
-                id="skill-name"
-                autoFocus={isNew}
-                disabled={!isNew}
-                value={draft.name}
-                onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-                placeholder="deploy-homeserver"
-              />
-              {!isNew ? <p className="text-[11px] text-muted-foreground">{t('skills.nameLocked')}</p> : null}
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="skill-desc">{t('skills.whenToUse')}</Label>
-              <Input
-                id="skill-desc"
-                value={draft.description}
-                onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-                placeholder={t('skills.whenToUsePlaceholder')}
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="skill-body">{t('skills.procedure')}</Label>
-            <Textarea
-              id="skill-body"
-              value={draft.body}
-              onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
-              placeholder={t('skills.procedurePlaceholder')}
-              className="h-64 font-mono text-xs leading-relaxed"
-            />
-          </div>
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {readOnly ? (
+            <>
+              <div className="rounded-[var(--radius-lg)] border border-border bg-raised px-3 py-2 text-xs text-muted-foreground">
+                {t('skills.discoveredReadOnly')}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="skill-name">{t('skills.name')}</Label>
+                  <Input id="skill-name" readOnly value={fullSkill?.name ?? draft.name} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="skill-desc">{t('skills.whenToUse')}</Label>
+                  <Input id="skill-desc" readOnly value={fullSkill?.description ?? draft.description} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="skill-path">{t('memory.path')}</Label>
+                <Input
+                  id="skill-path"
+                  readOnly
+                  value={fullSkill?.path ?? skill?.path ?? ''}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="skill-body">{t('skills.procedure')}</Label>
+                <Textarea
+                  id="skill-body"
+                  readOnly
+                  value={draft.body}
+                  className="h-64 font-mono text-xs leading-relaxed"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="skill-name">{t('skills.name')}</Label>
+                  <Input
+                    id="skill-name"
+                    autoFocus={isNew}
+                    disabled={!isNew}
+                    value={draft.name}
+                    onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                    placeholder="deploy-homeserver"
+                  />
+                  {!isNew ? <p className="text-[11px] text-muted-foreground">{t('skills.nameLocked')}</p> : null}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="skill-desc">{t('skills.whenToUse')}</Label>
+                  <Input
+                    id="skill-desc"
+                    value={draft.description}
+                    onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+                    placeholder={t('skills.whenToUsePlaceholder')}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="skill-body">{t('skills.procedure')}</Label>
+                <Textarea
+                  id="skill-body"
+                  value={draft.body}
+                  onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
+                  placeholder={t('skills.procedurePlaceholder')}
+                  className="h-64 font-mono text-xs leading-relaxed"
+                />
+              </div>
+            </>
+          )}
+          {error ? <p className="m-rise text-xs text-destructive">{error}</p> : null}
         </DialogBody>
 
         <DialogFooter className="flex items-center">
-          {!isNew ? (
+          {!readOnly && !isNew ? (
             <Button
               variant="ghost"
               size="sm"
@@ -328,14 +400,16 @@ function SkillEditor({
               {t('common.close')}
             </Button>
           </DialogClose>
-          <Button
-            size="sm"
-            onClick={save}
-            loading={saving}
-            disabled={!draft.name.trim() || !draft.body.trim()}
-          >
-            {t('common.save')}
-          </Button>
+          {!readOnly ? (
+            <Button
+              size="sm"
+              onClick={save}
+              loading={saving}
+              disabled={!draft.name.trim() || !draft.body.trim()}
+            >
+              {t('common.save')}
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -364,14 +438,11 @@ function SecurityLibrary() {
   const [reading, setReading] = useState<string | null>(null)
   const [body, setBody] = useState('')
 
-  const { data, loading } = useApi<{
+  const { data, loading } = usePoll<{
     skills: LibSkill[]
     total: number
     categories: Record<string, number>
-  }>(`/skills/library?category=${encodeURIComponent(category)}&offset=${offset}&limit=${LIB_LIMIT}`, [
-    category,
-    offset,
-  ])
+  }>(`/skills/library?category=${encodeURIComponent(category)}&offset=${offset}&limit=${LIB_LIMIT}`, 5000)
 
   const read = async (name: string) => {
     if (reading === name) {
@@ -403,7 +474,7 @@ function SecurityLibrary() {
             active={category === cat}
             onClick={() => { setCategory(cat); setOffset(0) }}
           >
-            {cat} <span className="opacity-60">{n}</span>
+            {cat} <span className="font-mono tabular-nums opacity-60">{n}</span>
           </CategoryChip>
         ))}
       </div>
@@ -413,20 +484,27 @@ function SecurityLibrary() {
       ) : (
         <div className="space-y-1.5">
           {(data?.skills ?? []).map((s) => (
-            <div key={s.name} className="rounded-[var(--radius-sm)] border border-border">
-              <button onClick={() => read(s.name)} className="w-full p-2.5 text-left">
+            <div
+              key={s.name}
+              data-reveal
+              className={cn(
+                'rounded-[var(--radius-md)] overflow-hidden border transition-[border-color,background-color] duration-200',
+                reading === s.name ? 'border-line' : 'border-border hover:border-line hover:bg-raised',
+              )}
+            >
+              <button onClick={() => read(s.name)} className="w-full px-3.5 py-3 text-left">
                 <div className="flex items-center gap-2">
-                  <span className="min-w-0 truncate font-mono text-xs font-medium">{s.name}</span>
+                  <span className="min-w-0 truncate font-mono text-xs text-foreground">{s.name}</span>
                   {s.category ? <Badge variant="outline">{s.category}</Badge> : null}
                 </div>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{s.description}</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.description}</p>
               </button>
               {reading === s.name ? (
-                <div className="border-t border-border p-2.5">
+                <div className="m-open border-t border-border px-3.5 py-3">
                   {body === '' ? (
                     <Skeleton className="h-24 w-full" />
                   ) : (
-                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed">
+                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
                       {body}
                     </pre>
                   )}
@@ -457,10 +535,10 @@ function CategoryChip({
     <button
       onClick={onClick}
       className={cn(
-        'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+        'rounded-full border px-3 py-1.5 text-xs transition-colors duration-200',
         active
-          ? 'border-primary bg-primary/10 text-primary'
-          : 'border-border text-muted-foreground hover:border-primary/40',
+          ? 'border-transparent bg-nav-active text-foreground'
+          : 'border-border text-muted-foreground hover:text-foreground',
       )}
     >
       {children}

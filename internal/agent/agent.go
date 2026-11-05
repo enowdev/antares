@@ -248,8 +248,13 @@ func (a *Agent) SetConfig(cfg *config.Config) {
 	if cfg == nil {
 		return
 	}
+	a.servicesMu.Lock()
+	if a.skills != nil {
+		a.skills.SetDisabled(cfg.Skills.Disabled)
+	}
 	prev := a.cfg.Load()
 	a.cfg.Store(cfg)
+	a.servicesMu.Unlock()
 	// A raised MaxConcurrentSessions makes room for parked RunQueued
 	// waiters immediately; without a wake here they would sit on the old
 	// channel until an unrelated turn ended.
@@ -274,6 +279,9 @@ func (a *Agent) SetRAG(p tools.RAGProvider) {
 // SetSkills attaches the skill library. Publishes under servicesMu.
 func (a *Agent) SetSkills(m *skills.Manager) {
 	a.servicesMu.Lock()
+	if cfg := a.cfg.Load(); m != nil && cfg != nil {
+		m.SetDisabled(cfg.Skills.Disabled)
+	}
 	a.skills = m
 	a.servicesMu.Unlock()
 }

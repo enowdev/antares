@@ -1,0 +1,55 @@
+source=nanoclaw name="NanoClaw" profile="" running=false
+summary: 2 providers · soul · instructions · 3 memories · 1 note · 1 skill · 3 schedules · Telegram
+
+[provider] provider:anthropic "Anthropic" status=ready selected=true secret
+  detail: key from .env
+  provider: id=anthropic kind=anthropic base_url=https://api.anthropic.com/v1 key=••••0001 models=[] headers={}
+
+[provider] provider:claude-subscription "Claude subscription (Claude Code login)" status=unsupported selected=false
+  reason: subscription/OAuth login — sign in again in Antares
+
+[agents_md] agents_md:file "AGENTS.md" status=conflict selected=false
+  detail: from groups/global/CLAUDE.md · 53 chars
+  reason: Antares already has a custom AGENTS.md (replace or append)
+  text: from=groups/global/CLAUDE.md sha=7c6eb709fc88
+
+[soul] soul:file "SOUL.md" status=ready selected=true
+  detail: from .env ASSISTANT_NAME · 18 chars
+  text: from=.env ASSISTANT_NAME sha=346d0ac5ae97
+
+[memory] memory:1c70ad1b6e4c "Rina's sister is Dewi." status=ready selected=true
+  memory: scope=global key=rina-s-sister-is-dewi tags=[import:nanoclaw people]
+
+[memory] memory:384984e70c2f "Rina's cat is Miso." status=ready selected=true
+  memory: scope=global key=rina-s-cat-is-miso tags=[import:nanoclaw people]
+
+[memory] memory:236a36b88e2e "Morning summaries before 8am." status=ready selected=true
+  memory: scope=global key=morning-summaries-before-8am tags=[import:nanoclaw preferences]
+
+[knowledge] knowledge:groups/family/CLAUDE.md "groups/family/CLAUDE.md" status=ready selected=true
+  detail: 53 chars
+  knowledge: path=groups/family/CLAUDE.md sha=55adb361b6c2
+
+[skill] skill:invoice-helper "invoice-helper" status=ready selected=true
+  detail: Draft invoices.
+  skill: name=invoice-helper dir=invoice-helper
+
+[cron] cron:task-1 "Send me the morning summary" status=ready selected=true
+  detail: 0 7 * * *
+  cron: name=Send me the morning summary schedule="0 7 * * *" tz=Asia/Jakarta enabled=false prompt_sha=5aa3968d4b1a
+
+[cron] cron:task-2 "Check the server status" status=ready selected=true
+  detail: @every 15m · paused in source · its pre-run script is not migrated
+  cron: name=Check the server status schedule="@every 15m" tz=Asia/Jakarta enabled=false prompt_sha=3ecc5d2ff996
+
+[cron] cron:task-3 "Remind everyone about dinner (family)" status=unsupported selected=false
+  reason: one-shot schedule (runs once at 2026-11-01T18:00:00)
+
+[channel] channel:whatsapp "WhatsApp" status=unsupported selected=false
+  reason: NanoClaw's WhatsApp is a linked-device (Baileys) session; Antares supports the WhatsApp Cloud API only
+
+[channel] channel:telegram "Telegram" status=ready selected=true secret
+  channel: telegram {allowed_chats=[-100777], bot_token=••••0003}
+
+[channel] channel:telegram-work "Telegram (WORK)" status=unsupported selected=false
+  reason: Antares has one Telegram bot; extra bot instances are not imported

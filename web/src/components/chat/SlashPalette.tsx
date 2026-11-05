@@ -56,7 +56,7 @@ export function SlashPalette({
     <div
       role="listbox"
       aria-label="Commands"
-      className="mb-2 max-h-64 overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-card p-1 shadow-lg"
+      className="m-open mb-2 max-h-64 overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-popover p-1 shadow-[0_10px_28px_-14px_#00000080]"
     >
       {matches.map((c, i) => (
         <button
@@ -71,10 +71,10 @@ export function SlashPalette({
           }}
           className={cn(
             'flex w-full items-baseline gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors',
-            i === selected ? 'bg-primary/10 text-foreground' : 'hover:bg-muted',
+            i === selected ? 'bg-nav-active text-foreground' : 'hover:bg-raised',
           )}
         >
-          <span className="shrink-0 font-mono text-xs font-medium text-primary">
+          <span className="shrink-0 font-mono text-xs text-foreground">
             /{c.name}
             {c.args ? <span className="text-muted-foreground"> {c.args}</span> : null}
           </span>

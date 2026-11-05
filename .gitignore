@@ -26,6 +26,8 @@ web/src/sample/
 *.db-shm
 .env
 .env.local
+# Migration fixtures are fake homes of other agents; their .env files hold fake keys.
+!internal/migrate/testdata/**/.env
 /tuishot
 
 # Local agent/editor tooling (not part of the project)
@@ -45,3 +47,6 @@ dist/
 !internal/server/dist/
 !internal/server/dist/.gitkeep
 web/tsconfig.tsbuildinfo
+
+# Windows resources CI generates for the desktop shell.
+desktop/rsrc_windows_*.syso

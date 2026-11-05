@@ -310,3 +310,20 @@ var postgresV2 = []string{
 	`CREATE TRIGGER rag_chunks_rev_del AFTER DELETE ON rag_chunks
 		FOR EACH ROW EXECUTE FUNCTION rag_chunks_rev_bump()`,
 }
+
+// devicesV3 creates the paired-device table. A device token is stored only as
+// its SHA-256 hex; revoked rows stay so the list can show them. Timestamps are
+// unix milliseconds like every other table; last_seen_at and revoked_at are
+// NULL until set. The DDL is portable across SQLite and Postgres.
+var devicesV3 = []string{
+	`CREATE TABLE IF NOT EXISTS devices (
+		id           TEXT PRIMARY KEY,
+		name         TEXT NOT NULL,
+		platform     TEXT NOT NULL,
+		token_hash   TEXT NOT NULL UNIQUE,
+		created_at   BIGINT NOT NULL,
+		last_seen_at BIGINT,
+		revoked_at   BIGINT
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_devices_created ON devices(created_at DESC)`,
+}

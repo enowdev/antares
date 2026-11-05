@@ -162,7 +162,9 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8787',
+        // ANTARES_API points the dev dashboard at another server, e.g. an
+        // isolated smoke instance, instead of the default local one.
+        target: process.env.ANTARES_API ?? 'http://127.0.0.1:8787',
         changeOrigin: true,
         ws: true,
       },

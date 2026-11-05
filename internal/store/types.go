@@ -362,4 +362,11 @@ type Store interface {
 	GetSocialAccount(ctx context.Context, id string) (*SocialAccount, error)
 	ListSocialAccounts(ctx context.Context) ([]SocialAccount, error)
 	DeleteSocialAccount(ctx context.Context, id string) error
+
+	CreateDevice(ctx context.Context, d *Device) error
+	GetDevice(ctx context.Context, id string) (*Device, error)
+	DeviceByTokenHash(ctx context.Context, tokenHash string) (*Device, error)
+	ListDevices(ctx context.Context) ([]Device, error)
+	RevokeDevice(ctx context.Context, id string) error
+	TouchDevice(ctx context.Context, id string, at time.Time) error
 }

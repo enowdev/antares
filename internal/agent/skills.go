@@ -1,7 +1,11 @@
 package agent
 
 import (
+	"log/slog"
+	"strings"
+
 	"github.com/enowdev/antares/internal/skills"
+	"github.com/enowdev/antares/internal/store"
 	"github.com/enowdev/antares/internal/tools"
 )
 
@@ -27,20 +31,31 @@ func (a skillAdapter) List() []tools.SkillInfo {
 }
 
 func (a skillAdapter) Search(query string, limit int) []tools.SkillInfo {
-	return infos(a.m.Search(query, limit))
+	return infos(a.m.SearchFiltered(query, skills.Filter{EnabledOnly: true}, limit))
 }
 
 func (a skillAdapter) SearchFiltered(query, cwe, tech, category string, limit int) []tools.SkillInfo {
-	return infos(a.m.SearchFiltered(query, skills.Filter{CWE: cwe, Tech: tech, Category: category}, limit))
+	return infos(a.m.SearchFiltered(query, skills.Filter{CWE: cwe, Tech: tech, Category: category, EnabledOnly: true}, limit))
 }
 
 func (a skillAdapter) Chains(name string) []tools.SkillInfo {
-	return infos(a.m.Chains(name))
+	origin, ok := a.m.Get(name)
+	if !ok || !origin.Enabled {
+		return nil
+	}
+	items := a.m.Chains(name)
+	out := make([]tools.SkillInfo, 0, len(items))
+	for _, s := range items {
+		if s.Enabled {
+			out = append(out, toInfo(s))
+		}
+	}
+	return out
 }
 
 func (a skillAdapter) Read(name string) (tools.SkillInfo, string, bool) {
 	s, ok := a.m.Get(name)
-	if !ok {
+	if !ok || !s.Enabled {
 		return tools.SkillInfo{}, "", false
 	}
 	return toInfo(*s), s.Body, true
@@ -71,12 +86,37 @@ func (a skillAdapter) Write(name, description, body string, tags []string) error
 
 func (a skillAdapter) MarkUsed(name string) { a.m.MarkUsed(name) }
 
-// skillLibrary exposes the manager to tools, or nil when skills are off.
-// The manager is snapshotted once so a concurrent SetSkills cannot leave the
-// returned adapter pointing at a stale (or nil) library.
-func (a *Agent) skillLibrary() tools.SkillLibrary {
+// skillsForSession snapshots the live manager and binds its catalogue to the
+// persisted project selection. Scope failures are nonfatal: ForProject returns
+// the partial scope, or a shared-only view when the path cannot be normalized.
+func (a *Agent) skillsForSession(sess *store.Session) *skills.Manager {
 	m := a.Skills()
-	if m == nil || !a.config().Skills.Enabled {
+	if m == nil {
+		return nil
+	}
+
+	var projectDir string
+	if sess != nil && sess.Meta != nil {
+		projectDir, _ = sess.Meta["project_dir"].(string)
+	}
+	if strings.TrimSpace(projectDir) == "" {
+		projectDir = ""
+	}
+	scoped, err := m.ForProject(projectDir)
+	if err != nil {
+		slog.Warn("some skills failed to load", "error", err)
+	}
+	return scoped
+}
+
+// skillLibrary exposes the session's scoped manager to tools, or nil when
+// skills are off.
+func (a *Agent) skillLibrary(sess *store.Session) tools.SkillLibrary {
+	if !a.config().Skills.Enabled {
+		return nil
+	}
+	m := a.skillsForSession(sess)
+	if m == nil {
 		return nil
 	}
 	return skillAdapter{m: m}
