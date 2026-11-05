@@ -90,6 +90,16 @@ install-cli: build ## Build (with dashboard) and install `antares` to $(PREFIX)/
 	@case ":$$PATH:" in *":$(PREFIX)/bin:"*) echo "run 'antares' from anywhere (open a new shell if it's not found yet)";; \
 	  *) echo "note: add $(PREFIX)/bin to your PATH — e.g. echo 'export PATH=\"$(PREFIX)/bin:\$$PATH\"' >> ~/.bashrc";; esac
 
+# ---- desktop app (separate Go module in desktop/, needs cgo + a webview) ----
+
+.PHONY: desktop
+desktop: build ## Build desktop/bin/Antares.app (macOS) with a fresh bin/antares bundled
+	@cd desktop && GO="$(GO)" VERSION="$(VERSION)" ANTARES_BIN="$(CURDIR)/bin/antares" ./scripts/build-macos.sh
+
+.PHONY: desktop-test
+desktop-test: ## Vet and test the desktop shell module
+	@cd desktop && $(GO) vet ./... && $(GO) test ./...
+
 # ---- quality ----------------------------------------------------------------
 
 .PHONY: test
@@ -129,7 +139,7 @@ release: ## Cross-compile release binaries for all platforms into dist/release
 
 .PHONY: clean
 clean: ## Remove build artefacts
-	@rm -rf bin .air web/dist dist
+	@rm -rf bin .air web/dist dist desktop/bin
 	@echo "cleaned"
 
 .PHONY: doctor

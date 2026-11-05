@@ -72,19 +72,19 @@ function iconFor(kind: Kind) {
   const cls = 'size-4 shrink-0'
   switch (kind) {
     case 'dir':
-      return <Folder className={cn(cls, 'text-primary')} weight="fill" />
+      return <Folder className={cn(cls, 'text-foreground')} weight="fill" />
     case 'image':
-      return <FileImage className={cn(cls, 'text-[var(--success)]')} />
+      return <FileImage className={cn(cls, 'text-muted-foreground')} />
     case 'video':
-      return <FileVideo className={cn(cls, 'text-[var(--warning)]')} />
+      return <FileVideo className={cn(cls, 'text-muted-foreground')} />
     case 'audio':
-      return <FileAudio className={cn(cls, 'text-[var(--warning)]')} />
+      return <FileAudio className={cn(cls, 'text-muted-foreground')} />
     case 'pdf':
-      return <FilePdf className={cn(cls, 'text-destructive')} />
+      return <FilePdf className={cn(cls, 'text-muted-foreground')} />
     case 'code':
-      return <FileCode className={cn(cls, 'text-primary')} />
+      return <FileCode className={cn(cls, 'text-muted-foreground')} />
     case 'markdown':
-      return <FileText className={cn(cls, 'text-[var(--success)]')} />
+      return <FileText className={cn(cls, 'text-muted-foreground')} />
     case 'text':
       return <FileText className={cn(cls, 'text-muted-foreground')} />
     case 'archive':
@@ -169,17 +169,17 @@ export default function FilesPage() {
     <nav className="flex items-center gap-1 overflow-x-auto text-xs">
       <button
         onClick={() => setPath('.')}
-        className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-sm)] px-1.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
       >
         <House className="size-3.5" />
         {t('files.workspace')}
       </button>
       {crumbs.map((c) => (
         <span key={c.path} className="inline-flex shrink-0 items-center gap-1">
-          <CaretRight className="size-3 text-muted-foreground/50" />
+          <CaretRight className="size-3 text-dim" />
           <button
             onClick={() => setPath(c.path)}
-            className="rounded-[var(--radius-sm)] px-1.5 py-1 font-mono text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-full px-2.5 py-1 font-mono text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
           >
             {c.name}
           </button>
@@ -189,8 +189,11 @@ export default function FilesPage() {
   )
 
   return (
+    // On desktop the list and the preview each scroll on their own, so
+    // reading a long file never carries the list away (and vice versa).
     <PageLayout
       header={header}
+      bodyClassName="lg:flex lg:flex-col lg:overflow-hidden lg:pr-0"
       footer={
         entries.length > PAGE ? (
           <Pagination offset={offset} limit={PAGE} total={entries.length} onChange={setOffset} />
@@ -198,15 +201,15 @@ export default function FilesPage() {
       }
     >
       <SensitiveGate>
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         {/* file list */}
-        <div className="min-w-0">
+        <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
           {loading && !data ? (
             <SkeletonList count={8} />
           ) : entries.length === 0 ? (
             <EmptyState icon={<Folder className="size-8" />} title={t('files.emptyFolder')} />
           ) : (
-            <Card className="divide-y divide-border overflow-hidden">
+            <Card className="overflow-hidden">
               {paged.map((e) => {
                 const kind = kindOf(e)
                 const active = preview?.entry.path === e.path
@@ -214,21 +217,22 @@ export default function FilesPage() {
                   <button
                     key={e.path}
                     onClick={() => open(e)}
+                    aria-current={active ? 'true' : undefined}
                     className={cn(
-                      'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-accent',
-                      active && 'bg-accent',
+                      'flex w-full items-center gap-3 border-t border-border px-4 py-2.5 text-left transition-colors duration-200 first:border-t-0 hover:bg-raised',
+                      active && 'bg-nav-active',
                     )}
                   >
                     {iconFor(kind)}
-                    <span className="min-w-0 flex-1 truncate text-sm">{e.name}</span>
+                    <span className={cn('min-w-0 flex-1 truncate text-sm', !e.is_dir && 'font-mono text-[13px]')}>{e.name}</span>
                     {!e.is_dir ? (
-                      <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+                      <span className="shrink-0 font-mono tabular-nums text-[11px] text-muted-foreground">
                         {formatBytes(e.size)}
                       </span>
                     ) : (
-                      <CaretRight className="size-3.5 shrink-0 text-muted-foreground/50" />
+                      <CaretRight className="size-3.5 shrink-0 text-dim" />
                     )}
-                    <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+                    <span className="hidden w-20 shrink-0 text-right font-mono text-[11px] text-dim sm:inline">
                       {timeAgo(e.modified)}
                     </span>
                   </button>
@@ -239,7 +243,7 @@ export default function FilesPage() {
         </div>
 
         {/* preview pane */}
-        <div className="min-w-0">
+        <div className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
           {preview ? (
             <PreviewPane
               preview={preview}
@@ -248,7 +252,7 @@ export default function FilesPage() {
               t={t}
             />
           ) : (
-            <div className="hidden h-full items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-border text-center lg:flex">
+            <div className="hidden h-full items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-line text-center lg:flex">
               <div className="p-6 text-xs text-muted-foreground">
                 <FileText className="mx-auto mb-2 size-7 opacity-50" />
                 {t('files.selectHint')}
@@ -281,20 +285,20 @@ function PreviewPane({
   useEffect(() => setView('rendered'), [entry.path])
 
   return (
-    <Card className="flex max-h-[calc(100vh-12rem)] flex-col overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+    <Card className="flex max-h-[calc(100vh-12rem)] flex-col overflow-hidden lg:max-h-full lg:min-h-0">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         {iconFor(kind)}
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{entry.name}</span>
         {kind === 'markdown' && !preview.binary && !preview.error ? (
-          <div className="flex shrink-0 rounded-[var(--radius-sm)] border border-border p-0.5">
+          <div className="flex shrink-0 rounded-full border border-border p-0.5">
             {(['rendered', 'raw'] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
                 className={cn(
-                  'rounded-[calc(var(--radius-sm)-2px)] px-2 py-0.5 text-[11px] font-medium transition-colors',
+                  'rounded-full px-2.5 py-0.5 text-[11px] transition-colors',
                   view === v
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'bg-nav-active text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -303,13 +307,13 @@ function PreviewPane({
             ))}
           </div>
         ) : (
-          <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+          <span className="shrink-0 font-mono tabular-nums text-[11px] text-muted-foreground">
             {formatBytes(entry.size)}
           </span>
         )}
         <button
           onClick={() => void downloadFile(`/files/raw?path=${encodeURIComponent(entry.path)}&download=1`, entry.name)}
-          className="shrink-0 rounded-[var(--radius-sm)] p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
           aria-label={t('files.download')}
           title={t('files.download')}
         >
@@ -322,15 +326,15 @@ function PreviewPane({
 
       <div className="min-h-0 flex-1 overflow-auto">
         {loading ? (
-          <Skeleton className="m-3 h-64 rounded-[var(--radius-lg)]" />
+          <Skeleton className="m-3 h-64" />
         ) : preview.error ? (
-          <p className="p-4 text-xs text-destructive">{preview.error}</p>
+          <p className="m-rise m-4 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] px-4 py-3 text-sm text-destructive">{preview.error}</p>
         ) : kind === 'image' ? (
           <div className="flex items-center justify-center bg-[repeating-conic-gradient(var(--muted)_0_25%,transparent_0_50%)] bg-[length:16px_16px] p-4">
-            <img src={rawUrl} alt={entry.name} className="max-h-full max-w-full rounded object-contain" />
+            <img src={rawUrl} alt={entry.name} className="max-h-full max-w-full rounded-[var(--radius-md)] object-contain" />
           </div>
         ) : kind === 'video' ? (
-          <video src={rawUrl} controls className="max-h-[70vh] w-full bg-black" />
+          <video src={rawUrl} controls className="max-h-[70vh] w-full rounded-[var(--radius-md)] bg-black" />
         ) : kind === 'audio' ? (
           <div className="p-4">
             <audio src={rawUrl} controls className="w-full" />
@@ -354,7 +358,7 @@ function PreviewPane({
         ) : kind === 'markdown' && view === 'rendered' ? (
           <Markdown content={preview.content ?? ''} className="p-4 text-sm" />
         ) : (
-          <pre className="p-3 font-mono text-[11px] leading-relaxed">{preview.content}</pre>
+          <pre className="p-4 font-mono text-[11px] leading-relaxed">{preview.content}</pre>
         )}
       </div>
     </Card>

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reconnecting… · Antares</title>
+  <link rel="stylesheet" href="shell.css">
+  <script type="module" src="reconnect.js"></script>
+</head>
+<body>
+  <main class="center" tabindex="-1">
+    <img src="antares.png" alt="" width="44" height="44" class="pulse">
+    <h1>Reconnecting…</h1>
+    <p class="lede" id="what">Lost contact with Antares. Trying again every few seconds.</p>
+    <div class="actions">
+      <button class="btn" id="switch">Switch connection</button>
+      <button class="btn primary" id="retry">Retry now</button>
+    </div>
+    <p class="error" id="error" role="alert" style="margin-top:16px;padding:0"></p>
+  </main>
+</body>
+</html>

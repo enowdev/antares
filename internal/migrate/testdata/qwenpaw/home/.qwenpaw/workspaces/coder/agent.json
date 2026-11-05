@@ -1,0 +1,9 @@
+{
+  "id": "coder",
+  "name": "Coder",
+  "description": "Writes and reviews code.",
+  "active_model": {
+    "provider_id": "deepseek",
+    "model": "deepseek-reasoner"
+  }
+}

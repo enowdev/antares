@@ -19,8 +19,9 @@ import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { ProviderHeadersField } from '@/components/providers/ProviderHeadersField'
 import { PageLayout } from '@/components/layout/PageLayout'
+import { usePageActions } from '@/components/layout/PageChrome'
 import { Button } from '@/components/ui/button'
-import { Badge, Card, EmptyState, Input, Label, Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives'
+import { Badge, EmptyState, Input, Label, Tabs, TabsList, TabsTrigger } from '@/components/ui/primitives'
 import {
   Dialog,
   DialogBody,
@@ -72,21 +73,64 @@ function providerName(label: string): string {
   return label.replace(/\s*\((local|lokal)\)\s*$/i, '').trim()
 }
 
-type Group = 'oauth' | 'apikey' | 'local'
+type Group = 'custom' | 'oauth' | 'apikey' | 'local'
 
 // How a provider authenticates decides its group. Only Copilot uses a device
 // (OAuth) flow today; local endpoints need no credential; everything else is an
 // API key (or cloud env credentials, which still live under "API key" here).
-// A custom provider is always "API key" — even a localhost endpoint is a
-// service the user configured, not a built-in local runtime.
+// Providers the user added sit in their own group, first, whatever their
+// format — even a localhost endpoint is a service the user configured, not a
+// built-in local runtime.
 function groupOf(p: ProviderInfo): Group {
+  if (p.custom) return 'custom'
   if (p.kind === 'copilot') return 'oauth'
-  if (p.custom) return 'apikey'
   if (p.local) return 'local'
   return 'apikey'
 }
 
-const GROUP_ORDER: Group[] = ['oauth', 'apikey', 'local']
+const GROUP_ORDER: Group[] = ['custom', 'oauth', 'apikey', 'local']
+
+/** Wire formats a custom provider may speak, with an example base URL each. */
+const CUSTOM_KINDS = [
+  { id: 'openai-compatible', label: 'OpenAI', example: 'https://api.example.com/v1' },
+  { id: 'anthropic', label: 'Anthropic', example: 'https://api.example.com/v1' },
+  { id: 'gemini', label: 'Gemini', example: 'https://api.example.com/v1beta' },
+  { id: 'codex', label: 'OpenAI Responses', example: 'https://api.example.com/v1' },
+] as const
+
+function kindLabel(kind: string): string {
+  return CUSTOM_KINDS.find((k) => k.id === kind)?.label ?? kind
+}
+
+/** Pill strip to pick a custom provider's API format. */
+function KindPicker({ value, onChange }: { value: string; onChange: (kind: string) => void }) {
+  const { t } = useI18n()
+  return (
+    <div className="space-y-1.5">
+      <Label>{t('providers.format')}</Label>
+      <div role="radiogroup" aria-label={t('providers.format')} className="flex flex-wrap gap-1.5">
+        {CUSTOM_KINDS.map((k) => (
+          <button
+            key={k.id}
+            type="button"
+            role="radio"
+            aria-checked={value === k.id}
+            onClick={() => onChange(k.id)}
+            className={cn(
+              'rounded-full border px-3 py-1.5 text-xs transition-colors duration-200',
+              value === k.id
+                ? 'border-transparent bg-nav-active text-foreground'
+                : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground">{t('providers.formatHint')}</p>
+    </div>
+  )
+}
 
 function ProviderStatus({ provider }: { provider: ProviderInfo }) {
   const { t } = useI18n()
@@ -107,7 +151,7 @@ function ProviderStatus({ provider }: { provider: ProviderInfo }) {
     )
   }
   return (
-    <Badge variant="warning" className="shrink-0">
+    <Badge variant="outline" className="shrink-0">
       {t('models.needsKey')}
     </Badge>
   )
@@ -125,10 +169,18 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
   const [creating, setCreating] = useState(false)
 
   const grouped = useMemo(() => {
-    const g: Record<Group, ProviderInfo[]> = { oauth: [], apikey: [], local: [] }
+    const g: Record<Group, ProviderInfo[]> = { custom: [], oauth: [], apikey: [], local: [] }
     for (const p of data?.providers ?? []) g[groupOf(p)].push(p)
     return g
   }, [data])
+
+  usePageActions(
+    <Button size="sm" onClick={() => setCreating(true)}>
+      <Plus />
+      {t('providers.addCustom')}
+    </Button>,
+    [t],
+  )
 
   return (
     <PageLayout>
@@ -139,40 +191,49 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
       ) : (
         <div className="space-y-6">
           {GROUP_ORDER.map((g) =>
-            grouped[g].length === 0 ? null : (
-              <section key={g} className="space-y-2">
+            grouped[g].length === 0 && g !== 'custom' ? null : (
+              <section key={g} data-reveal className="space-y-3">
                 <div className="flex items-center gap-2">
-                  {g === 'oauth' ? (
-                    <ShieldCheck className="size-4 text-primary" weight="fill" />
+                  {g === 'custom' ? (
+                    <Plugs className="size-4 text-muted-foreground" />
+                  ) : g === 'oauth' ? (
+                    <ShieldCheck className="size-4 text-muted-foreground" />
                   ) : g === 'local' ? (
                     <Desktop className="size-4 text-muted-foreground" />
                   ) : (
                     <Key className="size-4 text-muted-foreground" />
                   )}
-                  <h2 className="text-sm font-semibold">{t(`providers.group.${g}` as never)}</h2>
+                  <h2 className="text-[15px] font-medium tracking-[-0.2px]">{t(`providers.group.${g}` as never)}</h2>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="-mt-1.5 text-xs text-muted-foreground">
                   {t(`providers.groupDesc.${g}` as never)}
                 </p>
                 <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
                   {grouped[g].map((p) => (
-                    <Card
+                    <div
                       key={p.id}
                       className={cn(
-                        'flex flex-col gap-3 p-3.5 transition-colors',
-                        p.active ? 'border-primary' : 'hover:border-primary/40',
+                        'flex flex-col gap-3.5 rounded-[var(--radius-lg)] border bg-transparent p-4 transition-[border-color,background-color] duration-200',
+                        p.active ? 'border-foreground' : 'border-border hover:border-line hover:bg-raised',
                       )}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          <span className="min-w-0 flex-1 truncate text-[15px] font-medium tracking-[-0.2px]">
                             {providerName(p.label)}
                           </span>
                           {p.active ? <Badge>{t('models.activeNow')}</Badge> : null}
                         </div>
-                        <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
+                        <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">
                           {p.base_url || p.kind}
                         </span>
+                        {p.custom ? (
+                          <span className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-dim">
+                            <span className="font-mono">{p.id}</span>
+                            <span aria-hidden>·</span>
+                            <span>{kindLabel(p.kind || 'openai-compatible')}</span>
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <ProviderStatus provider={p} />
@@ -190,15 +251,15 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
                           </Button>
                         )}
                       </div>
-                    </Card>
+                    </div>
                   ))}
-                  {g === 'apikey' ? (
+                  {g === 'custom' ? (
                     <button
                       onClick={() => setCreating(true)}
-                      className="flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-dashed border-border p-3.5 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                      className="flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-dashed border-border p-4 text-muted-foreground transition-[border-color,background-color,color] duration-200 hover:border-line hover:bg-raised hover:text-foreground"
                     >
                       <Plus className="size-5" />
-                      <span className="text-xs">{t('providers.addCustom')}</span>
+                      <span className="font-mono text-xs lowercase">{t('providers.addCustom')}</span>
                     </button>
                   ) : null}
                 </div>
@@ -227,9 +288,9 @@ function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
 }
 
 /**
- * Create a custom provider: a name, an OpenAI-compatible base URL, and an
- * optional key. Local endpoints are accepted; the backend verifies the pair
- * before saving.
+ * Create a custom provider: a name, an API format, a base URL, and an
+ * optional key. Each one becomes a new provider beside the others; local
+ * endpoints are accepted, and the backend verifies the pair before saving.
  */
 function AddProviderDialog({
   onClose,
@@ -240,6 +301,7 @@ function AddProviderDialog({
 }) {
   const { t } = useI18n()
   const [name, setName] = useState('')
+  const [kind, setKind] = useState<string>('openai-compatible')
   const [baseURL, setBaseURL] = useState('')
   const [key, setKey] = useState('')
   const [headersText, setHeadersText] = useState('')
@@ -261,6 +323,7 @@ function AddProviderDialog({
     try {
       const r = await post<{ ok: boolean; error?: string }>('/providers', {
         name: name.trim(),
+        kind,
         base_url: baseURL.trim(),
         api_key: key.trim(),
         headers,
@@ -297,13 +360,14 @@ function AddProviderDialog({
               autoComplete="off"
             />
           </div>
+          <KindPicker value={kind} onChange={setKind} />
           <div className="space-y-1.5">
             <Label htmlFor="np-url">{t('setup.baseUrl')}</Label>
             <Input
               id="np-url"
               value={baseURL}
               onChange={(e) => setBaseURL(e.target.value)}
-              placeholder="https://api.example.com/v1"
+              placeholder={CUSTOM_KINDS.find((k) => k.id === kind)?.example}
               className="font-mono text-xs"
               autoComplete="off"
               onKeyDown={(e) => e.key === 'Enter' && create()}
@@ -324,7 +388,7 @@ function AddProviderDialog({
           </div>
           <ProviderHeadersField id="np-headers" value={headersText} onChange={setHeadersText} />
           {error ? (
-            <p className="rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{error}</p>
+            <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
           ) : null}
         </DialogBody>
         <DialogFooter>
@@ -421,6 +485,7 @@ function ProviderModal({
 
   // Advanced
   const [label, setLabel] = useState(p.label)
+  const [kind, setKind] = useState(p.kind || 'openai-compatible')
   const [timeout, setTimeoutSecs] = useState(String(p.timeout_seconds ?? ''))
   const [headersText, setHeadersText] = useState(() => formatProviderHeaders(p.headers))
 
@@ -516,7 +581,7 @@ function ProviderModal({
       await post(`/providers/${encodeURIComponent(p.id)}/settings`, {
         base_url: baseURL.trim(),
         timeout_seconds: timeout ? Number(timeout) : 0,
-        ...(p.custom ? { label: label.trim(), headers } : {}),
+        ...(p.custom ? { label: label.trim(), kind, headers } : {}),
       })
       onChanged()
     } catch (e) {
@@ -543,8 +608,10 @@ function ProviderModal({
     <button
       onClick={() => setSection(id)}
       className={cn(
-        'rounded-[var(--radius-sm)] px-3 py-1.5 text-xs font-medium transition-colors',
-        section === id ? 'bg-primary/12 text-primary' : 'text-muted-foreground hover:text-foreground',
+        'rounded-full border px-3 py-1.5 text-xs transition-colors duration-200',
+        section === id
+          ? 'border-transparent bg-nav-active text-foreground'
+          : 'border-border text-muted-foreground hover:text-foreground',
       )}
     >
       {label}
@@ -559,7 +626,7 @@ function ProviderModal({
           <DialogDescription>{t('providers.manageDesc')}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex gap-1 border-b border-border pb-2">
+        <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-border px-4 py-3 sm:px-5">
           {tabBtn('credentials', t('providers.secCredentials'))}
           {tabBtn('models', t('providers.secModels'))}
           {tabBtn('advanced', t('providers.secAdvanced'))}
@@ -613,20 +680,20 @@ function ProviderModal({
               ) : null}
               {p.note ? <p className="text-[11px] leading-relaxed text-muted-foreground">{p.note}</p> : null}
               {keyURL ? (
-                <a href={keyURL} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2">
+                <a href={keyURL} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1.5 text-xs text-foreground underline decoration-line underline-offset-4 hover:decoration-foreground">
                   {t('setup.getKey', { provider: providerName(p.label) })}
                   <ArrowSquareOut className="size-3.5" />
                 </a>
               ) : null}
               {error ? (
-                <p className="rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{error}</p>
+                <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
               ) : null}
             </>
           ) : null}
 
           {section === 'models' ? (
             <>
-              <div className="space-y-1.5 rounded-[var(--radius-sm)] border border-border p-3">
+              <div className="space-y-1.5 rounded-[var(--radius-lg)] border border-border p-3.5">
                 <Label>{t('providers.addModel')}</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
@@ -637,7 +704,7 @@ function ProviderModal({
                     }}
                     onBlur={() => autoFetchCtx(newModel)}
                     placeholder={t('providers.modelIdPlaceholder')}
-                    className="sm:flex-1"
+                    className="font-mono text-xs sm:flex-1"
                   />
                   <Input
                     value={newCtx}
@@ -660,11 +727,11 @@ function ProviderModal({
               ) : (
                 <div className="max-h-64 space-y-1.5 overflow-y-auto">
                   {myModels.map((m) => (
-                    <div key={m.id} className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-border p-2.5">
+                    <div key={m.id} className="flex items-center gap-2 rounded-[var(--radius-md)] border border-border px-3 py-2.5 transition-[border-color,background-color] duration-200 hover:border-line hover:bg-raised">
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-mono text-xs">{m.id}</p>
                         {m.context_window > 0 ? (
-                          <p className="text-[10px] text-muted-foreground">
+                          <p className="mt-0.5 font-mono text-[11px] tabular-nums text-dim">
                             {t('models.ctx', { n: Math.round(m.context_window / 1000) })}
                           </p>
                         ) : null}
@@ -693,6 +760,7 @@ function ProviderModal({
                   <Input id="m-name" value={label} onChange={(e) => setLabel(e.target.value)} autoComplete="off" />
                 </div>
               ) : null}
+              {p.custom ? <KindPicker value={kind} onChange={setKind} /> : null}
               <div className="space-y-1.5">
                 <Label htmlFor="m-baseurl2">{t('models.baseUrl')}</Label>
                 <Input id="m-baseurl2" value={baseURL} onChange={(e) => setBaseURL(e.target.value)} placeholder={p.kind} autoComplete="off" />
@@ -704,7 +772,7 @@ function ProviderModal({
               </div>
               {p.custom ? <ProviderHeadersField id="m-headers" value={headersText} onChange={setHeadersText} /> : null}
               {error ? (
-                <p className="rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{error}</p>
+                <p className="m-rise rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-3 py-2.5 text-xs text-destructive">{error}</p>
               ) : null}
             </>
           ) : null}

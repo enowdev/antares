@@ -41,7 +41,7 @@ export function SensitiveGate({ children }: { children: React.ReactNode }) {
       description={t('sensitive.needPasswordDesc')}
       action={
         <Button asChild size="sm">
-          <Link to="/config">{t('sensitive.setPassword')}</Link>
+          <Link to="/system/settings">{t('sensitive.setPassword')}</Link>
         </Button>
       }
     />

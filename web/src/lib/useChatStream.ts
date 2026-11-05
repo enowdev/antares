@@ -15,6 +15,7 @@ import {
 import {
   DEFAULT_MAX_LIVE_REASONING_CHARS,
   hydrate,
+  carryRenderKeys,
   mergeHydratedWithLocalErrors,
   type ChatMessage,
   type SessionDetail,
@@ -149,7 +150,9 @@ export function useChatStream(opts: UseChatStreamOptions): UseChatStream {
           // A same-session refresh must not erase client-only errors — a
           // transport/HTTP/EOF failure never round-trips through the server.
           const next = hydrate(detail)
-          optsRef.current.setMessages((prev) => mergeHydratedWithLocalErrors(next, prev))
+          optsRef.current.setMessages((prev) =>
+            carryRenderKeys(mergeHydratedWithLocalErrors(next, prev), prev),
+          )
           optsRef.current.setTitle(detail.session.title || optsRef.current.conversationFallback)
         },
         onAuthFailure: () => {
@@ -206,7 +209,9 @@ export function useChatStream(opts: UseChatStreamOptions): UseChatStream {
         onSettled: () => runOpts.onSettled?.(),
         onSessionHydrated: (detail) => {
           const next = hydrate(detail)
-          optsRef.current.setMessages((prev) => mergeHydratedWithLocalErrors(next, prev))
+          optsRef.current.setMessages((prev) =>
+            carryRenderKeys(mergeHydratedWithLocalErrors(next, prev), prev),
+          )
           optsRef.current.setTitle(detail.session.title || optsRef.current.conversationFallback)
         },
         fetchSession: (sid) => get<SessionDetail>(`/sessions/${sid}`),

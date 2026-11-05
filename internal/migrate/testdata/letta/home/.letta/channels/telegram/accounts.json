@@ -1,0 +1,21 @@
+{
+  "accounts": [
+    {
+      "channel": "telegram",
+      "accountId": "tg-main",
+      "displayName": "@lumen_bot",
+      "enabled": true,
+      "dmPolicy": "pairing",
+      "allowedUsers": [
+        "5550001"
+      ],
+      "binding": {
+        "agentId": "agent-local-11111111-aaaa",
+        "conversationId": "default"
+      },
+      "__letta_secret_refs": {
+        "token": true
+      }
+    }
+  ]
+}

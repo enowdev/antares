@@ -1,0 +1,123 @@
+source=hermes name="Hermes Agent" profile="" running=false
+summary: 8 providers · model · soul · user profile · 3 memories · 3 skills · 5 MCP servers · 4 schedules · 2 roles · Telegram · Discord · Slack
+warning: 1 unchanged bundled Hermes skills were left out.
+
+[provider] provider:openrouter "OpenRouter" status=ready selected=true secret
+  detail: key from .env (OPENROUTER_API_KEY)
+  provider: id=openrouter kind=openai-compatible base_url=https://openrouter.ai/api/v1 key=••••0001 models=[] headers={}
+
+[provider] provider:anthropic "Anthropic" status=conflict selected=false secret
+  detail: key from .env (ANTHROPIC_API_KEY)
+  reason: Antares already has a provider "anthropic"
+  provider: id=anthropic kind=anthropic base_url=https://api.anthropic.com/v1 key=••••0002 models=[] headers={}
+
+[provider] provider:kimi-coding "Kimi Coding" status=unsupported selected=false
+  reason: no matching Antares provider — add it as a custom provider
+
+[provider] provider:my-proxy "My Proxy" status=ready selected=true secret
+  detail: key from MY_PROXY_API_KEY
+  provider: id=my-proxy kind=openai-compatible base_url=https://llm.example.com/v1 key=••••0003 models=[gpt-x gpt-y] headers={X-Team=••••}
+
+[provider] provider:local "local" status=ready selected=true secret
+  detail: key reference in config.yaml could not be resolved
+  provider: id=local kind=openai-compatible base_url=http://127.0.0.1:1234/v1 key= models=[qwen3] headers={}
+
+[provider] provider:deepseek "DeepSeek" status=ready selected=true secret
+  detail: key from auth.json
+  provider: id=deepseek kind=openai-compatible base_url=https://api.deepseek.com key=••••0011 models=[] headers={}
+
+[provider] provider:nous-login "Nous Portal login" status=unsupported selected=false
+  reason: subscription/OAuth login — sign in again in Antares
+
+[provider] provider:openai-codex-login "OpenAI Codex login" status=unsupported selected=false
+  reason: subscription/OAuth login — sign in again in Antares
+
+[model] model:default "openrouter / anthropic/claude-opus-4.6" status=ready selected=true
+  detail: 2 fallback(s): anthropic/claude-sonnet-4-5, my-proxy/gpt-x
+  model: provider=openrouter model=anthropic/claude-opus-4.6 fallback=[anthropic/claude-sonnet-4-5 my-proxy/gpt-x]
+
+[soul] soul:file "SOUL.md" status=ready selected=true
+  detail: from SOUL.md · 55 chars
+  text: from=SOUL.md sha=4424fc0398fe
+
+[user_md] user_md:file "USER.md" status=ready selected=true
+  detail: from memories/USER.md · 60 chars
+  text: from=memories/USER.md sha=c2f1e0f11249
+
+[memory] memory:426186ddaf23 "User runs Antares on a Mac mini." status=ready selected=true
+  memory: scope=global key=user-runs-antares-on-a-mac-mini tags=[hermes]
+
+[memory] memory:b35c45fb887d "Prefers Go over Python for tools." status=ready selected=true
+  memory: scope=global key=prefers-go-over-python-for-tools tags=[hermes]
+
+[memory] memory:1a2fc0897a88 "The staging server is staging.example.com" status=ready selected=true
+  memory: scope=global key=the-staging-server-is-staging-example-com tags=[hermes]
+
+[skill] skill:tweaked "tweaked" status=ready selected=true
+  detail: A bundled skill the user edited.
+  skill: name=tweaked dir=tweaked
+
+[skill] skill:daily-notes "daily-notes" status=conflict selected=false
+  detail: Keep a daily log.
+  reason: Antares already has a skill named "daily-notes"
+  skill: name=daily-notes dir=daily-notes
+
+[skill] skill:web-research "web-research" status=ready selected=true
+  detail: Research a topic on the web and cite sources.
+  skill: name=web-research dir=web-research
+
+[mcp] mcp:github "github" status=ready selected=true secret
+  detail: npx -y @modelcontextprotocol/server-github
+  mcp: name=github transport=stdio command=npx args=[-y @modelcontextprotocol/server-github] url= env={GITHUB_PERSONAL_ACCESS_TOKEN=••••0004} headers={}
+
+[mcp] mcp:legacy-sse "legacy-sse" status=ready selected=true
+  detail: https://sse.example.com/sse
+  mcp: name=legacy-sse transport=http command= args=[] url=https://sse.example.com/sse env={} headers={}
+
+[mcp] mcp:linear "linear" status=unsupported selected=false
+  reason: OAuth MCP login — connect it again in Antares
+
+[mcp] mcp:off "off" status=unsupported selected=false
+  reason: disabled in Hermes
+
+[mcp] mcp:remote "remote" status=ready selected=true secret
+  detail: https://mcp.example.com/mcp
+  mcp: name=remote transport=http command= args=[] url=https://mcp.example.com/mcp env={} headers={Authorization=••••0005}
+
+[cron] cron:a1b2c3 "Morning digest" status=ready selected=true
+  detail: 0 9 * * *
+  cron: name=Morning digest schedule="0 9 * * *" tz=Asia/Jakarta enabled=false prompt_sha=0751050589ed
+
+[cron] cron:d4e5f6 "Check the build status" status=ready selected=true
+  detail: @every 1h30m · paused in source
+  cron: name=Check the build status schedule="@every 1h30m" tz=Asia/Jakarta enabled=false prompt_sha=23c4e6d52c45
+
+[cron] cron:g7h8i9 "Dentist" status=unsupported selected=false
+  reason: one-shot schedule
+
+[cron] cron:j0k1l2 "Disk check" status=unsupported selected=false
+  reason: script job — Antares schedules run prompts
+
+[channel] channel:whatsapp-bridge "WhatsApp (linked device)" status=unsupported selected=false
+  reason: device-bound WhatsApp login — Antares supports the Meta Cloud API only
+
+[channel] channel:telegram "Telegram" status=ready selected=true secret
+  channel: telegram {allowed_chats=[-100123], allowed_users=[111 222], bot_token=••••0007}
+
+[channel] channel:discord "Discord" status=ready selected=true secret
+  channel: discord {bot_token=••••0008}
+
+[channel] channel:slack "Slack" status=needs_input selected=false secret input=app_token
+  reason: the app_token could not be read
+  channel: slack {bot_token=••••0009}
+
+[channel] channel:dingtalk "DingTalk" status=unsupported selected=false
+  reason: Antares has no DingTalk gateway
+
+[role] role:pirate-coder "Pirate Coder" status=ready selected=true
+  detail: Hermes personality (active)
+  role: name=pirate-coder title="Pirate Coder" model= prompt_sha=b8144900bf2a
+
+[role] role:terse "Terse" status=ready selected=true
+  detail: Hermes personality
+  role: name=terse title="Terse" model= prompt_sha=00c97c092617

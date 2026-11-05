@@ -202,7 +202,7 @@ func (a *Agent) executeTools(
 			AskUser: a.askBridge(sess.ID, safeEmit),
 			Deps: &tools.Deps{
 				Config: a.config(), Store: a.db, RAG: ragProvider, Shell: a.shell,
-				Sub: a.subAgentFor(req), Tasks: a.backgroundFor(req), Skills: a.skillLibrary(),
+				Sub: a.subAgentFor(req), Tasks: a.backgroundFor(req), Skills: a.skillLibrary(sess),
 				SocialBrowser: a.socialBrowser,
 				Checkpoint: func(sessionID, path, tool string) {
 					a.saveCheckpoint(sessionID, path, tool, req.turnMarker)

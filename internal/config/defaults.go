@@ -118,7 +118,7 @@ func Default() *Config {
 			Enabled: true, Dirs: []string{"~/.antares/plugins"},
 		},
 		Roles:    Roles{Dirs: []string{"~/.antares/roles"}},
-		ImageGen: ImageGen{Enabled: false, Model: "gpt-image-1", Size: "1024x1024"},
+		ImageGen: ImageGen{Enabled: false, Model: "gpt-image-1", Size: "1024x1024", ReferenceMode: "edits"},
 		VideoGen: VideoGen{Model: "sora-2", Size: "720x1280", Seconds: 8},
 		Skills: Skills{
 			Enabled: true, Dirs: []string{"~/.antares/skills"},

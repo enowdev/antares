@@ -28,10 +28,14 @@ type migration struct {
 // triggers with a backfill; Postgres GIN index on to_tsvector('simple',
 // content)) and the rag_collection_revisions counter that the vector-index
 // cache polls to detect cross-writer mutations.
+//
+// Version 3 adds the devices table (paired clients holding a device token;
+// see docs/plans/2026-10-02-desktop-contract.md). Identical on both dialects.
 func baselineMigrations(dialect string) []migration {
 	return []migration{
 		{version: 1, statements: baselineV1(dialect)},
 		{version: 2, statements: baselineV2(dialect)},
+		{version: 3, statements: append([]string(nil), devicesV3...)},
 	}
 }
 

@@ -2,19 +2,17 @@
 # Antares installer for Linux and macOS.
 #
 # Downloads the prebuilt `antares` binary for your platform from the project's
-# GitHub Releases and installs it. No build tools required.
+# GitHub Releases, checks it against the release's checksums.txt and installs
+# it. No build tools required.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/enowdev/antares/main/scripts/install.sh | bash
+#   curl -fsSL https://antares.enowx.ai/install.sh | bash
 #
 # Env knobs:
-#   PREFIX=/usr/local     install dir root (binary lands in $PREFIX/bin); default ~/.local
-#   ANTARES_VERSION=v0.1.0  install a specific release; default: latest
+#   PREFIX=/usr/local       install dir root (binary lands in $PREFIX/bin); default ~/.local
+#   ANTARES_VERSION=v0.6.0  install a specific release; default: latest
 #   ANTARES_REPO=owner/name GitHub repo; default enowdev/antares
-#
-# While the repository is private, releases are not publicly downloadable. Have
-# the GitHub CLI installed and authenticated (`gh auth login`); this script uses
-# it automatically when present. Once the repo is public, no auth is needed.
+#   ANTARES_NO_MODIFY_PATH=1  never edit shell rc files, just print the line
 
 set -euo pipefail
 
@@ -33,7 +31,7 @@ os="$(uname -s)"; arch="$(uname -m)"
 case "$os" in
   Linux)  goos="linux" ;;
   Darwin) goos="darwin" ;;
-  *) die "unsupported OS '$os' — on Windows use scripts/install.ps1" ;;
+  *) die "unsupported OS '$os' - on Windows run: irm https://antares.enowx.ai/install.ps1 | iex" ;;
 esac
 case "$arch" in
   x86_64|amd64)  goarch="amd64" ;;
@@ -50,38 +48,39 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 dest="$tmp/antares"
 
 # ---- fetch ------------------------------------------------------------------
-# Prefer the gh CLI (works for a private repo); otherwise use public release URLs.
-if have gh; then
-  info "downloading via GitHub CLI ($REPO, $VERSION)"
-  ver="$VERSION"
-  if [ "$ver" = "latest" ]; then
-    ver="$(gh release view --repo "$REPO" --json tagName -q .tagName)" \
-      || die "could not read the latest release. Is 'gh' authenticated? Try: gh auth login"
-  fi
-  asset="$(asset_for "$ver")"
-  gh release download "$ver" --repo "$REPO" --pattern "$asset" --output "$dest" --clobber \
-    || die "no asset '$asset' in release $ver. Available assets: $(gh release view "$ver" --repo "$REPO" --json assets -q '.assets[].name' | tr '\n' ' ')"
-else
-  have curl || die "need curl (or the gh CLI) to download."
-  if [ "$VERSION" = "latest" ]; then
-    base="https://github.com/$REPO/releases/latest/download"
-    # The 'latest' redirect does not know the version, so try the unversioned
-    # name first; release-build.sh embeds the version, so also expose a stable
-    # alias if you upload one. Otherwise pass ANTARES_VERSION explicitly.
-    ver=""
-  else
-    ver="$VERSION"
-    base="https://github.com/$REPO/releases/download/$ver"
-  fi
-  [ -n "$ver" ] || die "without the gh CLI you must pass a version, e.g. ANTARES_VERSION=v0.1.0 (the repo may still be private, in which case install the gh CLI and run 'gh auth login')"
-  asset="$(asset_for "$ver")"
-  url="$base/$asset"
-  info "downloading $url"
-  curl -fsSL "$url" -o "$dest" \
-    || die "download failed. If the repo is still private, install the GitHub CLI (gh) and run 'gh auth login', then re-run."
+have curl || die "need curl to download."
+ver="$VERSION"
+if [ "$ver" = "latest" ]; then
+  # /releases/latest redirects to /releases/tag/<tag>; no API, no rate limit.
+  ver="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest")" \
+    || die "could not reach github.com to find the latest release."
+  ver="${ver##*/}"
+  case "$ver" in v*) ;; *) die "could not find the latest release of $REPO." ;; esac
 fi
+base="https://github.com/$REPO/releases/download/$ver"
+asset="$(asset_for "$ver")"
+info "downloading $asset ($ver)"
+curl -fSL --progress-bar "$base/$asset" -o "$dest" \
+  || die "download failed: $base/$asset"
 
 [ -s "$dest" ] || die "downloaded file is empty."
+
+# ---- verify -----------------------------------------------------------------
+if curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt" 2>/dev/null; then
+  want="$(awk -v a="$asset" '$2 == a || $2 == "*"a { print $1 }' "$tmp/checksums.txt")"
+  if have sha256sum; then got="$(sha256sum "$dest" | awk '{print $1}')"
+  elif have shasum; then got="$(shasum -a 256 "$dest" | awk '{print $1}')"
+  else got=""; fi
+  if [ -z "$want" ] || [ -z "$got" ]; then
+    warn "could not verify the checksum; continuing."
+  elif [ "$want" != "$got" ]; then
+    die "checksum mismatch for $asset (expected $want, got $got)."
+  else
+    info "checksum ok"
+  fi
+else
+  warn "no checksums.txt in $ver; skipping verification."
+fi
 
 # ---- install ----------------------------------------------------------------
 chmod +x "$dest"
@@ -136,7 +135,7 @@ case ":$PATH:" in
         fi
       fi
       if [ "$touched" = "1" ]; then
-        warn "PATH updated — open a NEW terminal (or 'source' your shell rc) for 'antares' to be found."
+        warn "PATH updated - open a NEW terminal (or 'source' your shell rc) for 'antares' to be found."
       else
         warn "$BINDIR is not on your PATH and no shell rc file was found. Add it:"
         echo "    echo 'export PATH=\"$BINDIR:\$PATH\"' >> ~/.bashrc   # or ~/.zshrc"

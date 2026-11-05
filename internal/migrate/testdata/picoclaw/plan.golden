@@ -1,0 +1,80 @@
+root=<home>/.picoclaw version=0.2.9
+source=picoclaw name="PicoClaw" profile="" running=false
+summary: 5 providers · model · instructions · user profile · 1 memory · 1 note · 1 skill · 2 MCP servers · 4 schedules · 1 role · Slack · Telegram
+
+[provider] provider:github-copilot "GitHub Copilot (copilot-gpt)" status=unsupported selected=false
+  reason: subscription/OAuth login — sign in again in Antares
+
+[provider] provider:anthropic "Anthropic" status=ready selected=true secret
+  detail: claude-sonnet-4.6
+  provider: id=anthropic kind=anthropic base_url=https://api.anthropic.com/v1 key=••••0001 models=[claude-sonnet-4.6] headers={}
+
+[provider] provider:deepseek "DeepSeek" status=ready selected=true secret
+  detail: deepseek-chat
+  provider: id=deepseek kind=openai-compatible base_url=https://api.deepseek.com key=••••0002 models=[deepseek-chat] headers={}
+
+[provider] provider:zhipu-ai "Zhipu AI" status=ready selected=true secret
+  detail: glm-4.7
+  provider: id=zhipu-ai kind=openai-compatible base_url=https://open.bigmodel.cn/api/paas/v4 key=••••0003 models=[glm-4.7] headers={}
+
+[provider] provider:ollama "Ollama" status=ready selected=true secret
+  detail: llama3
+  provider: id=ollama kind=openai-compatible base_url=http://127.0.0.1:11434/v1 key= models=[llama3] headers={}
+
+[model] model:default "anthropic / claude-sonnet-4.6" status=ready selected=true
+  detail: 1 fallback(s): deepseek/deepseek-chat
+  model: provider=anthropic model=claude-sonnet-4.6 fallback=[deepseek/deepseek-chat]
+
+[agents_md] agents_md:file "AGENTS.md" status=ready selected=true
+  detail: from PicoClaw AGENT.md · 46 chars
+  text: from=PicoClaw AGENT.md sha=0db12c35b059
+
+[user_md] user_md:file "USER.md" status=ready selected=true
+  detail: from PicoClaw USER.md · 42 chars
+  text: from=PicoClaw USER.md sha=560d2134fdc9
+
+[memory] memory:74d24ce06166 "Eno maintains the antares repo." status=ready selected=true
+  memory: scope=global key=eno-maintains-the-antares-repo tags=[import:picoclaw user-information]
+
+[knowledge] knowledge:memory/202609/20260915.md "memory/202609/20260915.md" status=ready selected=true
+  detail: 43 chars
+  knowledge: path=memory/202609/20260915.md sha=57c7a1f5cec8
+
+[skill] skill:discord "discord" status=ready selected=true
+  detail: Post to Discord webhooks.
+  skill: name=discord dir=discord
+
+[mcp] mcp:docs "docs" status=ready selected=true
+  detail: https://docs.example.com/mcp · disabled in PicoClaw
+  mcp: name=docs transport=http command= args=[] url=https://docs.example.com/mcp env={} headers={}
+
+[mcp] mcp:github "github" status=ready selected=true secret
+  detail: npx -y @modelcontextprotocol/server-github
+  mcp: name=github transport=stdio command=npx args=[-y @modelcontextprotocol/server-github] url= env={GITHUB_TOKEN=••••en01} headers={}
+
+[cron] cron:c1 "Standup" status=ready selected=true
+  detail: 30 9 * * 1-5
+  cron: name=Standup schedule="30 9 * * 1-5" tz=UTC enabled=false prompt_sha=0d173fe3c43b
+
+[cron] cron:c2 "Backup" status=unsupported selected=false
+  reason: the job runs a shell command, not a prompt
+
+[cron] cron:c3 "Call mom" status=unsupported selected=false
+  reason: one-shot schedule
+
+[cron] cron:heartbeat "Heartbeat" status=ready selected=true
+  detail: @every 15m
+  cron: name=Heartbeat schedule="@every 15m" tz= enabled=false prompt_sha=1b7e5f46ec9e
+
+[role] role:researcher "Researcher" status=ready selected=true
+  role: name=researcher title="Researcher" model=deepseek/deepseek-chat prompt_sha=120643d5d5a2
+
+[channel] channel:qq "QQ" status=unsupported selected=false
+  reason: Antares has no QQ gateway
+
+[channel] channel:slack "Slack" status=needs_input selected=false secret input=app_token
+  reason: the app_token could not be read
+  channel: slack {bot_token=••••oken}
+
+[channel] channel:telegram "Telegram" status=ready selected=true secret
+  channel: telegram {allowed_users=[111], bot_token=••••oken}

@@ -71,7 +71,7 @@ func run() error {
 	if len(args) == 0 && !term.IsTerminal(int(os.Stdin.Fd())) {
 		args = []string{"--foreground"}
 	}
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+	if len(args) > 0 && (!strings.HasPrefix(args[0], "-") || isTopLevelFlag(args[0])) {
 		command, args = args[0], args[1:]
 	}
 
@@ -109,6 +109,22 @@ func run() error {
 		return cmdRag(args)
 	case "backup":
 		return cmdBackup(args)
+	case "migrate":
+		return cmdMigrate(args)
+	case "ask":
+		return cmdAsk(args)
+	case "logs", "log":
+		return cmdLogs(args)
+	case "soul":
+		return cmdSoul(args)
+	case "sessions", "session":
+		return cmdSessions(args)
+	case "skills", "skill":
+		return cmdSkillsCLI(args)
+	case "memory", "memories":
+		return cmdMemoryCLI(args)
+	case "device", "devices":
+		return cmdDevice(args)
 	case "doctor":
 		return cmdDoctor()
 	case "version", "--version", "-v":
@@ -118,6 +134,11 @@ func run() error {
 		printUsage()
 		return nil
 	default:
+		// Any other shell-safe slash command from the shared registry
+		// (`antares usage 30`, `antares roles`, …). Dedicated cases above win.
+		if handled, err := runPassthrough(command, args); handled {
+			return err
+		}
 		printUsage()
 		return fmt.Errorf("unknown command: %s", command)
 	}
@@ -131,23 +152,70 @@ Usage:
   antares --foreground     Run attached to this terminal (debug/systemd/Docker)
   antares stop             Stop the background server
   antares status           Show background server status
+  antares logs [-f] [-n N] Print (and follow) the background server's log
   antares tui              Open the terminal UI
   antares setup            Configure Antares (web or terminal wizard)
+  antares doctor           Check configuration and connectivity
+  antares version
+
+Chat from scripts:
+  antares ask ["prompt"]   One-shot turn; reply on stdout, session id on stderr
+      [--session <id>|--new] [--role r] [--model m] [--effort e]
+      [--project dir] [--attach path]... [-q]     Prompt may come on stdin
+
+Sessions:
+  antares sessions [list] [--limit N] [--json]
+  antares sessions show <id> [--json]
+  antares sessions rename <id> <title>
+  antares sessions delete <id>... [--yes]
+  antares sessions export <id> [--md|--json] [-o file]
+
+Model and configuration:
   antares model [id]       Show, list, or change the active model
   antares model list       List every configured model
+  antares models [provider]      List the models a provider offers
   antares provider         List providers and their connection status
   antares provider add <id> [api-key]   Connect a provider
   antares provider use <id>             Switch to a connected provider
+  antares toolset [name]   Show or switch the active toolset
+  antares reasoning [on|off]     Toggle reasoning display
   antares theme [name]     Show or set the colour theme
   antares config get <path>
   antares config set <path> <value>
+  antares soul [show|edit|set <file>|reset|path]   The agent's identity (SOUL.md)
+
+Skills, memory, tools:
+  antares skills [list] [--json [--all]] List installed skills
+  antares skills show <name>             Print a skill's instructions
+  antares skills enable|disable <name>   Turn a skill on or off
+  antares skills search|install [id]     Browse or install from the hub
+  antares memory [list] [--json]         Recent long-term memories
+  antares memory search|add|forget ...   Search, save, or delete one
+  antares remember <text>  Save a memory (alias of memory add)
+  antares forget <key>     Delete a memory (alias of memory forget)
+  antares tools            Tools available to the agent (connects MCP servers)
+  antares mcp [search|install] [id]      MCP server status, catalogue, install
+  antares roles            List the specialist roles
+  antares team             How the specialist roles have performed
+  antares panel <question> Ask several models and synthesise one answer
+  antares usage [days]     Token and cost summary (alias: cost)
+  antares web              Print the dashboard URL
+
+Automation:
   antares cron list|add|run|rm   Manage scheduled jobs
   antares autopilot add|list|run Run a queue of tasks unattended
   antares auth copilot           Sign in to GitHub Copilot
   antares rag index <path>       Index files into semantic search
   antares backup           Archive everything; also list, restore, prune
-  antares doctor           Check configuration and connectivity
-  antares version
+  antares migrate [source] Import from another agent (Hermes, OpenClaw, …); undo <dir>
+
+Devices (desktop app, scripts):
+  antares device pair [--name N] [--platform P] [--json]   Create a device token
+  antares device list [--json]   Paired devices
+  antares device revoke <id>     Revoke one
+
+Changes made from the shell are written to config.yaml; a running server
+applies them on restart. See docs/cli.md.
 
 Environment:
   ANTARES_HOME             State directory (default ~/.antares)
@@ -161,6 +229,10 @@ Environment:
 func cmdTUI() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// The TUI owns the terminal: a log line on stderr would print over it.
+	// Logs go to the log file (and the dashboard's buffer) only.
+	logToConsole = false
 
 	rt, err := bootstrap(ctx)
 	if err != nil {
@@ -190,22 +262,50 @@ func cmdTUI() error {
 
 	ui := tui.New(rt.agent, rt.cfg, rt.db)
 	ui.SetReload(rt.reload)
+	// /mcp reads live server status from the runtime's manager.
+	ui.SetMCP(rt.mcp)
 	return ui.Run(ctx)
 }
 
 // runtimeServices bundles everything a running server needs, so a config reload
 // can rebuild the pieces that depend on configuration.
 type runtimeServices struct {
-	mu      sync.Mutex
-	cfg     *config.Config
-	db      store.Store
-	shell   *tools.ShellManager
-	agent   *agent.Agent
-	skills  *skills.Manager
-	cron    *cron.Runner
-	gateway *gateway.Manager
-	mcp     *mcp.Manager
-	social  *socialbrowser.Manager
+	mu               sync.Mutex
+	cfg              *config.Config
+	db               store.Store
+	shell            *tools.ShellManager
+	agent            *agent.Agent
+	skills           *skills.Manager
+	cron             *cron.Runner
+	gateway          *gateway.Manager
+	mcp              *mcp.Manager
+	social           *socialbrowser.Manager
+	skillsHome       string
+	skillsProjectDir string
+	skillsCancel     context.CancelFunc
+	skillsDone       chan struct{}
+}
+
+// logToConsole is whether log lines also go to stderr. Off for the TUI,
+// which draws on the terminal the logs would print over.
+var logToConsole = true
+
+// setupLogging starts the logger. logx.Setup always writes to os.Stderr as
+// well as the log file, so with logToConsole off, stderr is swapped for the
+// null device while the logger takes its writers, and restored straight
+// after: only the logger loses the terminal, nothing else that prints to it.
+func setupLogging(cfg *config.Config) error {
+	if logToConsole {
+		return logx.Setup(cfg.Logging.Level, cfg.Logging.File, cfg.Logging.JSON)
+	}
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		return logx.Setup(cfg.Logging.Level, cfg.Logging.File, cfg.Logging.JSON)
+	}
+	stderr := os.Stderr
+	os.Stderr = null
+	defer func() { os.Stderr = stderr }()
+	return logx.Setup(cfg.Logging.Level, cfg.Logging.File, cfg.Logging.JSON)
 }
 
 func bootstrap(ctx context.Context) (*runtimeServices, error) {
@@ -216,7 +316,11 @@ func bootstrap(ctx context.Context) (*runtimeServices, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := logx.Setup(cfg.Logging.Level, cfg.Logging.File, cfg.Logging.JSON); err != nil {
+	cfg, err = migrateSkillState(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := setupLogging(cfg); err != nil {
 		return nil, fmt.Errorf("setting up logging: %w", err)
 	}
 	// Kick off the background models.dev refresh. The bundled snapshot
@@ -275,9 +379,20 @@ func bootstrap(ctx context.Context) (*runtimeServices, error) {
 		slog.Info("unpacked the security skill library", "count", n)
 	}
 
-	skillDirs := append(append([]string{}, cfg.Skills.Dirs...), "~/.antares/security-skills")
-	skillMgr := skills.NewManager(expandAll(skillDirs))
-	skillMgr.SetPackDirs([]string{packDir})
+	skillsHome, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(skillsHome) == "" {
+		slog.Warn("automatic user skills unavailable", "error", err)
+		skillsHome = ""
+	}
+	skillsProjectDir, err := os.Getwd()
+	if err != nil {
+		slog.Warn("automatic project skills unavailable", "error", err)
+		skillsProjectDir = ""
+	}
+	skillMgr := skills.NewManager(skills.Options{
+		Dirs: expandAll(cfg.Skills.Dirs), PackDirs: []string{packDir},
+		UserHome: skillsHome, ProjectDir: skillsProjectDir,
+	})
 	if err := skillMgr.Reload(); err != nil {
 		slog.Warn("some skills failed to load", "error", err)
 	}
@@ -301,6 +416,7 @@ func bootstrap(ctx context.Context) (*runtimeServices, error) {
 	ag.SetRoles(roleReg)
 
 	rt := &runtimeServices{cfg: cfg, db: db, shell: shell, agent: ag, skills: skillMgr}
+	rt.skillsHome, rt.skillsProjectDir = skillsHome, skillsProjectDir
 	rt.social = socialbrowser.New()
 	ag.SetSocialBrowser(rt.social)
 
@@ -329,6 +445,7 @@ func bootstrap(ctx context.Context) (*runtimeServices, error) {
 		}
 	}
 
+	rt.startSkillRefresh(ctx)
 	return rt, nil
 }
 
@@ -698,6 +815,10 @@ func (rt *runtimeServices) reload() error {
 	if err != nil {
 		return err
 	}
+	cfg, err = migrateSkillState(cfg)
+	if err != nil {
+		return err
+	}
 	cfg, _ = config.Effective(rt.cfg, cfg)
 	previous := rt.cfg
 	if err := cfg.Server.ValidateListen(); err != nil {
@@ -720,13 +841,12 @@ func (rt *runtimeServices) reload() error {
 	rt.agent.SetRAG(ragProvider)
 
 	packDir := config.Path("security-skills")
-	skillDirs := append(append([]string{}, cfg.Skills.Dirs...), "~/.antares/security-skills")
-	rt.skills = skills.NewManager(expandAll(skillDirs))
-	rt.skills.SetPackDirs([]string{packDir})
-	if err := rt.skills.Reload(); err != nil {
+	if err := rt.skills.Reconfigure(skills.Options{
+		Dirs: expandAll(cfg.Skills.Dirs), PackDirs: []string{packDir},
+		UserHome: rt.skillsHome, ProjectDir: rt.skillsProjectDir,
+	}); err != nil {
 		slog.Warn("some skills failed to load", "error", err)
 	}
-	rt.agent.SetSkills(rt.skills)
 
 	if cfg.Plugins.Enabled {
 		pluginMgr := plugin.NewManager(expandAll(cfg.Plugins.Dirs))
@@ -757,7 +877,43 @@ func (rt *runtimeServices) reload() error {
 	return nil
 }
 
+// startSkillRefresh owns the one catalog worker for this runtime, including when
+// skills are loaded for the dashboard but disabled for agent prompts and tools.
+func (rt *runtimeServices) startSkillRefresh(ctx context.Context) {
+	if rt == nil {
+		return
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.skills == nil || rt.skillsDone != nil {
+		return
+	}
+	ctx, rt.skillsCancel = context.WithCancel(ctx)
+	done := make(chan struct{})
+	rt.skillsDone = done
+	mgr := rt.skills
+	go func() {
+		defer close(done)
+		mgr.Watch(ctx, 5*time.Second)
+	}()
+}
+
+func (rt *runtimeServices) stopSkillRefresh() {
+	if rt == nil {
+		return
+	}
+	rt.mu.Lock()
+	cancel, done := rt.skillsCancel, rt.skillsDone
+	rt.mu.Unlock()
+	if cancel == nil {
+		return
+	}
+	cancel()
+	<-done
+}
+
 func (rt *runtimeServices) close() {
+	rt.stopSkillRefresh()
 	if rt.mcp != nil {
 		rt.mcp.Close()
 	}
@@ -1129,4 +1285,14 @@ func expandAll(dirs []string) []string {
 		out = append(out, config.Expand(d))
 	}
 	return out
+}
+
+// isTopLevelFlag reports the flags that are commands of their own rather than
+// options of the default serve command: `antares --version` and `--help`.
+func isTopLevelFlag(arg string) bool {
+	switch arg {
+	case "--version", "-v", "--help", "-h":
+		return true
+	}
+	return false
 }

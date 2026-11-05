@@ -1,0 +1,12 @@
+{
+  "id": "agent-local-22222222-bbbb",
+  "name": "Researcher",
+  "description": "Digs through papers and summarises them.",
+  "system": "<system>",
+  "tags": [],
+  "model": "openrouter/google/gemini-2.5-pro",
+  "model_settings": {
+    "provider_type": "openrouter"
+  },
+  "hidden": false
+}

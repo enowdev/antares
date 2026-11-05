@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "c1",
+      "name": "Standup",
+      "enabled": true,
+      "schedule": {
+        "kind": "cron",
+        "expr": "30 9 * * 1-5",
+        "tz": "UTC"
+      },
+      "payload": {
+        "kind": "agent_turn",
+        "message": "Prepare my standup notes."
+      },
+      "state": {},
+      "createdAtMs": 1,
+      "updatedAtMs": 1,
+      "deleteAfterRun": false
+    },
+    {
+      "id": "c2",
+      "name": "Backup",
+      "enabled": true,
+      "schedule": {
+        "kind": "every",
+        "everyMs": 3600000
+      },
+      "payload": {
+        "kind": "agent_turn",
+        "message": "",
+        "command": "tar czf /tmp/b.tgz ~/notes"
+      },
+      "state": {},
+      "createdAtMs": 1,
+      "updatedAtMs": 1,
+      "deleteAfterRun": false
+    },
+    {
+      "id": "c3",
+      "name": "Call mom",
+      "enabled": true,
+      "schedule": {
+        "kind": "at",
+        "atMs": 1790000000000
+      },
+      "payload": {
+        "kind": "agent_turn",
+        "message": "Call mom."
+      },
+      "state": {},
+      "createdAtMs": 1,
+      "updatedAtMs": 1,
+      "deleteAfterRun": true
+    }
+  ]
+}

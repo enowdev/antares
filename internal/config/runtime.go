@@ -52,6 +52,16 @@ func cloneConfigValue(v reflect.Value) {
 			copy.SetMapIndex(iter.Key(), value)
 		}
 		v.Set(copy)
+	case reflect.Pointer:
+		// display.modules is a *[]string: copying the pointer would leave both
+		// clones sharing one backing slice.
+		if v.IsNil() {
+			return
+		}
+		copy := reflect.New(v.Type().Elem())
+		copy.Elem().Set(v.Elem())
+		cloneConfigValue(copy.Elem())
+		v.Set(copy)
 	case reflect.Slice:
 		if v.IsNil() {
 			return
@@ -128,6 +138,11 @@ func (c *Config) Validate() error {
 	if tz := strings.TrimSpace(c.Cron.Timezone); tz != "" && !strings.EqualFold(tz, "local") {
 		if _, err := time.LoadLocation(tz); err != nil {
 			return fmt.Errorf("cron.timezone: %w", err)
+		}
+	}
+	if c.Display.Modules != nil {
+		if err := ValidateModules(*c.Display.Modules); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -1,0 +1,105 @@
+source=zeroclaw name="ZeroClaw" profile="" running=true
+summary: 3 providers · model · soul · instructions · user profile · 4 memories · 1 note · 3 skills · 2 MCP servers · 5 schedules · 1 role · Feishu · Telegram
+warning: ZeroClaw is running — stop it before importing its chat channels, or both will answer the same bots.
+
+[provider] provider:anthropic "Anthropic" status=conflict selected=false secret
+  detail: encrypted key from config.toml
+  reason: Antares already has a provider "anthropic"
+  provider: id=anthropic kind=anthropic base_url=https://api.anthropic.com/v1 key=••••0002 models=[claude-sonnet-4-5] headers={}
+
+[provider] provider:lab "lab" status=needs_input selected=false secret input=api_key
+  detail: encrypted key from config.toml
+  reason: the key is a 1Password reference; enter it to import this provider
+  provider: id=lab kind=openai-compatible base_url=https://llm.lab.example/v1 key= models=[qwen3-32b] headers={}
+
+[provider] provider:openrouter "OpenRouter" status=ready selected=true secret
+  detail: encrypted key from config.toml
+  provider: id=openrouter kind=openai-compatible base_url=https://openrouter.ai/api/v1 key=••••0001 models=[anthropic/claude-sonnet-4.5] headers={}
+
+[model] model:default "openrouter / anthropic/claude-sonnet-4.5" status=ready selected=true
+  detail: 1 fallback(s): anthropic/claude-sonnet-4-5
+  model: provider=openrouter model=anthropic/claude-sonnet-4.5 fallback=[anthropic/claude-sonnet-4-5]
+
+[soul] soul:file "SOUL.md" status=conflict selected=false
+  detail: from SOUL.md + IDENTITY.md · 73 chars
+  reason: Antares already has a custom SOUL.md (replace or append)
+  text: from=SOUL.md + IDENTITY.md sha=4d90f416a8a8
+
+[agents_md] agents_md:file "AGENTS.md" status=ready selected=true
+  detail: from AGENTS.md · 80 chars
+  text: from=AGENTS.md sha=271cc46a7c77
+
+[user_md] user_md:file "USER.md" status=ready selected=true
+  detail: from USER.md · 48 chars
+  text: from=USER.md sha=c84ed36823a3
+
+[memory] memory:2a8a8a55234d "Rina uses Neovim" status=ready selected=true
+  memory: scope=global key=rina-uses-neovim tags=[import:zeroclaw]
+
+[memory] memory:dae996c4a9f2 "Prefers flat white, no sugar" status=ready selected=true
+  memory: scope=global key=prefers-flat-white-no-sugar tags=[import:zeroclaw]
+
+[memory] memory:4a7dc72545c0 "Rina has a cat called Miso" status=ready selected=true
+  memory: scope=global key=rina-has-a-cat-called-miso tags=[import:zeroclaw]
+
+[memory] memory:265e1a82a106 "Prefers Go over Rust" status=ready selected=true
+  memory: scope=global key=prefers-go-over-rust tags=[import:zeroclaw preference]
+
+[knowledge] knowledge:memory/2026-10-01.md "memory/2026-10-01.md" status=ready selected=true
+  detail: 66 chars
+  knowledge: path=memory/2026-10-01.md sha=a43f5ff94559
+
+[skill] skill:web-research "web-research" status=ready selected=true
+  detail: Research a topic on the web and cite sources.
+  skill: name=web-research dir=web-research
+
+[skill] skill:legacy-tool "legacy-tool" status=unsupported selected=false
+  reason: SKILL.toml skills (tool manifests) are not supported; only SKILL.md skills are
+
+[skill] skill:git-helper "git-helper" status=conflict selected=false
+  detail: Helps with git.
+  reason: Antares already has a skill named "git-helper"
+  skill: name=git-helper dir=git-helper
+
+[mcp] mcp:github "github" status=ready selected=true secret
+  detail: npx -y @modelcontextprotocol/server-github
+  mcp: name=github transport=stdio command=npx args=[-y @modelcontextprotocol/server-github] url= env={GITHUB_TOKEN=••••0005} headers={}
+
+[mcp] mcp:search "search" status=ready selected=true
+  detail: https://mcp.search.example/sse
+  mcp: name=search transport=http command= args=[] url=https://mcp.search.example/sse env={} headers={}
+
+[cron] cron:backup "Backup notes" status=unsupported selected=false
+  reason: shell-command jobs are not migrated (Antares schedules run prompts)
+
+[cron] cron:morning "Morning brief" status=ready selected=true
+  detail: 0 8 * * 1-5
+  cron: name=Morning brief schedule="0 8 * * 1-5" tz=Asia/Jakarta enabled=false prompt_sha=cbb62f938919
+
+[cron] cron:j-water "Hydrate" status=ready selected=true
+  detail: @every 30m
+  cron: name=Hydrate schedule="@every 30m" tz= enabled=false prompt_sha=3b1fee3dd3e1
+
+[cron] cron:j-dentist "Dentist" status=unsupported selected=false
+  reason: one-shot schedule (runs once at 2026-10-10T09:00:00Z)
+
+[cron] cron:j-weekly "Weekly review" status=ready selected=true
+  detail: 0 17 * * 5 · paused in source
+  cron: name=Weekly review schedule="0 17 * * 5" tz= enabled=false prompt_sha=daea5b828a0b
+
+[channel] channel:dingtalk "DingTalk" status=unsupported selected=false
+  reason: Antares has no DingTalk gateway
+
+[channel] channel:lark-feishu "Lark (feishu)" status=conflict selected=false secret
+  reason: Antares already has a Feishu token
+  channel: feishu {app_id=cli_fake_app, app_secret=••••0004, verify_token=}
+
+[channel] channel:telegram "Telegram" status=ready selected=true secret
+  channel: telegram {allowed_users=[12345], bot_token=••••0003}
+
+[channel] channel:whatsapp "WhatsApp" status=unsupported selected=false
+  reason: WhatsApp Web (a linked-device session) cannot be moved; Antares supports the WhatsApp Cloud API only
+
+[role] role:coder "coder" status=ready selected=true
+  detail: ZeroClaw agent
+  role: name=coder title="coder" model=anthropic/claude-sonnet-4-5 prompt_sha=9faf3f252ee0

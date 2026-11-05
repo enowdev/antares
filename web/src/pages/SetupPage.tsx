@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
+  ArrowsLeftRight,
   CheckCircle,
   Database,
   Eye,
@@ -13,9 +14,18 @@ import {
 } from '@phosphor-icons/react'
 import { get, post } from '@/lib/api'
 import { parseProviderHeaders } from '@/lib/providerHeaders'
-import { useI18n } from '@/lib/i18n'
+import { useI18n, type MessageKey } from '@/lib/i18n'
+import { DEFAULT_PRESET, PRESET_IDS, PRESET_MODULES, type PresetId } from '@/lib/modules'
+import { hubsOfModules } from '@/lib/moduleNav'
+import { HUB_MANIFEST } from '@/lib/routeManifest'
+import { reloadModules } from '@/lib/useModules'
+import { detectedInstalls, type MigrateSource } from '@/lib/migrate'
 import { cn } from '@/lib/utils'
+import { useReveal } from '@/lib/motion'
+import { Brand } from '@/components/brand/BrandMark'
+import { AgentField } from '@/components/brand/AgentField'
 import { ProviderHeadersField } from '@/components/providers/ProviderHeadersField'
+import { MigrateFlow } from '@/components/migrate/MigrateFlow'
 import { Button } from '@/components/ui/button'
 import {
   Badge,
@@ -62,9 +72,11 @@ interface TestResult {
   suggested?: string[]
 }
 
-type StepId = 'provider' | 'key' | 'model' | 'workspace' | 'extras' | 'done'
+type StepId = 'migrate' | 'provider' | 'key' | 'model' | 'workspace' | 'extras' | 'done'
 
 const STEPS: StepId[] = ['provider', 'key', 'model', 'workspace', 'extras', 'done']
+/** With another agent detected (or asked for), migrate comes first. */
+const MIGRATE_STEPS: StepId[] = ['migrate', ...STEPS]
 
 export default function SetupPage() {
   const { t } = useI18n()
@@ -95,21 +107,69 @@ export default function SetupPage() {
   const [embedKey, setEmbedKey] = useState('')
   const [telegram, setTelegram] = useState('')
   const [dashboardPassword, setDashboardPassword] = useState('')
+  const [preset, setPreset] = useState<PresetId>(DEFAULT_PRESET)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
 
+  const [migrateSources, setMigrateSources] = useState<MigrateSource[]>()
+  const [withMigrate, setWithMigrate] = useState(false)
+  // Set after an import, from a fresh /setup/status: false means the import
+  // brought a working provider and model, so those steps are skipped.
+  const [migratedStatus, setMigratedStatus] = useState<SetupStatus>()
+  const [migratedReady, setMigratedReady] = useState(false)
+
+  const adoptStatus = (s: SetupStatus) => {
+    setStatus(s)
+    setWorkspace(s.workspace)
+    if (s.provider) setProviderId(s.provider)
+    if (s.model) setModel(s.model)
+  }
+
   useEffect(() => {
-    get<SetupStatus>('/setup/status')
-      .then((s) => {
-        setStatus(s)
-        setWorkspace(s.workspace)
-        if (s.provider) setProviderId(s.provider)
-        if (s.model) setModel(s.model)
+    // Sources are best effort: a server without the migrate API, or with
+    // nothing detected, simply starts at the provider step.
+    Promise.all([
+      get<SetupStatus>('/setup/status'),
+      get<{ sources: MigrateSource[] }>('/migrate/sources').catch(() => undefined),
+    ])
+      .then(([s, m]) => {
+        adoptStatus(s)
+        const sources = m?.sources ?? []
+        setMigrateSources(sources)
+        if (detectedInstalls(sources).length > 0) {
+          setWithMigrate(true)
+          setStep('migrate')
+        }
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
+
+  const steps = withMigrate ? MIGRATE_STEPS : STEPS
+
+  const afterImport = async () => {
+    try {
+      const s = await get<SetupStatus>('/setup/status')
+      setMigratedStatus(s)
+    } catch {
+      setMigratedStatus(undefined)
+    }
+  }
+
+  const continueAfterImport = () => {
+    const s = migratedStatus
+    if (s) adoptStatus(s)
+    setTest(undefined)
+    // /setup/complete refuses once setup is no longer needed, so an import
+    // that already configured a provider and model finishes the wizard here.
+    if (s && !s.needs_setup) {
+      setMigratedReady(true)
+      setStep('done')
+    } else {
+      setStep('provider')
+    }
+  }
 
   const provider = useMemo(
     () => status?.providers.find((p) => p.id === providerId),
@@ -119,14 +179,14 @@ export default function SetupPage() {
   // Local endpoints need no credential, so that step is skipped entirely.
   const skipsKey = !!provider?.local
 
-  const stepIndex = STEPS.indexOf(step)
+  const stepIndex = Math.max(steps.indexOf(step), 0)
   const goNext = () => {
-    let next = STEPS[Math.min(stepIndex + 1, STEPS.length - 1)]
+    let next = steps[Math.min(stepIndex + 1, steps.length - 1)]
     if (next === 'key' && skipsKey) next = 'model'
     setStep(next)
   }
   const goBack = () => {
-    let prev = STEPS[Math.max(stepIndex - 1, 0)]
+    let prev = steps[Math.max(stepIndex - 1, 0)]
     if (prev === 'key' && skipsKey) prev = 'provider'
     setStep(prev)
   }
@@ -195,7 +255,14 @@ export default function SetupPage() {
         },
         telegram_token: telegram,
         dashboard_password: dashboardPassword,
+        modules: [...PRESET_MODULES[preset]],
+        preset,
       })
+      // Refresh the shared module store so the sidebar matches the preset.
+      // Skipped when a password was just set: every API call now needs a
+      // login, and the 401 would bounce this page to /login before the done
+      // step shows. The login page reload loads modules fresh anyway.
+      if (!dashboardPassword.trim()) void reloadModules()
       setStep('done')
     } catch (e) {
       setError((e as Error).message)
@@ -218,20 +285,49 @@ export default function SetupPage() {
 
   if (loading) {
     return (
-      <SetupShell stepIndex={0}>
+      <SetupShell steps={steps} stepIndex={0}>
         <Skeleton className="h-9 w-56" />
-        <Skeleton className="h-64 w-full rounded-[var(--radius-lg)]" />
+        <Skeleton className="h-64 w-full" />
       </SetupShell>
     )
   }
 
   return (
-    <SetupShell stepIndex={stepIndex}>
+    <SetupShell steps={steps} stepIndex={stepIndex}>
       {error ? (
-        <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+        <div
+          role="alert"
+          className="m-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+        >
           <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
           <span className="min-w-0 break-words">{error}</span>
         </div>
+      ) : null}
+
+      {step === 'migrate' ? (
+        <section className="space-y-4">
+          <StepHeading title={t('setup.migrateTitle')} description={t('setup.migrateDesc')} />
+          <MigrateFlow
+            sources={migrateSources}
+            compact
+            onApplied={() => void afterImport()}
+            onUndone={() => setMigratedStatus(undefined)}
+            resultActions={() => (
+              <Button size="sm" onClick={continueAfterImport} className="gap-1.5">
+                {migratedStatus && !migratedStatus.needs_setup ? t('setup.migrateFinish') : t('setup.migrateContinue')}
+                <ArrowRight />
+              </Button>
+            )}
+          />
+          {migratedStatus ? null : (
+            <div className="flex justify-end pt-1">
+              <Button variant="ghost" size="sm" onClick={() => setStep('provider')} className="gap-1.5">
+                {t('setup.migrateSkip')}
+                <ArrowRight className="size-4" />
+              </Button>
+            </div>
+          )}
+        </section>
       ) : null}
 
       {step === 'provider' ? (
@@ -240,6 +336,19 @@ export default function SetupPage() {
             title={t('setup.providerTitle')}
             description={t('setup.providerDesc')}
           />
+          {!withMigrate ? (
+            <button
+              type="button"
+              onClick={() => {
+                setWithMigrate(true)
+                setStep('migrate')
+              }}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground underline decoration-line underline-offset-4 transition-colors hover:text-foreground hover:decoration-foreground"
+            >
+              <ArrowsLeftRight className="size-3.5" />
+              {t('setup.migrateLink')}
+            </button>
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-2">
             {status?.providers.map((p) => (
               <button
@@ -249,11 +358,11 @@ export default function SetupPage() {
                   setBaseURL(p.base_url ?? '')
                   setTest(undefined)
                 }}
+                data-reveal
+                aria-pressed={providerId === p.id}
                 className={cn(
-                  'rounded-[var(--radius-md)] border p-3.5 text-left transition-colors',
-                  providerId === p.id
-                    ? 'border-primary bg-primary/8'
-                    : 'border-border hover:border-primary/40',
+                  'rounded-[var(--radius-md)] border p-3.5 text-left transition-[border-color,background-color] duration-200',
+                  providerId === p.id ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                 )}
               >
                 <div className="flex items-center gap-2">
@@ -267,7 +376,7 @@ export default function SetupPage() {
           </div>
 
           {providerId === 'custom' ? (
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="provider-name">{t('setup.providerName')}</Label>
               <Input
                 id="provider-name"
@@ -276,12 +385,12 @@ export default function SetupPage() {
                 placeholder={t('providers.namePlaceholder')}
                 autoComplete="off"
               />
-              <p className="text-[11px] text-muted-foreground">{t('setup.providerNameHint')}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.providerNameHint')}</p>
             </div>
           ) : null}
 
           {providerId === 'custom' || provider?.local ? (
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="base-url">{t('setup.baseUrl')}</Label>
               <Input
                 id="base-url"
@@ -294,6 +403,7 @@ export default function SetupPage() {
           {providerId === 'custom' ? <ProviderHeadersField id="setup-headers" value={headersText} onChange={setHeadersText} /> : null}
 
           <StepNav
+            onBack={withMigrate ? goBack : undefined}
             onNext={goNext}
             nextLabel={t('setup.next')}
             disabled={providerId === 'custom' && !baseURL.trim()}
@@ -313,14 +423,14 @@ export default function SetupPage() {
               href={provider.key_url}
               target="_blank"
               rel="noreferrer noopener"
-              className="inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2"
+              className="inline-flex items-center gap-1.5 text-xs text-foreground underline decoration-line underline-offset-4 transition-colors hover:decoration-foreground"
             >
               {t('setup.getKey', { provider: provider.label })}
               <ArrowSquareOut className="size-3.5" />
             </a>
           ) : null}
 
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="api-key">{t('setup.apiKey')}</Label>
             <div className="flex gap-2">
               <Input
@@ -343,12 +453,15 @@ export default function SetupPage() {
               </Button>
             </div>
             {provider?.has_key && !apiKey ? (
-              <p className="text-[11px] text-muted-foreground">{t('setup.keyKept')}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.keyKept')}</p>
             ) : null}
           </div>
 
           {test && !test.ok ? (
-            <div className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+            <div
+              role="alert"
+              className="m-rise flex items-start gap-2 rounded-[var(--radius-lg)] border border-[color-mix(in_oklch,var(--destructive)_45%,var(--border))] bg-card px-4 py-3 text-sm text-destructive"
+            >
               <Warning className="mt-0.5 size-4 shrink-0" weight="fill" />
               <span className="min-w-0 break-words">{test.error}</span>
             </div>
@@ -371,7 +484,7 @@ export default function SetupPage() {
           />
 
           {test?.note ? (
-            <p className="rounded-[var(--radius-sm)] border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+            <p className="m-rise rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
               {test.note}
             </p>
           ) : null}
@@ -390,7 +503,7 @@ export default function SetupPage() {
 
           <div className="max-h-[46dvh] space-y-1.5 overflow-y-auto pr-1">
             {modelOptions.suggested.length > 0 ? (
-              <p className="px-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="eyebrow px-1 pt-1">
                 {t('setup.recommended')}
               </p>
             ) : null}
@@ -398,7 +511,7 @@ export default function SetupPage() {
               <ModelOption key={id} id={id} active={model === id} onSelect={setModel} recommended />
             ))}
             {modelOptions.rest.length > 0 && modelOptions.suggested.length > 0 ? (
-              <p className="px-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="eyebrow px-1 pt-3">
                 {t('setup.allModels')}
               </p>
             ) : null}
@@ -407,7 +520,7 @@ export default function SetupPage() {
             ))}
           </div>
 
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="model-manual">{t('setup.orTypeId')}</Label>
             <Input
               id="model-manual"
@@ -427,7 +540,7 @@ export default function SetupPage() {
             title={t('setup.workspaceTitle')}
             description={t('setup.workspaceDesc')}
           />
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="workspace">{t('system.workspace')}</Label>
             <Input
               id="workspace"
@@ -435,7 +548,7 @@ export default function SetupPage() {
               onChange={(e) => setWorkspace(e.target.value)}
               className="font-mono text-xs"
             />
-            <p className="text-[11px] text-muted-foreground">{t('setup.workspaceHint')}</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.workspaceHint')}</p>
           </div>
 
           <Card>
@@ -455,9 +568,10 @@ export default function SetupPage() {
                     key={id}
                     type="button"
                     onClick={() => setDbDriver(id)}
+                    aria-pressed={dbDriver === id}
                     className={cn(
-                      'rounded-[var(--radius-md)] border p-3 text-left text-sm transition-colors',
-                      dbDriver === id ? 'border-primary bg-primary/8' : 'border-border hover:border-primary/40',
+                      'rounded-[var(--radius-md)] border p-3 text-left text-sm transition-[border-color,background-color] duration-200',
+                      dbDriver === id ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                     )}
                   >
                     {label}
@@ -465,7 +579,7 @@ export default function SetupPage() {
                 ))}
               </div>
               {dbDriver === 'postgres' ? (
-                <div className="space-y-1.5">
+                <div className="flex flex-col gap-2">
                   <Label htmlFor="db-dsn">{t('setup.storageDsn')}</Label>
                   <Input
                     id="db-dsn"
@@ -475,7 +589,7 @@ export default function SetupPage() {
                     className="font-mono text-xs"
                     autoComplete="off"
                   />
-                  <p className="text-[11px] text-muted-foreground">{t('setup.storageDsnHint')}</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.storageDsnHint')}</p>
                 </div>
               ) : null}
             </CardContent>
@@ -497,6 +611,8 @@ export default function SetupPage() {
             description={t('setup.extrasDesc')}
           />
 
+          <PresetPicker value={preset} onChange={setPreset} />
+
           <Card>
             <CardHeader>
               <div className="flex items-start gap-3">
@@ -510,7 +626,7 @@ export default function SetupPage() {
             </CardHeader>
             {ragEnabled ? (
               <CardContent className="space-y-3">
-                <div className="space-y-1.5">
+                <div className="flex flex-col gap-2">
                   <Label>{t('setup.embedProvider')}</Label>
                   <div className="grid grid-cols-3 gap-2">
                     {(
@@ -526,11 +642,10 @@ export default function SetupPage() {
                           setEmbedProvider(id)
                           if (defModel) setEmbedModel(defModel)
                         }}
+                        aria-pressed={embedProvider === id}
                         className={cn(
-                          'rounded-[var(--radius-sm)] border p-2.5 text-center text-xs transition-colors',
-                          embedProvider === id
-                            ? 'border-primary bg-primary/8'
-                            : 'border-border hover:border-primary/40',
+                          'rounded-full border px-3 py-2.5 text-center text-xs transition-[border-color,background-color] duration-200',
+                          embedProvider === id ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
                         )}
                       >
                         {label}
@@ -538,7 +653,7 @@ export default function SetupPage() {
                     ))}
                   </div>
                 </div>
-                <div className="space-y-1.5">
+                <div className="flex flex-col gap-2">
                   <Label htmlFor="embed">{t('setup.embedModel')}</Label>
                   <Input
                     id="embed"
@@ -548,7 +663,7 @@ export default function SetupPage() {
                   />
                 </div>
                 {embedProvider !== 'openai' ? (
-                  <div className="space-y-1.5">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="embedkey">{t('setup.embedKey')}</Label>
                     <Input
                       id="embedkey"
@@ -559,7 +674,7 @@ export default function SetupPage() {
                       autoComplete="off"
                       className="font-mono text-xs"
                     />
-                    <p className="text-[11px] text-muted-foreground">{t('setup.embedKeyHint')}</p>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.embedKeyHint')}</p>
                   </div>
                 ) : null}
               </CardContent>
@@ -608,20 +723,23 @@ export default function SetupPage() {
       ) : null}
 
       {step === 'done' ? (
-        <section className="space-y-5 text-center">
-          <CheckCircle className="mx-auto size-12 text-[var(--success)]" weight="fill" />
+        <section className="m-rise space-y-5 text-center">
+          <CheckCircle className="mx-auto size-10 text-[var(--success)]" weight="fill" />
           <div className="space-y-1.5">
-            <h2 className="text-xl font-semibold tracking-tight">{t('setup.doneTitle')}</h2>
+            <h2 className="text-[clamp(20px,2vw,26px)] font-medium tracking-[-0.5px]">{t('setup.doneTitle')}</h2>
             <p className="mx-auto max-w-md text-sm text-muted-foreground">
               {t('setup.doneDesc', { model })}
             </p>
+            {migratedReady ? (
+              <p className="mx-auto max-w-md text-xs text-muted-foreground">{t('setup.migrateReady')}</p>
+            ) : null}
           </div>
           <div className="flex flex-wrap justify-center gap-2">
             <Button onClick={() => navigate('/', { state: { fresh: true } })} className="gap-1.5">
               {t('setup.startChatting')}
               <ArrowRight className="size-4" />
             </Button>
-            <Button variant="outline" onClick={() => navigate('/config')}>
+            <Button variant="outline" onClick={() => navigate('/system/settings')}>
               {t('nav.config')}
             </Button>
           </div>
@@ -631,32 +749,100 @@ export default function SetupPage() {
   )
 }
 
-function SetupShell({ children, stepIndex }: { children: React.ReactNode; stepIndex: number }) {
+/** Use-case presets: each card says which optional hubs it adds. */
+function PresetPicker({ value, onChange }: { value: PresetId; onChange: (id: PresetId) => void }) {
   const { t } = useI18n()
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col justify-center px-4 py-8 sm:px-6">
-      <div className="mb-6 flex items-center gap-3">
-        <img src="/antares-192.png" alt="" aria-hidden className="size-10 object-contain" />
-        <div className="min-w-0">
-          <p className="text-lg font-semibold tracking-tight">Antares</p>
-          <p className="text-xs text-muted-foreground">{t('setup.subtitle')}</p>
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('preset.title')}</CardTitle>
+        <CardDescription>{t('preset.desc')}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div role="radiogroup" aria-label={t('preset.title')} className="grid gap-2 sm:grid-cols-2">
+          {PRESET_IDS.map((id) => {
+            const selected = value === id
+            const hubs = hubsOfModules(HUB_MANIFEST, PRESET_MODULES[id])
+            return (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => onChange(id)}
+                className={cn(
+                  'flex flex-col gap-1 rounded-[var(--radius-md)] border p-3.5 text-left transition-[border-color,background-color] duration-200',
+                  selected ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
+                )}
+              >
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  {t(`preset.${id}` as MessageKey)}
+                  {selected ? <CheckCircle className="size-4 text-foreground" weight="fill" /> : null}
+                </span>
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  {t(`preset.${id}Desc` as MessageKey)}
+                </span>
+                <span className="font-mono text-[11px] text-dim">
+                  {hubs.length
+                    ? t('preset.adds', { hubs: hubs.map((h) => t(h.titleKey)).join(', ') })
+                    : t('preset.addsNothing')}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SetupShell({
+  children,
+  steps,
+  stepIndex,
+}: {
+  children: React.ReactNode
+  steps: StepId[]
+  stepIndex: number
+}) {
+  const { t } = useI18n()
+  const root = useRef<HTMLDivElement>(null)
+  // Outside the app shell, so the setup screen runs its own reveal observer.
+  useReveal(root)
+  const total = steps.length - 1
+  const current = Math.min(stepIndex + 1, total)
+  return (
+    <div ref={root} className="relative min-h-dvh overflow-hidden">
+      <AgentField />
+      <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col justify-center px-4 py-10 sm:px-6">
+        <div className="m-rise mb-8 flex flex-col items-center gap-5 text-center">
+          <Brand />
+          <p className="eyebrow">{t('setup.subtitle')}</p>
+        </div>
+
+        {/* Thin rules for progress: enough orientation without a heavy stepper. */}
+        <div className="m-rise mb-8 flex items-center gap-3" style={{ animationDelay: '80ms' }}>
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+            {String(current).padStart(2, '0')}
+            <span className="text-dim"> / {String(total).padStart(2, '0')}</span>
+          </span>
+          <div className="flex flex-1 items-center gap-1.5" aria-hidden>
+            {steps.slice(0, -1).map((_, i) => (
+              <span
+                key={i}
+                className={cn(
+                  'h-px flex-1 rounded-full transition-colors duration-500',
+                  i <= stepIndex ? 'bg-foreground' : 'bg-line',
+                )}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div key={stepIndex} className="m-rise space-y-5" style={{ animationDelay: '140ms' }}>
+          {children}
         </div>
       </div>
-
-      {/* Step dots: enough orientation without a heavy stepper. */}
-      <div className="mb-6 flex items-center gap-1.5" aria-hidden>
-        {STEPS.slice(0, -1).map((_, i) => (
-          <span
-            key={i}
-            className={cn(
-              'h-1 flex-1 rounded-full transition-colors',
-              i <= stepIndex ? 'bg-primary' : 'bg-border',
-            )}
-          />
-        ))}
-      </div>
-
-      <div className="space-y-5">{children}</div>
     </div>
   )
 }
@@ -664,8 +850,8 @@ function SetupShell({ children, stepIndex }: { children: React.ReactNode; stepIn
 function StepHeading({ title, description }: { title: string; description: string }) {
   return (
     <div className="space-y-1.5">
-      <h2 className="text-base font-semibold tracking-tight sm:text-lg">{title}</h2>
-      <p className="text-xs leading-relaxed text-muted-foreground sm:text-sm">{description}</p>
+      <h2 className="text-[clamp(20px,2vw,24px)] font-medium leading-tight tracking-[-0.5px]">{title}</h2>
+      <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
     </div>
   )
 }
@@ -718,13 +904,13 @@ function ModelOption({
     <button
       onClick={() => onSelect(id)}
       className={cn(
-        'flex w-full items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-2 text-left transition-colors',
-        active ? 'border-primary bg-primary/8' : 'border-border hover:border-primary/40',
+        'flex w-full items-center gap-2 rounded-[var(--radius-md)] border px-3 py-2 text-left transition-[border-color,background-color] duration-200',
+        active ? 'border-foreground bg-card' : 'border-border bg-card hover:border-line hover:bg-raised',
       )}
     >
       <span className="min-w-0 flex-1 truncate font-mono text-xs">{id}</span>
       {recommended ? <Badge variant="secondary">{t('setup.recommendedShort')}</Badge> : null}
-      {active ? <CheckCircle className="size-4 shrink-0 text-primary" weight="fill" /> : null}
+      {active ? <CheckCircle className="size-4 shrink-0 text-foreground" weight="fill" /> : null}
     </button>
   )
 }

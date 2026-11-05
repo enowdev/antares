@@ -1,0 +1,12 @@
+source=hermes name="Hermes Agent" profile="work" running=false
+summary: 1 provider · model · 1 memory
+
+[provider] provider:openai "OpenAI" status=ready selected=true secret
+  detail: key from .env (OPENAI_API_KEY)
+  provider: id=openai kind=openai base_url=https://api.openai.com/v1 key=••••0013 models=[] headers={}
+
+[model] model:default "openai / gpt-5" status=ready selected=true
+  model: provider=openai model=gpt-5 fallback=[]
+
+[memory] memory:aae131410e11 "Work profile fact." status=ready selected=true
+  memory: scope=global key=work-profile-fact tags=[hermes]

@@ -1,0 +1,18 @@
+{
+  "accounts": [
+    {
+      "channel": "slack",
+      "accountId": "sl-1",
+      "displayName": "Acme",
+      "enabled": false,
+      "dmPolicy": "open",
+      "allowedUsers": [],
+      "botToken": "xoxb-FAKEltSLACKBOT0006",
+      "appToken": "xapp-FAKEltSLACKAPP0007",
+      "agentId": "agent-local-11111111-aaaa",
+      "allowed_channels": [
+        "C0123"
+      ]
+    }
+  ]
+}

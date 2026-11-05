@@ -366,6 +366,11 @@ type ImageGen struct {
 	BaseURL  string `yaml:"base_url" json:"base_url"`
 	APIKey   string `yaml:"api_key" json:"api_key"`
 	Size     string `yaml:"size" json:"size"`
+	// ReferenceMode is how reference images reach the provider. "edits" is
+	// OpenAI's POST /images/edits with images:[{image_url}]. "generations"
+	// sends them as image:[...] on POST /images/generations, the shape some
+	// OpenAI-compatible gateways accept instead of an edits route.
+	ReferenceMode string `yaml:"reference_mode" json:"reference_mode"`
 }
 
 // Security holds settings for the authorized-security roles.
@@ -643,6 +648,8 @@ type Plugins struct {
 type Skills struct {
 	Enabled               bool     `yaml:"enabled" json:"enabled"`
 	Dirs                  []string `yaml:"dirs" json:"dirs"`
+	Disabled              []string `yaml:"disabled" json:"disabled"`
+	FrontmatterMigrated   bool     `yaml:"frontmatter_migrated" json:"frontmatter_migrated"`
 	CreationNudgeInterval int      `yaml:"creation_nudge_interval" json:"creation_nudge_interval"`
 	AutoCreate            bool     `yaml:"auto_create" json:"auto_create"`
 	HubSources            []string `yaml:"hub_sources" json:"hub_sources"`
@@ -849,6 +856,16 @@ type Display struct {
 	Language              string `yaml:"language" json:"language"`
 	BellOnComplete        bool   `yaml:"bell_on_complete" json:"bell_on_complete"`
 	InterimAssistant      bool   `yaml:"interim_assistant_messages" json:"interim_assistant_messages"`
+	// Modules lists the optional dashboard modules shown in the sidebar (see
+	// KnownModules). It is a pointer so "absent" and "empty" stay distinct:
+	// nil means the key is missing, as in every install that predates modules,
+	// and resolves to all modules on; a pointer to an empty slice is the
+	// deliberate General preset. A plain slice would turn an old config into
+	// General the first time it was re-saved and silently hide navigation.
+	Modules *[]string `yaml:"modules,omitempty" json:"modules"`
+	// Preset is the label of the use-case preset last chosen. Display only;
+	// Modules decides visibility.
+	Preset string `yaml:"preset,omitempty" json:"preset,omitempty"`
 }
 
 // Logging controls log level and sinks.

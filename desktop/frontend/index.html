@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Antares</title>
+  <link rel="stylesheet" href="shell.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <main class="page" tabindex="-1">
+    <div class="column">
+      <div class="brand"><img src="antares.png" alt=""><span class="brand-name">Antares</span></div>
+      <p class="eyebrow">Connections</p>
+      <h1>Where is your Antares?</h1>
+      <p class="lede">Open one that runs on this machine, or connect to one running somewhere else: a server, a home box, a laptop on your tailnet.</p>
+
+      <div class="notice" id="notice" role="alert" hidden></div>
+
+      <section class="panel" aria-labelledby="saved-title">
+        <div class="panel-head">
+          <span class="panel-title" id="saved-title">Saved</span>
+          <span class="panel-meta" id="saved-meta"></span>
+        </div>
+        <ul class="rows" id="rows"></ul>
+      </section>
+
+      <section class="panel" aria-labelledby="add-title">
+        <div class="panel-head">
+          <span class="panel-title" id="add-title">Add a connection</span>
+          <div class="tabs" role="tablist" aria-label="Connection type">
+            <button class="tab" role="tab" id="tab-remote" aria-selected="true" aria-controls="pane-remote">Remote</button>
+            <button class="tab" role="tab" id="tab-local" aria-selected="false" aria-controls="pane-local">This Mac</button>
+          </div>
+        </div>
+
+        <form class="form" id="pane-remote" role="tabpanel" aria-labelledby="tab-remote" autocomplete="off">
+          <label class="label"><span>Name</span>
+            <input class="field" name="name" placeholder="VPS" maxlength="64" spellcheck="false">
+          </label>
+          <label class="label"><span>Server URL</span>
+            <input class="field" name="url" placeholder="https://antares.example.com" required spellcheck="false" autocapitalize="off">
+          </label>
+          <p class="hint">https:// is required, except for this machine, a private network or Tailscale.</p>
+          <label class="label"><span>Dashboard password</span>
+            <input class="field" name="password" type="password" placeholder="••••••••" autocomplete="off">
+          </label>
+          <p class="hint">Used once to pair this machine. Antares keeps a device token in the Keychain, not the password.</p>
+          <p class="error" id="remote-error" role="alert"></p>
+          <button class="btn primary wide" type="submit">Connect</button>
+        </form>
+
+        <div class="form" id="pane-local" role="tabpanel" aria-labelledby="tab-local" hidden>
+          <div class="local-card">
+            <span class="dot" id="local-dot"></span>
+            <div class="row-main">
+              <div class="row-name" id="local-title">Antares on this machine</div>
+              <div class="row-sub" id="local-sub"></div>
+            </div>
+          </div>
+          <p class="error" id="local-error" role="alert"></p>
+          <button class="btn primary wide" id="add-local">Add This Mac</button>
+        </div>
+      </section>
+
+      <p class="foot" id="foot"></p>
+    </div>
+  </main>
+
+  <div class="overlay" id="opening" hidden>
+    <div class="overlay-card">
+      <div class="spinner"></div>
+      <div id="opening-text">Connecting…</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,17 +1,21 @@
 @import 'tailwindcss';
 
 /* Antares design tokens. Palettes from getdesign/ (facebook default, claude,
-   pinterest, supabase) live on data-palette; light/dark is the .dark class. */
+   pinterest, supabase) live on data-palette; light/dark is the .dark class.
+   Soft geometry after the enowx site. */
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: var(--font-sans);
-  --font-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --font-mono: 'SFMono-Regular', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 
-  --radius-xs: 0.375rem;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.625rem;
-  --radius-lg: 0.875rem;
-  --radius-xl: 1.125rem;
+  /* Soft throughout: actions, fields, chips and tabs are pills
+     (rounded-full); surfaces round off by size — rows and small blocks at
+     sm/md, panels at lg, dialogs and sheets at xl. */
+  --radius-xs: 0.5rem;
+  --radius-sm: 0.75rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.5rem;
   --radius-button: var(--radius-sm);
 }
 
@@ -44,6 +48,16 @@
     --ring: #1876f2;
     --sidebar: #f1f4f7;
     --sidebar-foreground: #0a1317;
+
+    /* Derived from the palette tokens, so every palette gets them. */
+    --raised: color-mix(in srgb, var(--foreground) 7%, var(--background));
+    --line: color-mix(in srgb, var(--foreground) 16%, var(--border));
+    --dim: var(--muted-foreground);
+    --marker: color-mix(in srgb, var(--foreground) 26%, transparent);
+    --marker-hover: var(--foreground);
+    --brand-core: #ff5a36;
+    --nav-active: color-mix(in srgb, var(--foreground) 12%, var(--background));
+    --field-ink: 17, 18, 20;
   }
 
   .dark {
@@ -70,6 +84,8 @@
     --ring: #1876f2;
     --sidebar: #1c1c1c;
     --sidebar-foreground: #f1f4f7;
+
+    --field-ink: 244, 244, 245;
   }
 
   [data-palette='claude'] {
@@ -262,6 +278,11 @@
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-dim: var(--dim);
+  --color-brand-core: var(--brand-core);
+  --color-nav-active: var(--nav-active);
 }
 
 @layer base {
@@ -278,6 +299,7 @@
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
+    font-feature-settings: 'ss02';
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     overscroll-behavior-y: none;
@@ -318,7 +340,7 @@
   }
 
   ::selection {
-    background-color: color-mix(in oklch, var(--primary) 30%, transparent);
+    background-color: color-mix(in oklch, var(--foreground) 22%, transparent);
   }
 
   /* Slim scrollbars that match the theme. */
@@ -342,7 +364,7 @@
 
   :focus-visible {
     outline: 2px solid var(--ring);
-    outline-offset: 2px;
+    outline-offset: 3px;
   }
 }
 

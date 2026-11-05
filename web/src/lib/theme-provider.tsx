@@ -17,6 +17,7 @@ export type { ColorMode, Palette }
 interface ThemeValue {
   theme: ColorMode
   setTheme: (v: ColorMode) => void
+  toggleTheme: () => void
   palette: Palette
   setPalette: (v: Palette) => void
 }
@@ -42,6 +43,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     () => ({
       theme,
       setTheme: (v: ColorMode) => setThemeRaw(parseColorMode(v)),
+      toggleTheme: () => setThemeRaw(theme === 'dark' ? 'light' : 'dark'),
       palette,
       setPalette: (v: Palette) => setPaletteRaw(parsePalette(v)),
     }),

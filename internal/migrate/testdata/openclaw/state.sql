@@ -1,0 +1,4 @@
+CREATE TABLE config_machine_state (state_key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL) STRICT;
+CREATE TABLE cron_jobs (store_key TEXT NOT NULL, job_id TEXT NOT NULL, name TEXT, enabled INTEGER, job_json TEXT NOT NULL, sort_order INTEGER, updated_at INTEGER, PRIMARY KEY (store_key, job_id)) STRICT;
+INSERT INTO cron_jobs VALUES ('/x/cron/jobs.json', 'job-db', 'Evening review', 1, '{"id":"job-db","name":"Evening review","enabled":true,"schedule":{"kind":"cron","expr":"0 21 * * *"},"payload":{"kind":"agentTurn","message":"Review my day"}}', 1, 0);
+INSERT INTO cron_jobs VALUES ('/x/cron/jobs.json', 'job-morning', 'Morning brief', 1, '{"id":"job-morning","name":"Morning brief dup","enabled":true,"schedule":{"kind":"cron","expr":"0 8 * * *"},"payload":{"kind":"agentTurn","message":"dup"}}', 2, 0);

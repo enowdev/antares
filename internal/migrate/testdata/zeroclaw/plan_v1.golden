@@ -1,0 +1,32 @@
+source=zeroclaw name="ZeroClaw" profile="" running=false
+summary: 2 providers · model · soul · 1 memory · 1 skill · Discord
+
+[provider] provider:deepseek "DeepSeek" status=ready selected=true secret
+  detail: encrypted key from config.toml
+  provider: id=deepseek kind=openai-compatible base_url=https://api.deepseek.com key=••••0007 models=[deepseek-chat] headers={}
+
+[provider] provider:groq "Groq" status=ready selected=true secret
+  detail: from config.toml
+  provider: id=groq kind=openai-compatible base_url=https://api.groq.com/openai/v1 key=••••0008 models=[llama-3.3-70b] headers={}
+
+[model] model:default "deepseek / deepseek-chat" status=ready selected=true
+  detail: 1 fallback(s): groq/llama-3.3-70b
+  model: provider=deepseek model=deepseek-chat fallback=[groq/llama-3.3-70b]
+
+[soul] soul:file "SOUL.md" status=ready selected=true
+  detail: from SOUL.md · 32 chars
+  text: from=SOUL.md sha=a897ec87f845
+
+[memory] memory:d4086915c5a2 "Lives in Bandung" status=ready selected=true
+  memory: scope=global key=lives-in-bandung tags=[import:zeroclaw]
+
+[skill] skill:notes "notes" status=ready selected=true
+  detail: Take notes.
+  skill: name=notes dir=notes
+
+[channel] channel:discord "Discord" status=conflict selected=false secret
+  reason: Antares already has a Discord token
+  channel: discord {allowed_guilds=[998877], allowed_users=[42], bot_token=••••0009}
+
+[channel] channel:imessage "iMessage" status=unsupported selected=false
+  reason: Antares has no iMessage gateway

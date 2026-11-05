@@ -1,0 +1,3 @@
+model:
+  default: gpt-5
+  provider: openai-api

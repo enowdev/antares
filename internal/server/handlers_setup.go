@@ -328,19 +328,22 @@ func (s *Server) handleSetupTest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 	s.setupMu.Lock()
 	defer s.setupMu.Unlock()
-	if s.requireSetupAccess(w, r) {
-		return
-	}
 
 	var body struct {
-		Provider  string            `json:"provider"`
-		Name      string            `json:"name"`
-		BaseURL   string            `json:"base_url"`
-		APIKey    string            `json:"api_key"`
-		Headers   map[string]string `json:"headers"`
-		Model     string            `json:"model"`
-		Workspace string            `json:"workspace"`
-		Database  struct {
+		// AfterMigrate finishes a setup whose provider and model came from
+		// an import (/api/migrate/apply): needs_setup is already false, so
+		// the provider/model part is skipped and only the remaining fields
+		// (workspace, database, rag, channels, language, password, modules)
+		// are saved. Accepted only shortly after a migration.
+		AfterMigrate bool              `json:"after_migrate"`
+		Provider     string            `json:"provider"`
+		Name         string            `json:"name"`
+		BaseURL      string            `json:"base_url"`
+		APIKey       string            `json:"api_key"`
+		Headers      map[string]string `json:"headers"`
+		Model        string            `json:"model"`
+		Workspace    string            `json:"workspace"`
+		Database     struct {
 			Driver string `json:"driver"`
 			DSN    string `json:"dsn"`
 		} `json:"database"`
@@ -354,12 +357,39 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		Discord           string `json:"discord_token"`
 		Language          string `json:"language"`
 		DashboardPassword string `json:"dashboard_password"`
+		// Modules is a pointer so an omitted field (leave display.modules
+		// absent: every module on) differs from [] (the General preset).
+		Modules *[]string `json:"modules"`
+		Preset  string    `json:"preset"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if strings.TrimSpace(body.Model) == "" {
+	if body.AfterMigrate {
+		if s.requireAfterMigrateAccess(w, r) {
+			return
+		}
+	} else if s.requireSetupAccess(w, r) {
+		return
+	}
+	if body.Modules != nil {
+		if err := config.ValidateModules(*body.Modules); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if body.Preset != "" {
+		if body.Modules == nil {
+			writeError(w, http.StatusBadRequest, errors.New("preset requires modules"))
+			return
+		}
+		if err := config.ValidatePreset(body.Preset); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if !body.AfterMigrate && strings.TrimSpace(body.Model) == "" {
 		writeError(w, http.StatusBadRequest, errors.New("a model is required"))
 		return
 	}
@@ -369,70 +399,16 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if !NeedsSetup(cfg) {
+	if !body.AfterMigrate && !NeedsSetup(cfg) {
 		writeError(w, http.StatusConflict, errors.New("initial setup has already been completed"))
 		return
 	}
-
-	chosen := lookupSetupProvider(cfg, body.Provider)
-	if chosen == nil {
-		writeError(w, http.StatusBadRequest, errors.New("unknown provider"))
-		return
-	}
-	// A custom provider is stored under an id minted from the user's name, so
-	// more than one can exist. An unnamed one defaults to "custom-provider"
-	// with the catalogue label — a visible, manageable provider either way.
-	providerID := body.Provider
-	if chosen.Custom {
-		providerID = CustomProviderID(cfg, body.Name)
-	}
-	baseURL := firstNonEmpty(body.BaseURL, chosen.BaseURL)
-	if chosen.Custom && baseURL == "" {
-		writeError(w, http.StatusBadRequest, errors.New("a base URL is required for a custom provider"))
-		return
-	}
-	if baseURL != "" {
-		if err := s.validateChosenBaseURL(r.Context(), baseURL, chosen.Custom, chosen.Local); err != nil {
-			writeError(w, http.StatusBadRequest, err)
+	if !body.AfterMigrate {
+		if status, err := s.applySetupProvider(r, cfg, body.Provider, body.Name, body.BaseURL, body.APIKey, body.Headers, body.Model); err != nil {
+			writeError(w, status, err)
 			return
 		}
 	}
-
-	entry := cfg.Providers[providerID]
-	entry.Kind = chosen.Kind
-	entry.Enabled = true
-	entry.Label = chosen.Label
-	if name := strings.TrimSpace(body.Name); chosen.Custom && name != "" {
-		entry.Label = name
-	}
-	if baseURL != "" {
-		entry.BaseURL = baseURL
-	}
-	if chosen.Custom {
-		// A named custom provider mints its own id (providerID), separate from
-		// the legacy "custom" slot the wizard picker uses (body.Provider).
-		// The freshly minted entry starts with no stored headers; only headers
-		// explicitly submitted for this provider are persisted. Falling back
-		// to the legacy slot here silently attached whatever credential lived
-		// under "custom" to an unrelated host. Editing an existing entry with
-		// omitted headers still keeps its own recorded headers, since we read
-		// them from cfg.Providers[providerID] above.
-		if body.Headers != nil {
-			headers, err := config.NormalizeProviderHeaders(body.Headers)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err)
-				return
-			}
-			entry.Headers = headers
-		}
-	}
-	if key := strings.TrimSpace(body.APIKey); key != "" && !strings.Contains(key, "••••") {
-		entry.APIKey = key
-	}
-	cfg.Providers[providerID] = entry
-
-	cfg.Model.Provider = providerID
-	cfg.Model.Default = strings.TrimSpace(body.Model)
 
 	if ws := strings.TrimSpace(body.Workspace); ws != "" {
 		cfg.Agent.Workspace = config.Expand(ws)
@@ -469,7 +445,7 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		if p := strings.TrimSpace(body.RAG.EmbedProvider); p != "" {
 			cfg.RAG.EmbedProvider = p
 		} else if cfg.RAG.EmbedProvider == "" {
-			cfg.RAG.EmbedProvider = body.Provider
+			cfg.RAG.EmbedProvider = firstNonEmpty(body.Provider, cfg.Model.Provider)
 		}
 		if m := strings.TrimSpace(body.RAG.EmbedModel); m != "" {
 			cfg.RAG.EmbedModel = m
@@ -491,6 +467,11 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	if lang := strings.TrimSpace(body.Language); lang != "" {
 		cfg.Display.Language = lang
+	}
+	if body.Modules != nil {
+		modules := config.NormalizeModules(*body.Modules)
+		cfg.Display.Modules = &modules
+		cfg.Display.Preset = body.Preset
 	}
 	// An optional dashboard password locks the web UI behind a login. It is
 	// stored hashed; the plaintext never touches config.
@@ -690,4 +671,66 @@ func CustomProviderID(cfg *config.Config, name string) string {
 		}
 		slug = fmt.Sprintf("%s-%d", base, i)
 	}
+}
+
+// applySetupProvider stores the wizard's chosen provider and default model in
+// cfg (not yet saved). It returns an HTTP status with the error on a bad
+// choice.
+func (s *Server) applySetupProvider(r *http.Request, cfg *config.Config, provider, name, baseURLIn, apiKey string, headersIn map[string]string, model string) (int, error) {
+	chosen := lookupSetupProvider(cfg, provider)
+	if chosen == nil {
+		return http.StatusBadRequest, errors.New("unknown provider")
+	}
+	// A custom provider is stored under an id minted from the user's name, so
+	// more than one can exist. An unnamed one defaults to "custom-provider"
+	// with the catalogue label — a visible, manageable provider either way.
+	providerID := provider
+	if chosen.Custom {
+		providerID = CustomProviderID(cfg, name)
+	}
+	baseURL := firstNonEmpty(baseURLIn, chosen.BaseURL)
+	if chosen.Custom && baseURL == "" {
+		return http.StatusBadRequest, errors.New("a base URL is required for a custom provider")
+	}
+	if baseURL != "" {
+		if err := s.validateChosenBaseURL(r.Context(), baseURL, chosen.Custom, chosen.Local); err != nil {
+			return http.StatusBadRequest, err
+		}
+	}
+
+	entry := cfg.Providers[providerID]
+	entry.Kind = chosen.Kind
+	entry.Enabled = true
+	entry.Label = chosen.Label
+	if name := strings.TrimSpace(name); chosen.Custom && name != "" {
+		entry.Label = name
+	}
+	if baseURL != "" {
+		entry.BaseURL = baseURL
+	}
+	if chosen.Custom {
+		// A named custom provider mints its own id (providerID), separate from
+		// the legacy "custom" slot the wizard picker uses (provider).
+		// The freshly minted entry starts with no stored headers; only headers
+		// explicitly submitted for this provider are persisted. Falling back
+		// to the legacy slot here silently attached whatever credential lived
+		// under "custom" to an unrelated host. Editing an existing entry with
+		// omitted headers still keeps its own recorded headers, since we read
+		// them from cfg.Providers[providerID] above.
+		if headersIn != nil {
+			headers, err := config.NormalizeProviderHeaders(headersIn)
+			if err != nil {
+				return http.StatusBadRequest, err
+			}
+			entry.Headers = headers
+		}
+	}
+	if key := strings.TrimSpace(apiKey); key != "" && !strings.Contains(key, "••••") {
+		entry.APIKey = key
+	}
+	cfg.Providers[providerID] = entry
+
+	cfg.Model.Provider = providerID
+	cfg.Model.Default = strings.TrimSpace(model)
+	return 0, nil
 }

@@ -1,0 +1,138 @@
+{
+  "version": 3,
+  "build_info": {
+    "version": "0.2.9"
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "~/.picoclaw/workspace",
+      "provider": "",
+      "model_name": "claude-sonnet",
+      "model_fallbacks": [
+        "deepseek"
+      ],
+      "max_tokens": 32768
+    },
+    "list": [
+      {
+        "id": "main",
+        "default": true
+      },
+      {
+        "id": "researcher",
+        "name": "Researcher",
+        "workspace": "~/.picoclaw/workspace-researcher",
+        "model": "deepseek"
+      }
+    ]
+  },
+  "model_list": [
+    {
+      "model_name": "claude-sonnet",
+      "model": "anthropic/claude-sonnet-4.6"
+    },
+    {
+      "model_name": "deepseek",
+      "model": "deepseek/deepseek-chat"
+    },
+    {
+      "model_name": "gpt-5.4",
+      "model": "openai/gpt-5.4"
+    },
+    {
+      "model_name": "glm-4.7",
+      "provider": "zhipu",
+      "model": "glm-4.7",
+      "api_keys": [
+        "file://glm.key"
+      ]
+    },
+    {
+      "model_name": "copilot-gpt",
+      "model": "github-copilot/gpt-5.4",
+      "auth_method": "oauth",
+      "enabled": true
+    },
+    {
+      "model_name": "local-llama",
+      "model": "ollama/llama3",
+      "api_base": "http://localhost:11434/v1",
+      "enabled": true
+    }
+  ],
+  "channel_list": {
+    "telegram": {
+      "enabled": true,
+      "type": "telegram",
+      "allow_from": [
+        "111"
+      ],
+      "settings": {
+        "base_url": ""
+      }
+    },
+    "discord": {
+      "enabled": false,
+      "type": "discord",
+      "settings": {}
+    },
+    "slack": {
+      "enabled": true,
+      "type": "slack",
+      "settings": {}
+    },
+    "qq": {
+      "enabled": true,
+      "type": "qq",
+      "settings": {
+        "app_id": "qq-app"
+      }
+    },
+    "whatsapp": {
+      "enabled": false,
+      "type": "whatsapp",
+      "settings": {
+        "bridge_url": "ws://localhost:3001"
+      }
+    },
+    "pico": {
+      "enabled": true,
+      "type": "pico",
+      "settings": {}
+    },
+    "feishu": {
+      "enabled": false,
+      "type": "feishu",
+      "settings": {
+        "app_id": ""
+      }
+    }
+  },
+  "tools": {
+    "mcp": {
+      "enabled": true,
+      "servers": {
+        "github": {
+          "enabled": true,
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-github"
+          ],
+          "env": {
+            "GITHUB_TOKEN": "ghp_FAKEpicoclawGithubToken01"
+          }
+        },
+        "docs": {
+          "enabled": false,
+          "type": "http",
+          "url": "https://docs.example.com/mcp"
+        }
+      }
+    }
+  },
+  "heartbeat": {
+    "enabled": true,
+    "interval": 15
+  }
+}

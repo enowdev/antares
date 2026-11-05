@@ -36,7 +36,6 @@ Port 8787 already in use usually means the old process did not exit. Check
 | `description` | **The most important line.** How the agent decides whether this is relevant |
 | `tags` | For your own browsing |
 | `triggers` | Words that make it more likely to surface |
-| `enabled` | `false` keeps it on disk but out of the prompt |
 
 The description does the work. "Deployment stuff" will not get picked; "Deploy
 this project to the home server. Use when asked to deploy, ship, or release."
@@ -47,6 +46,11 @@ will.
 Only names and descriptions go into the system prompt — the catalogue. Bodies
 are fetched on demand with the `skill` tool.
 
+
+Disabled names are omitted from new prompts and from the skill tool's list,
+search, read, and chain results. Re-enabling restores access. Already-sent model
+context cannot be retracted, and this preference does not restrict generic
+filesystem tools. Saving skill content does not enable a disabled name.
 Twenty skills therefore cost a few hundred tokens per turn rather than tens of
 thousands, and adding more does not degrade the conversation.
 
@@ -58,9 +62,47 @@ skills:
   dirs: [~/.antares/skills]
 ```
 
-Several directories are searched in order and later ones win, so a personal copy
-overrides a shared one — useful for a team directory in a repository plus your
-own adjustments.
+Configured `dirs` remain writable; new skills save to the first nonblank directory.
+Native `~/.antares` paths follow `ANTARES_HOME`. Flat `.md` files still work there.
+
+Antares also discovers these directories automatically, in the order shown:
+
+| Under the OS user home | Under the selected project |
+|---|---|
+| `.agent/skills` | `.agent/skills` |
+| `.agents/skills` | `.agents/skills` |
+| `.claude/skills` | `.claude/skills` |
+| `.codex/skills` | `.codex/skills` |
+| `.config/opencode/skills` | `.opencode/skills` |
+| `.omp/agent/managed-skills` | `.github/skills` |
+
+Automatic roots use the OS home independently of `ANTARES_HOME`; the OpenCode
+home path does not follow `XDG_CONFIG_HOME`. Project roots are beneath the chat's
+persisted project folder, without searching parent directories. Resumed chats keep
+that binding. The dashboard and chats without a project use the startup directory;
+relative project paths resolve against that startup directory.
+
+Automatic sources accept only `SKILL.md` (case-insensitive), recursively. Supporting
+Markdown and hidden descendants are ignored. A missing name uses the logical parent
+folder name. Symlinks are followed with cycle detection; missing roots are not created.
+
+For duplicate names, priority from lowest to highest is bundled security pack,
+automatic user roots, automatic project roots, then configured `dirs`. Later roots
+within each group win; files within a root are visited in lexical order.
+
+Automatically discovered skill content is read-only through skill management:
+save and delete refuse to modify or shadow it. The toggle API changes only Antares
+configuration, including for these borrowed skills. Edit the original file to
+change its content.
+An explicitly configured copy wins and remains writable, including when its directory
+is also an automatic root. Hub installs and `/learn` still write an Antares copy
+to their configured/native destination.
+
+The running manager rescans every five seconds, including when skills are disabled
+for the agent. Additions, normal edits, removals, and symlink retargets are visible
+on the next scan without restarting. Edits preserving file identity, size, and
+mtime are reparsed every twelve ticks (about one minute). A new prompt uses the
+current catalog; a prompt already sent to a model is not rewritten.
 
 ## Getting them
 
@@ -97,8 +139,26 @@ learned it says so and writes nothing.
 /skills deploy          filter
 ```
 
-The dashboard's Skills page lists them with a switch each, shows the body
-inline, and has a Browse button for the hub.
+`/skills` uses the current session's project catalog, including for hub-installed
+checks. A project session sees shared user/configured skills and its own project
+skills, not the startup project's or another chat project's procedures.
+
+The dashboard's Skills page shows the startup catalog and polls every five seconds
+while visible. Imported cards show a Read-only content badge and open a viewer
+with the source path and procedure. Their switches update Antares configuration;
+editing/deletion controls are omitted. Close and reopen the viewer to read a
+refreshed body. Polling does
+not replace an unsaved draft in a writable skill editor. Browse opens the hub.
+
+Switches save exact, case-sensitive skill names in `skills.disabled` in the active
+profile's configuration; they never rewrite skill files. Preferences remain when
+a file is removed or reinstalled. `skills.enabled` is the separate global gate.
+
+On the first startup with this setting, Antares imports `enabled: false` from
+selected files in configured skill directories. It records completion in
+`skills.frontmatter_migrated`. Later header changes do not affect enablement.
+An unreadable or malformed configured source aborts that initial import; repair
+the source and restart to retry. The dashboard and `/skills` still show off entries.
 
 ```yaml
 skills:

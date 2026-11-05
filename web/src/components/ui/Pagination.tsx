@@ -28,7 +28,7 @@ export function Pagination({
   if (total <= limit && offset === 0) return null
 
   return (
-    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+    <div className="flex items-center justify-between gap-3 font-mono text-[11px] text-muted-foreground">
       <span className="tabular-nums">
         {t('common.showingRange', { from, to, total })}
       </span>
@@ -38,7 +38,7 @@ export function Pagination({
           variant="outline"
           disabled={!canPrev}
           onClick={() => onChange(Math.max(0, offset - limit))}
-          className="gap-1"
+          className="gap-1 px-2.5"
         >
           <CaretLeft className="size-3.5" />
           <span className="hidden sm:inline">{t('common.previous')}</span>
@@ -48,7 +48,7 @@ export function Pagination({
           variant="outline"
           disabled={!canNext}
           onClick={() => onChange(offset + limit)}
-          className="gap-1"
+          className="gap-1 px-2.5"
         >
           <span className="hidden sm:inline">{t('common.next')}</span>
           <CaretRight className="size-3.5" />
