@@ -27,7 +27,7 @@ warning: ZeroClaw is running — stop it before importing its chat channels, or 
 
 [agents_md] agents_md:file "AGENTS.md" status=ready selected=true
   detail: from AGENTS.md · 80 chars
-  text: from=AGENTS.md sha=271cc46a7c77
+  text: from=AGENTS.md sha=5cf54a5943bf
 
 [user_md] user_md:file "USER.md" status=ready selected=true
   detail: from USER.md · 48 chars
@@ -102,4 +102,4 @@ warning: ZeroClaw is running — stop it before importing its chat channels, or 
 
 [role] role:coder "coder" status=ready selected=true
   detail: ZeroClaw agent
-  role: name=coder title="coder" model=anthropic/claude-sonnet-4-5 prompt_sha=9faf3f252ee0
+  role: name=coder title="coder" model=anthropic/claude-sonnet-4-5 prompt_sha=b854746dce1b

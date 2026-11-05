@@ -23,6 +23,9 @@ web/src/sample/
 .env.local
 # Migration fixtures are fake homes of other agents; their .env files hold fake keys.
 !internal/migrate/testdata/**/.env
+# OpenHuman keeps its memory in a SQLite file; the fixture needs it present so
+# the planner reports the "memory.db is not imported" warning.
+!internal/migrate/testdata/**/memory.db
 /tuishot
 
 # Local agent/editor tooling (not part of the project)
@@ -32,7 +35,10 @@ web/src/sample/
 .opencode/
 .mcp.json
 opencode.json
-AGENTS.md
+# Anchored: the migration fixtures are fake homes of other agents and include
+# AGENTS.md/CLAUDE.local.md files. An unanchored rule here once kept them out of
+# every checkout, so the migrate golden tests failed on CI and nowhere local.
+/AGENTS.md
 .worktrees/
 .superpowers/
 .codegraph/

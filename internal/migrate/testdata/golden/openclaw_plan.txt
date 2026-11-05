@@ -49,7 +49,7 @@ summary: 9 providers · model · soul · instructions · user profile · 3 memor
 [agents_md] agents_md:file "AGENTS.md" status=conflict selected=false
   detail: from AGENTS.md + BOOT.md · 68 chars
   reason: Antares already has a custom AGENTS.md (replace or append)
-  text: from=AGENTS.md + BOOT.md sha=8bff4f1541f6
+  text: from=AGENTS.md + BOOT.md sha=c43c7bdeeac0
 
 [user_md] user_md:file "USER.md" status=ready selected=true
   detail: from USER.md · 41 chars
@@ -139,4 +139,4 @@ summary: 9 providers · model · soul · instructions · user profile · 3 memor
 
 [role] role:work "Work" status=ready selected=true
   detail: OpenClaw agent work
-  role: name=work title="Work" model=openai/gpt-5 prompt_sha=db747aabfa12
+  role: name=work title="Work" model=openai/gpt-5 prompt_sha=632c27a4a321

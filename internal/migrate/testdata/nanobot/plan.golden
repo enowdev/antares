@@ -29,7 +29,7 @@ summary: 5 providers · model · soul · instructions · 3 memories · 2 skills 
 
 [agents_md] agents_md:file "AGENTS.md" status=ready selected=true
   detail: from nanobot AGENTS.md · 113 chars
-  text: from=nanobot AGENTS.md sha=99814a105bc2
+  text: from=nanobot AGENTS.md sha=503636a3a5dc
 
 [memory] memory:99e8d1ee7047 "The user's name is Eno." status=ready selected=true
   memory: scope=global key=the-user-s-name-is-eno tags=[import:nanobot user-information]
