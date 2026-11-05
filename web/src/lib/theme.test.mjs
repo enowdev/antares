@@ -13,7 +13,7 @@ import {
 } from './theme.ts'
 
 describe('parsePalette', () => {
-  test('accepts the getdesign palettes and maps the old zinc set', () => {
+  test('accepts the shipped palettes and maps the old zinc set', () => {
     expect(PALETTES).toEqual(['claude', 'facebook', 'pinterest', 'supabase'])
     expect(parsePalette('pinterest')).toBe('pinterest')
     expect(parsePalette('violet')).toBe('facebook')

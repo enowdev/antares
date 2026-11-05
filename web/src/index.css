@@ -1,6 +1,6 @@
 @import 'tailwindcss';
 
-/* Antares design tokens. Palettes from getdesign/ (facebook default, claude,
+/* Antares design tokens. The four palettes (facebook default, claude,
    pinterest, supabase) live on data-palette; light/dark is the .dark class.
    Soft geometry after the enowx site. */
 @theme {
@@ -21,7 +21,7 @@
 
 @layer base {
   :root {
-    /* Facebook light — getdesign/facebook.md. Default palette. */
+    /* Facebook light — the default palette. */
     --font-sans: 'Montserrat Variable', Helvetica, Arial, 'Noto Sans', sans-serif;
     --font-display: 'Montserrat Variable', Helvetica, Arial, sans-serif;
     --radius-button: 100px;
