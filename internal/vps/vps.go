@@ -31,6 +31,12 @@ type Target struct {
 	// means the presented key MUST match, or the dial fails — this is what stops
 	// a MITM from harvesting the credentials.
 	KnownHostKey string
+	// Tunnel selects the transport: "" is direct SSH, TunnelCloudflared reaches
+	// Host through a Cloudflare Tunnel (Port is then ignored). CFClientID and
+	// CFClientSecret are an optional Cloudflare Access service token.
+	Tunnel         string
+	CFClientID     string
+	CFClientSecret string
 }
 
 func (t Target) addr() string {
@@ -86,26 +92,25 @@ func dial(ctx context.Context, t Target) (*conn, error) {
 	}
 	// Dial timeout is separate from the overall command timeout so a slow host
 	// does not burn the whole vps_run budget before the command starts.
-	d := net.Dialer{Timeout: 20 * time.Second}
-	netConn, err := d.DialContext(ctx, "tcp", t.addr())
+	netConn, err := dialTransport(ctx, t)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%w while connecting to %s: %v", ErrTimeout, t.addr(), err)
+			return nil, fmt.Errorf("%w while connecting to %s: %v", ErrTimeout, t.endpoint(), err)
 		}
-		return nil, fmt.Errorf("connect %s: %w", t.addr(), err)
+		return nil, fmt.Errorf("connect %s: %w", t.endpoint(), err)
 	}
 	// Honour cancellation during the SSH handshake too.
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = netConn.SetDeadline(deadline)
 	}
-	c, chans, reqs, err := ssh.NewClientConn(netConn, t.addr(), cfg)
+	c, chans, reqs, err := ssh.NewClientConn(netConn, t.endpoint(), cfg)
 	if err != nil {
 		netConn.Close()
 		if errors.Is(err, ErrHostKeyChanged) {
 			return nil, ErrHostKeyChanged
 		}
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%w during ssh handshake with %s: %v", ErrTimeout, t.addr(), err)
+			return nil, fmt.Errorf("%w during ssh handshake with %s: %v", ErrTimeout, t.endpoint(), err)
 		}
 		return nil, fmt.Errorf("ssh handshake: %w", err)
 	}
