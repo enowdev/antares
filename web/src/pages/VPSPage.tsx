@@ -41,6 +41,9 @@ interface VPSHost {
   auth_method: string
   has_password: boolean
   has_key: boolean
+  tunnel?: string
+  cf_client_id?: string
+  has_cf_secret?: boolean
 }
 
 interface Metrics {
@@ -183,9 +186,11 @@ function VPSCard({ host, onEdit, onRemove }: { host: VPSHost; onEdit: () => void
                 </Badge>
               )
             ) : null}
+            {host.tunnel === 'cloudflared' ? <Badge variant="outline">{t('vps.viaCloudflared')}</Badge> : null}
           </div>
           <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-            {host.username}@<Spoiler>{host.host}</Spoiler>:{host.port}
+            {host.username}@<Spoiler>{host.host}</Spoiler>
+            {host.tunnel === 'cloudflared' ? null : `:${host.port}`}
           </p>
         </div>
         <div className="flex shrink-0 gap-1">
@@ -409,6 +414,9 @@ function VPSDialog({
   const [password, setPassword] = useState('')
   const [privateKey, setPrivateKey] = useState('')
   const [passphrase, setPassphrase] = useState('')
+  const [tunnel, setTunnel] = useState('')
+  const [cfClientId, setCfClientId] = useState('')
+  const [cfClientSecret, setCfClientSecret] = useState('')
   const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; as?: string; error?: string } | null>(null)
@@ -425,9 +433,14 @@ function VPSDialog({
     setPassword('')
     setPrivateKey('')
     setPassphrase('')
+    setTunnel(host?.tunnel ?? '')
+    setCfClientId(host?.cf_client_id ?? '')
+    setCfClientSecret('')
     setTestResult(null)
     setError(undefined)
   }, [open, host])
+
+  const viaTunnel = tunnel === 'cloudflared'
 
   const body = () => ({
     id: host?.id,
@@ -440,6 +453,10 @@ function VPSDialog({
     password: authMethod === 'password' ? password : '',
     private_key: authMethod === 'key' ? privateKey : '',
     passphrase: authMethod === 'key' ? passphrase : '',
+    tunnel,
+    cf_client_id: viaTunnel ? cfClientId.trim() : '',
+    // Blank on edit = keep stored secret.
+    cf_client_secret: viaTunnel ? cfClientSecret : '',
   })
 
   const valid = hostname.trim() !== ''
@@ -482,16 +499,57 @@ function VPSDialog({
             <Label>{t('vps.label')}</Label>
             <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t('vps.labelPh')} />
           </div>
-          <div className="grid grid-cols-[1fr_6rem] gap-2">
-            <div className="space-y-1.5">
-              <Label>{t('vps.host')}</Label>
-              <Input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="1.2.3.4 / vps.example.com" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t('vps.port')}</Label>
-              <Input type="number" value={port} onChange={(e) => setPort(e.target.value)} placeholder="22" />
-            </div>
+          <div className="space-y-1.5">
+            <Label>{t('vps.connection')}</Label>
+            <select
+              value={tunnel}
+              onChange={(e) => setTunnel(e.target.value)}
+              className="h-9 w-full rounded-full border border-input bg-transparent px-4 text-sm focus-visible:border-foreground focus-visible:outline-none"
+            >
+              <option value="">{t('vps.connDirect')}</option>
+              <option value="cloudflared">{t('vps.connCloudflared')}</option>
+            </select>
           </div>
+          <div className={viaTunnel ? undefined : 'grid grid-cols-[1fr_6rem] gap-2'}>
+            <div className="space-y-1.5">
+              <Label>{viaTunnel ? t('vps.tunnelHost') : t('vps.host')}</Label>
+              <Input
+                value={hostname}
+                onChange={(e) => setHostname(e.target.value)}
+                placeholder={viaTunnel ? 'ssh.example.com' : '1.2.3.4 / vps.example.com'}
+              />
+              {viaTunnel ? <p className="text-xs text-muted-foreground">{t('vps.tunnelHint')}</p> : null}
+            </div>
+            {viaTunnel ? null : (
+              <div className="space-y-1.5">
+                <Label>{t('vps.port')}</Label>
+                <Input type="number" value={port} onChange={(e) => setPort(e.target.value)} placeholder="22" />
+              </div>
+            )}
+          </div>
+          {viaTunnel ? (
+            <div className="space-y-1.5">
+              <Label>{t('vps.cfToken')}</Label>
+              <p className="text-xs text-muted-foreground">{t('vps.cfTokenHint')}</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  value={cfClientId}
+                  onChange={(e) => setCfClientId(e.target.value)}
+                  placeholder={t('vps.cfClientId')}
+                  aria-label={t('vps.cfClientId')}
+                  autoComplete="off"
+                />
+                <Input
+                  type="password"
+                  value={cfClientSecret}
+                  onChange={(e) => setCfClientSecret(e.target.value)}
+                  placeholder={isEdit && host?.has_cf_secret ? '••••••••' : t('vps.cfClientSecret')}
+                  aria-label={t('vps.cfClientSecret')}
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
               <Label>{t('vps.username')}</Label>
