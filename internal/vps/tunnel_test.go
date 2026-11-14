@@ -181,10 +181,49 @@ func TestNormalizeTunnelHost(t *testing.T) {
 	for _, in := range []string{
 		"https://ssh.example.com/", "ssh://ssh.example.com", "wss://ssh.example.com/x/y",
 		" ssh.example.com ", "ssh.example.com",
+		"root@ssh.example.com",
 	} {
 		if got := NormalizeTunnelHost(in); got != "ssh.example.com" {
 			t.Errorf("NormalizeTunnelHost(%q) = %q", in, got)
 		}
+	}
+}
+
+func TestNormalizeTunnelHostKeepsPort(t *testing.T) {
+	if got := NormalizeTunnelHost("ssh.example.com:8443"); got != "ssh.example.com:8443" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestTunnelUpgradeTimeout(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { c.Close() })
+		}
+	}()
+	useTunnelEndpoint(t, ln.Addr().String())
+	old := tunnelDialTimeout
+	tunnelDialTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { tunnelDialTimeout = old })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, _, err = Ping(ctx, Target{Host: "ssh.example.com", Tunnel: TunnelCloudflared, Username: "u", Password: "p"})
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("err = %v, want ErrTimeout", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatalf("took %v", time.Since(start))
 	}
 }
 

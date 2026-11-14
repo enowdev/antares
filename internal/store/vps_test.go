@@ -50,7 +50,10 @@ func TestVPSHostTunnelFieldsRoundTrip(t *testing.T) {
 func TestVPSHostDefaultsToDirect(t *testing.T) {
 	ctx := context.Background()
 	ss := newVPSTestStore(t)
-	if err := ss.PutVPSHost(ctx, &VPSHost{ID: "vps_d", Host: "1.2.3.4", Password: "pw"}); err != nil {
+	// A row as a pre-v4 binary wrote it: none of the tunnel columns are named.
+	if _, err := ss.db.ExecContext(ctx, `INSERT INTO vps_hosts
+		(id, label, host, port, username, auth_method, password, private_key, passphrase, host_key, created_at, updated_at)
+		VALUES ('vps_d', 'old', '1.2.3.4', 22, 'root', 'password', '', '', '', '', 1, 1)`); err != nil {
 		t.Fatal(err)
 	}
 	got, err := ss.GetVPSHost(ctx, "vps_d")

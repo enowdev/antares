@@ -18,13 +18,18 @@ const TunnelCloudflared = "cloudflared"
 // ErrTunnelRefused is returned when Cloudflare rejects the WebSocket upgrade.
 var ErrTunnelRefused = errors.New("cloudflare refused the tunnel connection")
 
+// tunnelDialTimeout bounds the WebSocket upgrade. It is a variable so a test
+// can shrink it.
+var tunnelDialTimeout = 20 * time.Second
+
 // tunnelEndpoint returns the WebSocket location and Origin for a tunnel host.
 // It is a variable so tests can point it at a local server.
 var tunnelEndpoint = func(host string) (location, origin string) {
 	return "wss://" + host + "/", "https://" + host
 }
 
-// NormalizeTunnelHost reduces a pasted URL or hostname to a bare hostname.
+// NormalizeTunnelHost reduces a pasted URL or hostname to a bare host: scheme,
+// path and userinfo are dropped; an explicit :port is kept.
 func NormalizeTunnelHost(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.Index(s, "://"); i >= 0 {
@@ -32,6 +37,9 @@ func NormalizeTunnelHost(s string) string {
 	}
 	if i := strings.IndexAny(s, "/?#"); i >= 0 {
 		s = s[:i]
+	}
+	if i := strings.LastIndex(s, "@"); i >= 0 {
+		s = s[i+1:]
 	}
 	return s
 }
@@ -64,8 +72,13 @@ func dialTransport(ctx context.Context, t Target) (net.Conn, error) {
 		cfg.Header.Set("Cf-Access-Client-Secret", t.CFClientSecret)
 	}
 	cfg.Dialer = d
-	ws, err := cfg.DialContext(ctx)
+	dctx, cancel := context.WithTimeout(ctx, tunnelDialTimeout)
+	defer cancel()
+	ws, err := cfg.DialContext(dctx)
 	if err != nil {
+		if ctx.Err() == nil && errors.Is(dctx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("%w: no response from %s", ErrTimeout, t.endpoint())
+		}
 		var de *websocket.DialError
 		if errors.As(err, &de) && de.Err == websocket.ErrBadStatus {
 			return nil, fmt.Errorf("%w to %s: if the hostname is protected by Cloudflare Access add a service token; otherwise check that the tunnel routes it to ssh://localhost:22", ErrTunnelRefused, t.Host)

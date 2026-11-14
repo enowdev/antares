@@ -103,7 +103,7 @@ const ja: Dict = {
   'vps.connCloudflared': 'Cloudflare Tunnel (cloudflared)',
   'vps.tunnelHost': 'トンネルのホスト名',
   'vps.tunnelHint': 'cloudflared の ProxyCommand にある --hostname と同じホスト名です。',
-  'vps.cfToken': 'Cloudflare Access サービストークン (任意)',
+  'vps.cfToken': 'Cloudflare Access サービストークン（任意）',
   'vps.cfTokenHint': 'このホスト名が Cloudflare Access で保護されている場合のみ必要です。',
   'vps.cfClientId': 'Client ID',
   'vps.cfClientSecret': 'Client Secret',

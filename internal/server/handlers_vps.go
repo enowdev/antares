@@ -108,6 +108,8 @@ func vpsFromBody(body vpsBody) *store.VPSHost {
 	if strings.TrimSpace(body.Tunnel) == vps.TunnelCloudflared {
 		v.Tunnel = vps.TunnelCloudflared
 		v.Host = vps.NormalizeTunnelHost(v.Host)
+	} else {
+		v.CFClientID, v.CFClientSecret = "", ""
 	}
 	if v.Username == "" {
 		v.Username = "root"
@@ -138,9 +140,17 @@ func keepStoredSecrets(v, prev *store.VPSHost) {
 	if v.Passphrase == "" {
 		v.Passphrase = prev.Passphrase
 	}
-	if v.CFClientSecret == "" {
+	// The Access secret is only meaningful beside its Client ID: clearing the ID
+	// (or leaving tunnel mode) drops the token.
+	if v.CFClientSecret == "" && v.Tunnel == vps.TunnelCloudflared && v.CFClientID != "" {
 		v.CFClientSecret = prev.CFClientSecret
 	}
+}
+
+// sameEndpoint reports whether a and b dial the same place. In tunnel mode the
+// port is ignored.
+func sameEndpoint(a, b *store.VPSHost) bool {
+	return a.Host == b.Host && a.Tunnel == b.Tunnel && (a.Tunnel != "" || a.Port == b.Port)
 }
 
 // handleSaveVPS creates or updates a host. On update, a blank password/key
@@ -154,12 +164,11 @@ func (s *Server) handleSaveVPS(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if strings.TrimSpace(body.Host) == "" {
+	v := vpsFromBody(body)
+	if v.Host == "" {
 		writeError(w, http.StatusBadRequest, errors.New("host is required"))
 		return
 	}
-
-	v := vpsFromBody(body)
 	if v.ID == "" {
 		v.ID = "vps_" + randHex(6)
 	} else if prev, err := s.db.GetVPSHost(r.Context(), v.ID); err == nil {
@@ -199,9 +208,13 @@ func (s *Server) handleTestVPS(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "host not found"})
 			return
 		}
-		saved = prev
 		keepStoredSecrets(v, prev)
-		v.HostKey = prev.HostKey
+		// Pin only when the form still points at the stored endpoint; otherwise
+		// run a fresh TOFU check and leave the stored record alone.
+		if sameEndpoint(v, prev) {
+			saved = prev
+			v.HostKey = prev.HostKey
+		}
 	}
 	t := targetFor(v)
 	if t.Host == "" {
