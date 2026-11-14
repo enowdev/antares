@@ -116,24 +116,55 @@ func TestTunnelSendsAccessHeaders(t *testing.T) {
 	}
 }
 
+// TestTunnelRefusedIsReadable checks that a refused upgrade always satisfies
+// ErrTunnelRefused and that the message names the likely cause for the status
+// Cloudflare answered with.
 func TestTunnelRefusedIsReadable(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	defer ts.Close()
-	host := strings.TrimPrefix(ts.URL, "http://")
-	useTunnelEndpoint(t, host)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, _, err := Ping(ctx, Target{Host: host, Tunnel: TunnelCloudflared, Password: "x"})
-	if err == nil {
-		t.Fatal("expected error")
+	const accessLogin = "https://team.cloudflareaccess.com/cdn-cgi/access/login/ssh.example.com?kid=abc"
+	cases := []struct {
+		name     string
+		status   int
+		location string
+		want     []string
+		notWant  string
+	}{
+		{name: "access forbidden", status: http.StatusForbidden, want: []string{"HTTP 403", "Cloudflare Access", "service token"}},
+		{name: "access unauthorized", status: http.StatusUnauthorized, want: []string{"HTTP 401", "service token"}},
+		{name: "access login redirect", status: http.StatusFound, location: accessLogin, want: []string{"HTTP 302", "Cloudflare Access", "service token"}},
+		{name: "tunnel offline 530", status: 530, want: []string{"HTTP 530", "cloudflared is running"}, notWant: "service token"},
+		{name: "tunnel offline 502", status: http.StatusBadGateway, want: []string{"HTTP 502", "cloudflared is running"}, notWant: "service token"},
+		{name: "not routed 404", status: http.StatusNotFound, want: []string{"HTTP 404", "ingress", "ssh://localhost:22"}, notWant: "service token"},
+		{name: "plain redirect", status: http.StatusFound, location: "https://example.com/", want: []string{"HTTP 302", "ingress"}, notWant: "service token"},
 	}
-	if !errors.Is(err, ErrTunnelRefused) {
-		t.Fatalf("not ErrTunnelRefused: %v", err)
-	}
-	if !strings.Contains(err.Error(), "service token") {
-		t.Fatalf("error not readable: %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tc.location != "" {
+					w.Header().Set("Location", tc.location)
+				}
+				w.WriteHeader(tc.status)
+			}))
+			defer ts.Close()
+			host := strings.TrimPrefix(ts.URL, "http://")
+			useTunnelEndpoint(t, host)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, _, err := Ping(ctx, Target{Host: host, Tunnel: TunnelCloudflared, Password: "x"})
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !errors.Is(err, ErrTunnelRefused) {
+				t.Fatalf("not ErrTunnelRefused: %v", err)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("error %q lacks %q", err, w)
+				}
+			}
+			if tc.notWant != "" && strings.Contains(err.Error(), tc.notWant) {
+				t.Errorf("error %q should not mention %q", err, tc.notWant)
+			}
+		})
 	}
 }
 

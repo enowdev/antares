@@ -76,10 +76,14 @@ the target for its transport:
   `net.Conn`, so the SSH handshake, TOFU host-key check, keepalive, Run,
   transfers and metrics run on it unchanged.
 
-A rejected upgrade (Access redirect / 403, or a hostname that is not a tunnel)
-surfaces as a readable error: "Cloudflare refused the tunnel connection to
-`<host>`: if the hostname is protected by Cloudflare Access add a service
-token; otherwise check that the tunnel routes it to `ssh://localhost:22`."
+A rejected upgrade surfaces as a readable error that wraps `ErrTunnelRefused`
+and names the HTTP status. The wording follows the status class:
+401/403 or a redirect to an Access login says the hostname is protected by
+Cloudflare Access (add or check the service token); 502/503/504/530 says the
+tunnel is offline (check that cloudflared is running on the server); any other
+status says the hostname is not routed to SSH (check the ingress for
+`ssh://localhost:22`). x/net discards the status, so the upgrade is performed
+over a connection that records the start of the response.
 
 Hostname input is normalized in cloudflared mode: a leading `https://`,
 `wss://` or `ssh://` and any trailing `/` or path are stripped.
