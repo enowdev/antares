@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -322,4 +323,26 @@ type writeCounter struct{ n int }
 func (w *writeCounter) Write(p []byte) (int, error) {
 	w.n += len(p)
 	return len(p), nil
+}
+
+// TestLoginRejectedNamesUser checks that a refused login says which user was
+// tried, so a wrong username (it defaults to root) is easy to spot.
+func TestLoginRejectedNamesUser(t *testing.T) {
+	srv := newTestSSHServer(t)
+	target := srv.target()
+	target.Password = "wrong"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, _, err := Ping(ctx, target)
+	if err == nil {
+		t.Fatal("expected the login to be rejected")
+	}
+	if !errors.Is(err, ErrAuthFailed) {
+		t.Fatalf("not ErrAuthFailed: %v", err)
+	}
+	for _, want := range []string{`"test"`, "username", "password"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
+	}
 }

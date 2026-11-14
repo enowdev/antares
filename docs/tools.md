@@ -81,6 +81,12 @@ Default command timeout is 120 seconds (raise `timeout_seconds` up to 900 for
 `systemctl restart` / upgrades). Transfers are capped at 256 MiB. Credentials
 stay encrypted at rest; host keys are pinned on first connect (TOFU).
 
+A server can instead be reached through a Cloudflare Tunnel: pick "Cloudflare Tunnel
+(cloudflared)" in the VPS dialog's Connection select and use the tunnel's public
+hostname as the host (the port is ignored). No `cloudflared` install is needed on the Antares side; an optional
+Cloudflare Access service token (client ID and secret) covers protected
+hostnames. The token secret is encrypted at rest and never returned by the API.
+
 ### Web
 
 | Tool | What it does |

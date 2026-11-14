@@ -31,6 +31,12 @@ type Target struct {
 	// means the presented key MUST match, or the dial fails — this is what stops
 	// a MITM from harvesting the credentials.
 	KnownHostKey string
+	// Tunnel selects the transport: "" is direct SSH, TunnelCloudflared reaches
+	// Host through a Cloudflare Tunnel (Port is then ignored). CFClientID and
+	// CFClientSecret are an optional Cloudflare Access service token.
+	Tunnel         string
+	CFClientID     string
+	CFClientSecret string
 }
 
 func (t Target) addr() string {
@@ -48,6 +54,11 @@ var ErrHostKeyChanged = errors.New("host key changed since it was first trusted 
 // ErrTimeout is returned when a remote command or transfer exceeds its deadline.
 // The error text includes the duration; partial output may accompany it from Run.
 var ErrTimeout = errors.New("vps operation timed out")
+
+// ErrAuthFailed is returned when the server rejects the login. x/crypto/ssh
+// reports this only as text ("ssh: unable to authenticate ..."), so dial
+// recognises it by that phrase and rewords it with the username tried.
+var ErrAuthFailed = errors.New("the server rejected the login")
 
 // conn wraps an ssh.Client with the host key the server actually presented, so
 // the caller can pin it after a first-use connect.
@@ -86,26 +97,32 @@ func dial(ctx context.Context, t Target) (*conn, error) {
 	}
 	// Dial timeout is separate from the overall command timeout so a slow host
 	// does not burn the whole vps_run budget before the command starts.
-	d := net.Dialer{Timeout: 20 * time.Second}
-	netConn, err := d.DialContext(ctx, "tcp", t.addr())
+	netConn, err := dialTransport(ctx, t)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%w while connecting to %s: %v", ErrTimeout, t.addr(), err)
+			return nil, fmt.Errorf("%w while connecting to %s: %v", ErrTimeout, t.endpoint(), err)
 		}
-		return nil, fmt.Errorf("connect %s: %w", t.addr(), err)
+		return nil, fmt.Errorf("connect %s: %w", t.endpoint(), err)
 	}
 	// Honour cancellation during the SSH handshake too.
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = netConn.SetDeadline(deadline)
 	}
-	c, chans, reqs, err := ssh.NewClientConn(netConn, t.addr(), cfg)
+	c, chans, reqs, err := ssh.NewClientConn(netConn, t.endpoint(), cfg)
 	if err != nil {
 		netConn.Close()
 		if errors.Is(err, ErrHostKeyChanged) {
 			return nil, ErrHostKeyChanged
 		}
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%w during ssh handshake with %s: %v", ErrTimeout, t.addr(), err)
+			return nil, fmt.Errorf("%w during ssh handshake with %s: %v", ErrTimeout, t.endpoint(), err)
+		}
+		if strings.Contains(err.Error(), "ssh: unable to authenticate") {
+			secret := "password"
+			if t.AuthMethod == "key" || (t.AuthMethod == "" && t.PrivateKey != "") {
+				secret = "private key"
+			}
+			return nil, fmt.Errorf("%w for user %q on %s: check the username (it defaults to root) and the %s", ErrAuthFailed, user, t.endpoint(), secret)
 		}
 		return nil, fmt.Errorf("ssh handshake: %w", err)
 	}

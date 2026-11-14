@@ -44,6 +44,7 @@ func targetFromHost(h *store.VPSHost) vps.Target {
 		Host: h.Host, Port: h.Port, Username: h.Username, AuthMethod: h.AuthMethod,
 		Password: h.Password, PrivateKey: h.PrivateKey, Passphrase: h.Passphrase,
 		KnownHostKey: h.HostKey,
+		Tunnel:       h.Tunnel, CFClientID: h.CFClientID, CFClientSecret: h.CFClientSecret,
 	}
 }
 
@@ -60,6 +61,10 @@ func formatVPSList(hosts []store.VPSHost) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Saved servers (%d) — pass id or label as `vps`:\n\n", len(hosts))
 	for _, h := range hosts {
+		if h.Tunnel == vps.TunnelCloudflared {
+			fmt.Fprintf(&b, "  - id=%s  label=%q  %s@%s via cloudflared\n", h.ID, h.Label, h.Username, h.Host)
+			continue
+		}
 		fmt.Fprintf(&b, "  - id=%s  label=%q  %s@%s:%d\n", h.ID, h.Label, h.Username, h.Host, h.Port)
 	}
 	return b.String()

@@ -23,6 +23,7 @@ func targetFor(v *store.VPSHost) vps.Target {
 		Host: v.Host, Port: v.Port, Username: v.Username, AuthMethod: v.AuthMethod,
 		Password: v.Password, PrivateKey: v.PrivateKey, Passphrase: v.Passphrase,
 		KnownHostKey: v.HostKey,
+		Tunnel:       v.Tunnel, CFClientID: v.CFClientID, CFClientSecret: v.CFClientSecret,
 	}
 }
 
@@ -42,16 +43,19 @@ func (s *Server) pinHostKey(ctx context.Context, v *store.VPSHost, seen string) 
 // saying whether a password / key is on file.
 func vpsView(v store.VPSHost) map[string]any {
 	return map[string]any{
-		"id":           v.ID,
-		"label":        v.Label,
-		"host":         v.Host,
-		"port":         v.Port,
-		"username":     v.Username,
-		"auth_method":  v.AuthMethod,
-		"has_password": v.Password != "",
-		"has_key":      v.PrivateKey != "",
-		"created_at":   v.CreatedAt,
-		"updated_at":   v.UpdatedAt,
+		"id":            v.ID,
+		"label":         v.Label,
+		"host":          v.Host,
+		"port":          v.Port,
+		"username":      v.Username,
+		"auth_method":   v.AuthMethod,
+		"has_password":  v.Password != "",
+		"has_key":       v.PrivateKey != "",
+		"tunnel":        v.Tunnel,
+		"cf_client_id":  v.CFClientID,
+		"has_cf_secret": v.CFClientSecret != "",
+		"created_at":    v.CreatedAt,
+		"updated_at":    v.UpdatedAt,
 	}
 }
 
@@ -78,34 +82,34 @@ type vpsBody struct {
 	Password   string `json:"password"`
 	PrivateKey string `json:"private_key"`
 	Passphrase string `json:"passphrase"`
+
+	Tunnel         string `json:"tunnel"`
+	CFClientID     string `json:"cf_client_id"`
+	CFClientSecret string `json:"cf_client_secret"`
 }
 
-// handleSaveVPS creates or updates a host. On update, a blank password/key
-// keeps the stored one (the client never receives the secret to echo back).
-func (s *Server) handleSaveVPS(w http.ResponseWriter, r *http.Request) {
-	if s.requireDashboardPassword(w, r) {
-		return
-	}
-	var body vpsBody
-	if err := decodeBody(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if strings.TrimSpace(body.Host) == "" {
-		writeError(w, http.StatusBadRequest, errors.New("host is required"))
-		return
-	}
-
+// vpsFromBody builds a host record from a request body, applying the form
+// defaults. It does not assign an ID. Tunnel mode is "cloudflared" or empty
+// (direct SSH); the host is normalized to a bare hostname only in tunnel mode.
+func vpsFromBody(body vpsBody) *store.VPSHost {
 	v := &store.VPSHost{
-		ID:         strings.TrimSpace(body.ID),
-		Label:      strings.TrimSpace(body.Label),
-		Host:       strings.TrimSpace(body.Host),
-		Port:       body.Port,
-		Username:   strings.TrimSpace(body.Username),
-		AuthMethod: strings.TrimSpace(body.AuthMethod),
-		Password:   body.Password,
-		PrivateKey: body.PrivateKey,
-		Passphrase: body.Passphrase,
+		ID:             strings.TrimSpace(body.ID),
+		Label:          strings.TrimSpace(body.Label),
+		Host:           strings.TrimSpace(body.Host),
+		Port:           body.Port,
+		Username:       strings.TrimSpace(body.Username),
+		AuthMethod:     strings.TrimSpace(body.AuthMethod),
+		Password:       body.Password,
+		PrivateKey:     body.PrivateKey,
+		Passphrase:     body.Passphrase,
+		CFClientID:     strings.TrimSpace(body.CFClientID),
+		CFClientSecret: strings.TrimSpace(body.CFClientSecret),
+	}
+	if strings.TrimSpace(body.Tunnel) == vps.TunnelCloudflared {
+		v.Tunnel = vps.TunnelCloudflared
+		v.Host = vps.NormalizeTunnelHost(v.Host)
+	} else {
+		v.CFClientID, v.CFClientSecret = "", ""
 	}
 	if v.Username == "" {
 		v.Username = "root"
@@ -120,24 +124,86 @@ func (s *Server) handleSaveVPS(w http.ResponseWriter, r *http.Request) {
 	if v.Label == "" {
 		v.Label = v.Host
 	}
+	return v
+}
 
+// keepStoredSecrets fills blank secrets on v from the stored record, so a round
+// trip through the masked view never wipes them.
+func keepStoredSecrets(v, prev *store.VPSHost) {
+	v.CreatedAt = prev.CreatedAt
+	if v.Password == "" {
+		v.Password = prev.Password
+	}
+	if v.PrivateKey == "" {
+		v.PrivateKey = prev.PrivateKey
+	}
+	if v.Passphrase == "" {
+		v.Passphrase = prev.Passphrase
+	}
+	// The Access secret is only meaningful beside its Client ID: clearing the ID
+	// (or leaving tunnel mode) drops the token.
+	if v.CFClientSecret == "" && v.Tunnel == vps.TunnelCloudflared && v.CFClientID != "" {
+		v.CFClientSecret = prev.CFClientSecret
+	}
+}
+
+// sameEndpoint reports whether a and b dial the same place. In tunnel mode the
+// port is ignored; a zero port means the default 22.
+func sameEndpoint(a, b *store.VPSHost) bool {
+	return a.Host == b.Host && a.Tunnel == b.Tunnel && (a.Tunnel != "" || sshPort(a.Port) == sshPort(b.Port))
+}
+
+func sshPort(p int) int {
+	if p == 0 {
+		return 22
+	}
+	return p
+}
+
+// errAddressChanged is returned when a saved host is tested at a different
+// address without typing its credentials again.
+var errAddressChanged = errors.New("the address changed: enter the password or key again to test it (saved credentials are only sent to the saved server)")
+
+// applySavedForTest decides what a Test of a saved host may borrow from the
+// stored record. While the form still points at the saved endpoint it fills
+// blank secrets and the pinned host key from prev, and returns prev as the
+// record to pin onto. Once the address changed, nothing stored leaves home:
+// only what the form carries is used, no key is pinned (a fresh TOFU check),
+// and a missing password/key is errAddressChanged. Without this a dashboard
+// session could point a saved host at any server and receive its secrets.
+func applySavedForTest(v, prev *store.VPSHost) (pinTo *store.VPSHost, err error) {
+	if sameEndpoint(v, prev) {
+		keepStoredSecrets(v, prev)
+		v.HostKey = prev.HostKey
+		return prev, nil
+	}
+	v.HostKey = ""
+	if (v.AuthMethod == "key" && v.PrivateKey == "") || (v.AuthMethod != "key" && v.Password == "") {
+		return nil, errAddressChanged
+	}
+	return nil, nil
+}
+
+// handleSaveVPS creates or updates a host. On update, a blank password/key
+// keeps the stored one (the client never receives the secret to echo back).
+func (s *Server) handleSaveVPS(w http.ResponseWriter, r *http.Request) {
+	if s.requireDashboardPassword(w, r) {
+		return
+	}
+	var body vpsBody
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	v := vpsFromBody(body)
+	if v.Host == "" {
+		writeError(w, http.StatusBadRequest, errors.New("host is required"))
+		return
+	}
 	if v.ID == "" {
 		v.ID = "vps_" + randHex(6)
-	} else {
-		// Editing: preserve secrets left blank so a round trip through the masked
-		// view never wipes them.
-		if prev, err := s.db.GetVPSHost(r.Context(), v.ID); err == nil {
-			v.CreatedAt = prev.CreatedAt
-			if v.Password == "" {
-				v.Password = prev.Password
-			}
-			if v.PrivateKey == "" {
-				v.PrivateKey = prev.PrivateKey
-			}
-			if v.Passphrase == "" {
-				v.Passphrase = prev.Passphrase
-			}
-		}
+	} else if prev, err := s.db.GetVPSHost(r.Context(), v.ID); err == nil {
+		keepStoredSecrets(v, prev)
 	}
 
 	if err := s.db.PutVPSHost(r.Context(), v); err != nil {
@@ -165,34 +231,24 @@ func (s *Server) handleTestVPS(w http.ResponseWriter, r *http.Request) {
 	var body vpsBody
 	_ = decodeBody(r, &body)
 
-	var t vps.Target
-	var saved *store.VPSHost // set only when testing a stored host, so we can pin
-	if id := strings.TrimSpace(body.ID); id != "" {
-		v, err := s.db.GetVPSHost(r.Context(), id)
+	v := vpsFromBody(body)
+	if v.Host == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "host is required"})
+		return
+	}
+	var saved *store.VPSHost // set only when testing a stored host at its saved address, so we can pin
+	if v.ID != "" {
+		prev, err := s.db.GetVPSHost(r.Context(), v.ID)
 		if err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "host not found"})
 			return
 		}
-		saved = v
-		t = targetFor(v)
-		// Allow overriding a just-typed secret before saving.
-		if body.Password != "" {
-			t.Password = body.Password
-		}
-		if body.PrivateKey != "" {
-			t.PrivateKey = body.PrivateKey
-		}
-	} else {
-		t = vps.Target{
-			Host: strings.TrimSpace(body.Host), Port: body.Port,
-			Username: strings.TrimSpace(body.Username), AuthMethod: strings.TrimSpace(body.AuthMethod),
-			Password: body.Password, PrivateKey: body.PrivateKey, Passphrase: body.Passphrase,
+		if saved, err = applySavedForTest(v, prev); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+			return
 		}
 	}
-	if t.Host == "" {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "host is required"})
-		return
-	}
+	t := targetFor(v)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
