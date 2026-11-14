@@ -188,7 +188,7 @@ function VPSCard({ host, onEdit, onRemove }: { host: VPSHost; onEdit: () => void
             ) : null}
             {host.tunnel === 'cloudflared' ? <Badge variant="outline">{t('vps.viaCloudflared')}</Badge> : null}
           </div>
-          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+          <p className="mt-1.5 truncate font-mono text-xs text-muted-foreground">
             {host.username}@<Spoiler>{host.host}</Spoiler>
             {host.tunnel === 'cloudflared' ? null : `:${host.port}`}
           </p>
