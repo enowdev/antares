@@ -327,3 +327,13 @@ var devicesV3 = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_devices_created ON devices(created_at DESC)`,
 }
+
+// vpsTunnelV4 adds the Cloudflare Tunnel columns to vps_hosts: tunnel is ""
+// for a direct SSH connection or "cloudflared"; cf_client_id/cf_client_secret
+// are the optional Cloudflare Access service token (the secret is encrypted at
+// rest by the store). Portable across SQLite and Postgres.
+var vpsTunnelV4 = []string{
+	`ALTER TABLE vps_hosts ADD COLUMN tunnel TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE vps_hosts ADD COLUMN cf_client_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE vps_hosts ADD COLUMN cf_client_secret TEXT NOT NULL DEFAULT ''`,
+}

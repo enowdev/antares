@@ -122,6 +122,12 @@ type VPSHost struct {
 	Password   string `json:"password,omitempty"`
 	PrivateKey string `json:"private_key,omitempty"`
 	Passphrase string `json:"passphrase,omitempty"`
+	// Tunnel is "" for a direct SSH connection or "cloudflared" when the host
+	// is reached through a Cloudflare Tunnel. CFClientID/CFClientSecret are the
+	// optional Cloudflare Access service token (secret encrypted at rest).
+	Tunnel         string `json:"tunnel"`
+	CFClientID     string `json:"cf_client_id,omitempty"`
+	CFClientSecret string `json:"cf_client_secret,omitempty"`
 	// HostKey is the server's SSH public key, pinned on first connect (TOFU).
 	// A later connection presenting a different key is refused. Not secret.
 	HostKey   string    `json:"host_key,omitempty"`

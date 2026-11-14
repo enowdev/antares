@@ -31,11 +31,15 @@ type migration struct {
 //
 // Version 3 adds the devices table (paired clients holding a device token;
 // see docs/plans/2026-10-02-desktop-contract.md). Identical on both dialects.
+//
+// Version 4 adds the vps_hosts tunnel columns (tunnel, cf_client_id,
+// cf_client_secret) for hosts reached through a Cloudflare Tunnel.
 func baselineMigrations(dialect string) []migration {
 	return []migration{
 		{version: 1, statements: baselineV1(dialect)},
 		{version: 2, statements: baselineV2(dialect)},
 		{version: 3, statements: append([]string(nil), devicesV3...)},
+		{version: 4, statements: append([]string(nil), vpsTunnelV4...)},
 	}
 }
 
