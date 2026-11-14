@@ -55,6 +55,11 @@ var ErrHostKeyChanged = errors.New("host key changed since it was first trusted 
 // The error text includes the duration; partial output may accompany it from Run.
 var ErrTimeout = errors.New("vps operation timed out")
 
+// ErrAuthFailed is returned when the server rejects the login. x/crypto/ssh
+// reports this only as text ("ssh: unable to authenticate ..."), so dial
+// recognises it by that phrase and rewords it with the username tried.
+var ErrAuthFailed = errors.New("the server rejected the login")
+
 // conn wraps an ssh.Client with the host key the server actually presented, so
 // the caller can pin it after a first-use connect.
 type conn struct {
@@ -111,6 +116,13 @@ func dial(ctx context.Context, t Target) (*conn, error) {
 		}
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("%w during ssh handshake with %s: %v", ErrTimeout, t.endpoint(), err)
+		}
+		if strings.Contains(err.Error(), "ssh: unable to authenticate") {
+			secret := "password"
+			if t.AuthMethod == "key" || (t.AuthMethod == "" && t.PrivateKey != "") {
+				secret = "private key"
+			}
+			return nil, fmt.Errorf("%w for user %q on %s: check the username (it defaults to root) and the %s", ErrAuthFailed, user, t.endpoint(), secret)
 		}
 		return nil, fmt.Errorf("ssh handshake: %w", err)
 	}
