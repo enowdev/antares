@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -102,5 +103,64 @@ func TestTargetForMapsTunnel(t *testing.T) {
 	tg := targetFor(&store.VPSHost{Tunnel: "cloudflared", CFClientID: "id", CFClientSecret: "sec"})
 	if tg.Tunnel != "cloudflared" || tg.CFClientID != "id" || tg.CFClientSecret != "sec" {
 		t.Fatalf("bad target: %+v", tg)
+	}
+}
+
+func TestApplySavedForTestSameEndpointUsesSavedSecrets(t *testing.T) {
+	prev := &store.VPSHost{ID: "vps_1", Host: "1.2.3.4", Port: 22, Password: "pw", HostKey: "ssh-ed25519 AAAA"}
+	v := &store.VPSHost{ID: "vps_1", Host: "1.2.3.4", Port: 22, AuthMethod: "password"}
+	pinTo, err := applySavedForTest(v, prev)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pinTo != prev {
+		t.Fatalf("pinTo = %v, want the saved record", pinTo)
+	}
+	if v.Password != "pw" || v.HostKey != "ssh-ed25519 AAAA" {
+		t.Fatalf("saved secret/host key not used: %+v", v)
+	}
+}
+
+func TestApplySavedForTestChangedAddressKeepsSavedSecretsHome(t *testing.T) {
+	prev := &store.VPSHost{ID: "vps_1", Host: "1.2.3.4", Port: 22, Password: "pw", PrivateKey: "KEY", Passphrase: "pp",
+		Tunnel: "cloudflared", CFClientID: "abc", CFClientSecret: "cfs", HostKey: "ssh-ed25519 AAAA"}
+	v := &store.VPSHost{ID: "vps_1", Host: "evil.example.com", Port: 22, AuthMethod: "password", Tunnel: "cloudflared", CFClientID: "abc"}
+	pinTo, err := applySavedForTest(v, prev)
+	if !errors.Is(err, errAddressChanged) {
+		t.Fatalf("err = %v, want errAddressChanged", err)
+	}
+	if pinTo != nil {
+		t.Fatal("must not pin onto the saved record for a different address")
+	}
+	if v.Password != "" || v.PrivateKey != "" || v.Passphrase != "" || v.CFClientSecret != "" || v.HostKey != "" {
+		t.Fatalf("saved secrets leaked into a changed-address test: %+v", v)
+	}
+}
+
+func TestApplySavedForTestChangedAddressWithTypedSecret(t *testing.T) {
+	prev := &store.VPSHost{ID: "vps_1", Host: "1.2.3.4", Port: 22, Password: "pw", CFClientSecret: "cfs", HostKey: "ssh-ed25519 AAAA"}
+	v := &store.VPSHost{ID: "vps_1", Host: "5.6.7.8", Port: 22, AuthMethod: "password", Password: "typed"}
+	pinTo, err := applySavedForTest(v, prev)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pinTo != nil || v.HostKey != "" {
+		t.Fatalf("changed address must run a fresh TOFU check: pinTo=%v hostKey=%q", pinTo, v.HostKey)
+	}
+	if v.Password != "typed" || v.CFClientSecret != "" {
+		t.Fatalf("only typed secrets may be used: %+v", v)
+	}
+
+	k := &store.VPSHost{ID: "vps_1", Host: "5.6.7.8", Port: 22, AuthMethod: "key", Password: "typed-but-key-auth"}
+	if _, err := applySavedForTest(k, prev); !errors.Is(err, errAddressChanged) {
+		t.Fatalf("key auth without a typed key: err = %v, want errAddressChanged", err)
+	}
+}
+
+func TestApplySavedForTestPortZeroIsDefault(t *testing.T) {
+	prev := &store.VPSHost{ID: "vps_1", Host: "1.2.3.4", Port: 22, Password: "pw"}
+	v := &store.VPSHost{ID: "vps_1", Host: "1.2.3.4", Port: 0, AuthMethod: "password"}
+	if _, err := applySavedForTest(v, prev); err != nil || v.Password != "pw" {
+		t.Fatalf("port 0 should mean the default 22: err=%v password=%q", err, v.Password)
 	}
 }

@@ -91,8 +91,12 @@ Hostname input is normalized in cloudflared mode: a leading `https://`,
 **API (`internal/server/handlers_vps.go`).** `vpsBody` accepts `tunnel`,
 `cf_client_id`, `cf_client_secret`. Save keeps a blank secret on edit (same
 rule as password/key). `vpsView` returns `tunnel`, `cf_client_id` and
-`has_cf_secret`, never the secret. `/vps/test` passes the new fields through,
-including a just-typed secret override. `tools/vps.go` `targetFromHost` maps
+`has_cf_secret`, never the secret. `/vps/test` tests what the form shows,
+including a just-typed secret override. Stored secrets and the pinned host key
+are only used while the form still points at the saved address; once the
+address changes, only typed credentials are sent, nothing is pinned, and a
+blank password/key is refused, so a dashboard session cannot redirect a saved
+host's secrets to another server. `tools/vps.go` `targetFromHost` maps
 the new fields; the agent's server list shows "via cloudflared".
 
 **Dashboard (`web/src/pages/VPSPage.tsx`).** The add/edit dialog gets a

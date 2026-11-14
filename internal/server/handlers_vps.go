@@ -148,9 +148,40 @@ func keepStoredSecrets(v, prev *store.VPSHost) {
 }
 
 // sameEndpoint reports whether a and b dial the same place. In tunnel mode the
-// port is ignored.
+// port is ignored; a zero port means the default 22.
 func sameEndpoint(a, b *store.VPSHost) bool {
-	return a.Host == b.Host && a.Tunnel == b.Tunnel && (a.Tunnel != "" || a.Port == b.Port)
+	return a.Host == b.Host && a.Tunnel == b.Tunnel && (a.Tunnel != "" || sshPort(a.Port) == sshPort(b.Port))
+}
+
+func sshPort(p int) int {
+	if p == 0 {
+		return 22
+	}
+	return p
+}
+
+// errAddressChanged is returned when a saved host is tested at a different
+// address without typing its credentials again.
+var errAddressChanged = errors.New("the address changed: enter the password or key again to test it (saved credentials are only sent to the saved server)")
+
+// applySavedForTest decides what a Test of a saved host may borrow from the
+// stored record. While the form still points at the saved endpoint it fills
+// blank secrets and the pinned host key from prev, and returns prev as the
+// record to pin onto. Once the address changed, nothing stored leaves home:
+// only what the form carries is used, no key is pinned (a fresh TOFU check),
+// and a missing password/key is errAddressChanged. Without this a dashboard
+// session could point a saved host at any server and receive its secrets.
+func applySavedForTest(v, prev *store.VPSHost) (pinTo *store.VPSHost, err error) {
+	if sameEndpoint(v, prev) {
+		keepStoredSecrets(v, prev)
+		v.HostKey = prev.HostKey
+		return prev, nil
+	}
+	v.HostKey = ""
+	if (v.AuthMethod == "key" && v.PrivateKey == "") || (v.AuthMethod != "key" && v.Password == "") {
+		return nil, errAddressChanged
+	}
+	return nil, nil
 }
 
 // handleSaveVPS creates or updates a host. On update, a blank password/key
@@ -201,26 +232,23 @@ func (s *Server) handleTestVPS(w http.ResponseWriter, r *http.Request) {
 	_ = decodeBody(r, &body)
 
 	v := vpsFromBody(body)
-	var saved *store.VPSHost // set only when testing a stored host, so we can pin
+	if v.Host == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "host is required"})
+		return
+	}
+	var saved *store.VPSHost // set only when testing a stored host at its saved address, so we can pin
 	if v.ID != "" {
 		prev, err := s.db.GetVPSHost(r.Context(), v.ID)
 		if err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "host not found"})
 			return
 		}
-		keepStoredSecrets(v, prev)
-		// Pin only when the form still points at the stored endpoint; otherwise
-		// run a fresh TOFU check and leave the stored record alone.
-		if sameEndpoint(v, prev) {
-			saved = prev
-			v.HostKey = prev.HostKey
+		if saved, err = applySavedForTest(v, prev); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+			return
 		}
 	}
 	t := targetFor(v)
-	if t.Host == "" {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "host is required"})
-		return
-	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
